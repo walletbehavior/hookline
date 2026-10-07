@@ -1,0 +1,72 @@
+{
+  "project": "Hookline",
+  "status": "launched_live",
+  "do_not_launch": false,
+  "prepared_at": "2026-10-07",
+  "venue": "Flaunch web app",
+  "launch_method": "website",
+  "identity": {
+    "name": "Hookline",
+    "ticker": "HKLN",
+    "ticker_status": "final",
+    "description": "Multichain intelligence for Uniswap v4 hooks. HKLN coordinates advanced access, monitoring priorities and contributor rewards as holder features roll out.",
+    "website": "https://hookline.ravenos.xyz",
+    "x_account": "https://x.com/_hookline",
+    "image": "ipfs://QmdkPjFt4jjprX3LdrrdQcQ3n1CFTEDtQ9Fkf1PXqb3MaA"
+  },
+  "verified_public_endpoints": {
+    "site": "https://hookline.ravenos.xyz/",
+    "health": "https://hookline.ravenos.xyz/health",
+    "rpc_docs": "https://hookline.ravenos.xyz/rpc"
+  },
+  "flaunch_web": {
+    "launch_url": "https://flaunch.gg/base/coins/0x11672C8cD5CB3F17364339244826B110Bac0AC91",
+    "target_chain": "Base",
+    "target_chain_id": 8453,
+    "pairing": "ETH",
+    "chain_selection": "Base selected in the Flaunch web form",
+    "image": "ipfs://QmdkPjFt4jjprX3LdrrdQcQ3n1CFTEDtQ9Fkf1PXqb3MaA",
+    "gas_free_launch": true,
+    "wallet_connection_status": "connected_and_verified",
+    "signature_status": "verified",
+    "transaction_status": "confirmed_via_gasless_api",
+    "form_submission_status": "launched",
+    "launch_action_taken": true,
+    "contract_address": "0x11672C8cD5CB3F17364339244826B110Bac0AC91",
+    "manager_address": "0x1a7c039455758b1e862656D630419f361BaE2A52",
+    "basescan_url": "https://basescan.org/token/0x11672C8cD5CB3F17364339244826B110Bac0AC91"
+  },
+  "launch_wallet": {
+    "address": "0x69e73F4B54ED92939D48B5472894179BF3292DD3",
+    "status": "connected_and_verified"
+  },
+  "fee_collection": {
+    "intended_evm_wallet": "0x69e73F4B54ED92939D48B5472894179BF3292DD3",
+    "purpose": "Intended creator-fee collection wallet for the Flaunch web launch",
+    "status": "live_and_verified",
+    "direct_routing_configured": true,
+    "routing_status": "The live Flaunch coin page assigns 100% of configured creator earnings to this sole recipient",
+    "next_step": "Monitor realized trading fees and claims."
+  },
+  "creator_economics": {
+    "status": "live",
+    "swap_fee_rate": 0.01,
+    "creator_share_of_configured_earnings": 1,
+    "creator_fee_rate_used_for_estimates": 0.01,
+    "auto_buyback_share": 0,
+    "payout_asset": "ETH",
+    "revenue_requires_trading_volume": true,
+    "revenue_guaranteed": false
+  },
+  "launch_checks": [
+    "Launched on Base with an ETH pair, 0% auto-buyback and 100% creator earnings to the configured recipient.",
+    "Contract runtime independently verified through Base mainnet RPC before publication.",
+    "Do not claim that market cap itself generates creator fees.",
+    "Publish only the verified contract address 0x11672C8cD5CB3F17364339244826B110Bac0AC91."
+  ],
+  "sources": [
+    "https://flaunch.gg/create",
+    "https://docs.flaunch.gg/",
+    "https://docs.flaunch.gg/protocol/frequently-asked-questions"
+  ]
+}

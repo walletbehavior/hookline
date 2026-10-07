@@ -1,0 +1,1216 @@
+/* ==========================================================================
+   Hookline — public JSON-RPC layer for Cloudflare Workers
+
+   This is the maintainable runtime source. The build step
+   (scripts/build-hookline-worker.mjs) reads dist/index.html, dist/styles.css
+   and dist/app.js, embeds them with JSON.stringify and emits a single
+   self-contained artifact at dist/server/index.js.
+
+   Export contract: default.fetch(request, env, ctx) — the Cloudflare Worker
+   entry point. The same module also runs under Node (v22+) with
+   `node --check` and with `node <file>`, which is how the local validator
+   exercises it.
+
+   Security posture
+   ----------------
+   * Safe by construction: the standard proxy allowlists only
+     non-write methods; eth_sendTransaction / eth_sendRawTransaction are
+     rejected.
+   * Upstreams are immutable, centralized constants. The request body may
+     never influence which upstream is contacted (never accept an upstream
+     URL).
+   * Upstream requests time out after 8 seconds.
+   * Bodies are capped at 32 KiB.
+   * JSON-RPC batches are rejected.
+   * All responses carry CORS + hardened security headers; cache is
+     controlled per-route.
+   ========================================================================== */
+
+import { Hono } from 'hono';
+import { paymentMiddleware } from '@x402/hono';
+import {
+  HTTPFacilitatorClient,
+  x402ResourceServer,
+} from '@x402/core/server';
+import { ExactEvmScheme } from '@x402/evm/exact/server';
+import { facilitator as payAiFacilitator } from '@payai/facilitator';
+
+'use strict';
+
+// ---------------------------------------------------------------------------
+// Static assets (public bundle) — injected by scripts/build-hookline-worker.mjs
+// via JSON.stringify over dist/index.html, dist/styles.css and dist/app.js.
+// The build script replaces the marker below verbatim with the embedded assets.
+// ---------------------------------------------------------------------------
+/* @ASSETS-INJECT */
+
+// ---------------------------------------------------------------------------
+// Immutable public RPC configuration (centralized — never mutated, never
+// URL-driven, never environment-variable-driven).
+// ---------------------------------------------------------------------------
+
+const CHAIN_CONFIG = Object.freeze({
+  1: {
+    name: 'Ethereum',
+    code: 'ETH',
+    upstream: 'https://ethereum-rpc.publicnode.com',
+  },
+  8453: {
+    name: 'Base',
+    code: 'BASE',
+    upstream: 'https://base-rpc.publicnode.com',
+  },
+  42161: { name: 'Arbitrum One', code: 'ARB', upstream: 'https://arb1.arbitrum.io/rpc' },
+  4663: {
+    name: 'Robinhood Chain',
+    code: 'RHB',
+    upstream: 'https://robinhood.drpc.org',
+  },
+});
+
+const SUPPORTED_CHAINS = Object.freeze(
+  [...Object.keys(CHAIN_CONFIG)].map((k) => Number(k))
+);
+const UPSTREAM_TIMEOUT_MS = 8000;
+const MAX_BODY_BYTES = 32 * 1024; // 32 KiB (request body cap)
+const MAX_UPSTREAM_RESPONSE_BYTES = 2 * 1024 * 1024; // 2 MiB (upstream response cap)
+const X402_NETWORK = 'eip155:8453';
+const X402_PAY_TO = '0x69e73F4B54ED92939D48B5472894179BF3292DD3';
+const X402_USDC_ASSET = '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913';
+const X402_AMOUNT_ATOMIC = '10000';
+
+// ---------------------------------------------------------------------------
+// Rate limiting (per-isolate, best effort): 60 POST RPC requests per minute
+// per CF-Connecting-IP. The in-memory map is pruned every check and size-bounded.
+// ---------------------------------------------------------------------------
+const RATE_LIMIT_REQUESTS = 60;
+const RATE_LIMIT_WINDOW_MS = 60 * 1000; // 1 minute
+const MAX_RATE_LIMIT_MAP_SIZE = 10_000;
+const rateLimitMap = new Map(); // keys: CF-Connecting-IP values
+
+// The 14 canonical Uniswap v4 hook permission flags, in canonical high-bit
+// (bit 13) → low-bit (bit 0) order.
+const PERMISSION_FLAGS = Object.freeze([
+  'beforeInitialize',
+  'afterInitialize',
+  'beforeAddLiquidity',
+  'afterAddLiquidity',
+  'beforeRemoveLiquidity',
+  'afterRemoveLiquidity',
+  'beforeSwap',
+  'afterSwap',
+  'beforeDonate',
+  'afterDonate',
+  'beforeSwapReturnDelta',
+  'afterSwapReturnDelta',
+  'afterAddLiquidityReturnDelta',
+  'afterRemoveLiquidityReturnDelta',
+]);
+
+// The owner() selector used for hook owner probes.
+const OWNER_SELECTOR = '0x8da5cb5b';
+
+// ---------------------------------------------------------------------------
+// Routing tables.
+// ---------------------------------------------------------------------------
+
+const STATIC_ROUTES = Object.freeze({
+  '/': { type: 'text/html; charset=utf-8', key: 'html' },
+  '/styles.css': { type: 'text/css; charset=utf-8', key: 'css' },
+  '/app.js': { type: 'application/javascript; charset=utf-8', key: 'app' },
+});
+
+const HOOKLINE_METHODS = new Set([
+  'hookline_chains',
+  'hookline_decodePermissions',
+  'hookline_chainStatus',
+  'hookline_getHook',
+]);
+
+// Standard Ethereum JSON-RPC methods allowed through the public proxy.
+const STANDARD_METHODS = new Set([
+  'eth_chainId',
+  'net_version',
+  'web3_clientVersion',
+  'eth_blockNumber',
+  'eth_getCode',
+  'eth_call',
+  'eth_getStorageAt',
+  'eth_getBalance',
+  'eth_getTransactionCount',
+  'eth_getTransactionByHash',
+  'eth_getTransactionReceipt',
+  'eth_getBlockByNumber',
+  'eth_getBlockByHash',
+  'eth_feeHistory',
+  'eth_gasPrice',
+  'eth_estimateGas',
+]);
+
+// ---------------------------------------------------------------------------
+// Header helpers.
+// ---------------------------------------------------------------------------
+
+const SECURITY_HEADERS = Object.freeze({
+  'Strict-Transport-Security':
+    'max-age=31536000; includeSubDomains; preload',
+  'X-Content-Type-Options': 'nosniff',
+  'X-Frame-Options': 'SAMEORIGIN',
+  'X-XSS-Protection': '1; mode=block',
+  'Referrer-Policy': 'strict-origin-when-cross-origin',
+  'Content-Security-Policy':
+    "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; " +
+    "img-src 'self' data:; connect-src 'self'; font-src 'self'; frame-ancestors 'none'; form-action 'self'",
+});
+
+function baseJsonHeaders(extra) {
+  return Object.assign(
+    {
+      'Content-Type': 'application/json; charset=utf-8',
+      'Cache-Control':
+        'no-store, no-cache, must-revalidate, proxy-revalidate',
+      'Pragma': 'no-cache',
+      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Credentials': 'false',
+    },
+    SECURITY_HEADERS,
+    extra || {}
+  );
+}
+
+function makeCORSHeaders(extra) {
+  const headers = Object.assign({
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+    'Access-Control-Allow-Headers':
+      'Content-Type, Authorization, Payment-Signature, X-Payment',
+    'Access-Control-Max-Age': '86400',
+    'Access-Control-Allow-Credentials': 'false',
+  });
+  if (extra) Object.assign(headers, extra);
+  return headers;
+}
+
+// ---------------------------------------------------------------------------
+// Request body reading and JSON-RPC 2.0 parsing.
+// ---------------------------------------------------------------------------
+
+const MAX_JSONRPC_ID = Number.MAX_SAFE_INTEGER;
+
+// A raw JSON-RPC error envelope. 'rawId' is carried so we can echo the id back
+// in the error response whenever one is available.
+function rpcParseError(code, message, rawId) {
+  return { type: 'parse-error', code, message, rawId };
+}
+
+function rpcInvalidRequest(code, message, rawId) {
+  return { type: 'invalid-request', code, message, rawId };
+}
+
+// Parse the incoming request; never throws. Returns either { id, method,
+// params } or one of the error shapes above.
+async function readJsonRpcBody(request) {
+  const lenHeader = request.headers.get('content-length');
+  const len = lenHeader ? Number(lenHeader) : NaN;
+  if (!Number.isNaN(len) && len > MAX_BODY_BYTES) {
+    return rpcParseError(
+      -32700,
+      `request body too large: ${len} bytes (max ${MAX_BODY_BYTES})`,
+      undefined
+    );
+  }
+
+  let raw;
+  try {
+    raw = await request.text();
+  } catch {
+    return rpcParseError(-32700, 'failed to read request body', undefined);
+  }
+  if (raw.length > MAX_BODY_BYTES) {
+    return rpcParseError(
+      -32700,
+      `request body too large: ${raw.length} bytes (max ${MAX_BODY_BYTES})`,
+      undefined
+    );
+  }
+
+  let obj;
+  try {
+    obj = JSON.parse(raw);
+  } catch {
+    return rpcParseError(-32700, 'invalid JSON', undefined);
+  }
+
+  const rawBytes = new TextEncoder().encode(raw).byteLength;
+  if (rawBytes > MAX_BODY_BYTES) {
+    return rpcParseError(
+      -32700,
+      `request body too large: ${rawBytes} bytes (max ${MAX_BODY_BYTES})`,
+      undefined
+    );
+  }
+
+  if (Array.isArray(obj)) {
+    return rpcInvalidRequest(
+      -32600,
+      'invalid request: batch JSON-RPC requests are not supported',
+      undefined
+    );
+  }
+  if (!isJsonRpcObject(obj)) {
+    return rpcInvalidRequest(
+      -32600,
+      'invalid request: body must be a JSON object',
+      obj?.id
+    );
+  }
+  if (obj.jsonrpc !== '2.0') {
+    return rpcInvalidRequest(
+      -32600,
+      'invalid request: jsonrpc must be "2.0"',
+      obj.id
+    );
+  }
+  if (typeof obj.method !== 'string' || obj.method.trim() === '') {
+    return rpcInvalidRequest(
+      -32600,
+      'invalid request: method is required and must be a non-empty string',
+      obj.id
+    );
+  }
+  if (obj.id === undefined || obj.id === null) {
+    return rpcInvalidRequest(
+      -32600,
+      'invalid request: id is required',
+      obj.id
+    );
+  }
+  if (typeof obj.id === 'number') {
+    if (!Number.isInteger(obj.id) || obj.id < 0 || obj.id > MAX_JSONRPC_ID) {
+      return rpcInvalidRequest(
+        -32600,
+        'invalid request: id must be a string or a non-negative integer',
+        obj.id
+      );
+    }
+  }
+  if (typeof obj.id !== 'number' && typeof obj.id !== 'string') {
+    return rpcInvalidRequest(
+      -32600,
+      'invalid request: id must be a string or a non-negative integer',
+      obj.id
+    );
+  }
+  if (typeof obj.params === 'undefined' || obj.params === null) {
+    return rpcInvalidRequest(
+      -32600,
+      'invalid request: params is required',
+      obj.id
+    );
+  }
+  if (!Array.isArray(obj.params)) {
+    return rpcInvalidRequest(
+      -32600,
+      'invalid request: params must be an array',
+      obj.id
+    );
+  }
+  return { id: obj.id, method: obj.method, params: obj.params };
+}
+
+function isJsonRpcObject(value) {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+// ---------------------------------------------------------------------------
+// Response helpers.
+// ---------------------------------------------------------------------------
+
+function makeRpcEnvelope(id, result, error) {
+  const envelope = { jsonrpc: '2.0', id };
+  if (result !== undefined) envelope.result = result;
+  if (error !== undefined) envelope.error = error;
+  return envelope;
+}
+
+function makeResponse(body, headers) {
+  return new Response(
+    typeof body === 'string' ? body : JSON.stringify(body),
+    { status: 200, headers }
+  );
+}
+
+// A minimal JSON-RPC error reply echoing the id whenever one is available.
+function sendRpcError(id, code, message) {
+  return makeResponse(
+    makeRpcEnvelope(id, undefined, { code, message }),
+    baseJsonHeaders()
+  );
+}
+
+// Normal JSON-RPC reply.
+function sendRpcResult(id, result) {
+  return makeResponse(makeRpcEnvelope(id, result), baseJsonHeaders());
+}
+
+// ---- rate limiting (per-isolate, best effort) ----
+
+function getConnectingIp(request) {
+  const ip = request.headers.get('CF-Connecting-IP');
+  if (ip) return ip.trim();
+  return '__none__';
+}
+
+function pruneRateLimitMap() {
+  const now = Date.now();
+  for (const [key, entry] of rateLimitMap.entries()) {
+    if (now - entry.windowStart >= RATE_LIMIT_WINDOW_MS) {
+      rateLimitMap.delete(key);
+    }
+  }
+  // Bound the in-memory map size by evicting the oldest half when full.
+  if (rateLimitMap.size >= MAX_RATE_LIMIT_MAP_SIZE) {
+    const keys = [...rateLimitMap.keys()];
+    for (let i = 0; i < Math.ceil(keys.length / 2); i++) {
+      rateLimitMap.delete(keys[i]);
+    }
+  }
+}
+
+function checkRateLimit(ip) {
+  pruneRateLimitMap();
+  let entry = rateLimitMap.get(ip);
+  if (!entry || Date.now() - entry.windowStart >= RATE_LIMIT_WINDOW_MS) {
+    entry = { windowStart: Date.now(), count: 0 };
+    rateLimitMap.set(ip, entry);
+  }
+  entry.count += 1;
+  rateLimitMap.set(ip, entry);
+  if (entry.count > RATE_LIMIT_REQUESTS) {
+    return {
+      tooMany: true,
+      retryAfter: Math.ceil((entry.windowStart + RATE_LIMIT_WINDOW_MS - Date.now()) / 1000) || 1,
+    };
+  }
+  return { tooMany: false };
+}
+
+function sendRateLimitError(id, retryAfter) {
+  return new Response(
+    JSON.stringify(
+      makeRpcEnvelope(id, undefined, {
+        code: -32029,
+        message: `rate limit exceeded: too many requests per minute; retry after ${retryAfter} seconds`,
+        retryAfter,
+      })
+    ),
+    {
+      status: 429,
+      headers: baseJsonHeaders({ 'Retry-After': String(retryAfter) }),
+    }
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Upstream RPC caller with a hard timeout.
+// ---------------------------------------------------------------------------
+
+// Calls the given upstream for the given payload and returns a plain envelope
+// { result?, error? }. Errors are returned as { code, message } objects so the
+// caller can decide how far to propagate them.
+async function callUpstream(upstream, payload, timeoutMs) {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetch(upstream, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+      signal: controller.signal,
+    });
+    if (!res.ok) {
+      return {
+        error: {
+          code: -32603,
+          message: `upstream HTTP error ${res.status}`,
+        },
+      };
+    }
+    const upstreamLength = Number(res.headers.get('content-length'));
+    if (
+      Number.isFinite(upstreamLength) &&
+      upstreamLength > MAX_UPSTREAM_RESPONSE_BYTES
+    ) {
+      return {
+        error: {
+          code: -32603,
+          message: 'upstream response body too large',
+        },
+      };
+    }
+    // Cap the upstream response body at 2 MiB before JSON parsing.
+    const buffer = await res.arrayBuffer();
+    if (buffer.byteLength > MAX_UPSTREAM_RESPONSE_BYTES) {
+      return { error: { code: -32603, message: 'upstream response body too large' } };
+    }
+    let json;
+    try {
+      json = JSON.parse(new TextDecoder().decode(buffer));
+    } catch {
+      return { error: { code: -32603, message: 'upstream returned invalid JSON' } };
+    }
+    if (isJsonRpcObject(json)) {
+      if ('error' in json && json.error) {
+        return { error: Object.assign({ code: -32000 }, json.error) };
+      }
+      return { result: json.result };
+    }
+    return { error: { code: -32603, message: 'upstream response is not JSON-RPC' } };
+  } catch (err) {
+    if (err.name === 'AbortError') {
+      return { error: { code: -32000, message: `upstream request timed out after ${timeoutMs}ms` } };
+    }
+    return { error: { code: -32603, message: `upstream error: ${err.message}` } };
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Hex / BigInt utilities.
+// ---------------------------------------------------------------------------
+
+const HEX_RE = /^0x[0-9a-fA-F]*$/;
+const ETH_ADDR_RE = /^0x[0-9a-fA-F]{40}$/;
+const HEX_64_RE = /^0x[0-9a-fA-F]{64}$/;
+
+function hexLengthBytes(hex) {
+  if (typeof hex !== 'string' || !HEX_RE.test(hex)) return 0;
+  return (hex.length - 2) / 2;
+}
+
+function hexToBytes(hex) {
+  const s = hex.slice(2);
+  const out = new Uint8Array(s.length / 2);
+  for (let i = 0; i < s.length; i += 2) {
+    out[i / 2] = Number.parseInt(s.slice(i, i + 2), 16);
+  }
+  return out;
+}
+
+async function sha256Hex(bytes) {
+  const buffer = await crypto.subtle.digest('SHA-256', bytes);
+  const arr = new Uint8Array(buffer);
+  const pieces = new Array(arr.length);
+  for (let i = 0; i < arr.length; i++) {
+    pieces[i] = arr[i].toString(16).padStart(2, '0');
+  }
+  return pieces.join('');
+}
+
+function sha256HexOfHex(hex) {
+  return sha256Hex(hexToBytes(hex));
+}
+
+// Robust hex -> safe integer. Accepts '0x' prefix; rejects malformed input and
+// values outside the safe-integer range. Never returns NaN.
+function hexToInt(hex) {
+  if (typeof hex !== 'string') return null;
+  const s = hex.trim();
+  if (!s.startsWith('0x')) return null;
+  const digits = s.slice(2);
+  if (!/^[0-9a-fA-F]+$/.test(digits)) return null;
+  const num = Number('0x' + digits);
+  return Number.isSafeInteger(num) ? num : null;
+}
+
+function decodePermissionsLow14(address) {
+  const addr = String(address).toLowerCase();
+  if (!ETH_ADDR_RE.test(addr)) {
+    return { value: 0, flags: [] };
+  }
+  const masked = BigInt(addr) & 0x3fffn;
+  const value = Number(masked);
+  const flags = PERMISSION_FLAGS.map((name, i) => ({
+    name,
+    bit: 13 - i,
+    enabled: !!(value & (1 << (13 - i))),
+  }));
+  return { value, flags };
+}
+
+// ---------------------------------------------------------------------------
+// Hookline public methods.
+// ---------------------------------------------------------------------------
+
+function hookline_chains_handler(params, id) {
+  const chains = Object.entries(CHAIN_CONFIG).map(([idKey, cfg]) => ({
+    chainId: Number(idKey),
+    chainIdHex: '0x' + Number(idKey).toString(16),
+    name: cfg.name,
+    code: cfg.code,
+    upstream: cfg.upstream,
+    transaction_submission_supported: false,
+  }));
+  return { chains };
+}
+
+function hookline_decodePermissions_handler(params, id) {
+  const address = params[0];
+  if (typeof address !== 'string') {
+    return rpcInvalidRequest(-32602, 'params[0] must be an address string', id);
+  }
+  const addr = address.toLowerCase().trim();
+  if (!ETH_ADDR_RE.test(addr)) {
+    return rpcInvalidRequest(-32602, 'params[0] must be a 0x-prefixed 40-hex address', id);
+  }
+  const { value, flags } = decodePermissionsLow14(addr);
+  return { address: addr, value, flags, bitLength: 14 };
+}
+
+async function hookline_chainStatus_handler(params, id, ctx) {
+  const chainId = params[0];
+  if (!SUPPORTED_CHAINS.includes(chainId)) {
+    return rpcInvalidRequest(
+      -32602,
+      `params[0] must be a supported chainId (${SUPPORTED_CHAINS.join(', ')})`,
+      id
+    );
+  }
+  const cfg = CHAIN_CONFIG[chainId];
+
+  const startedAt = performance.now();
+  const [chainIdRes, blockRes] = await Promise.all([
+    callUpstream(cfg.upstream, { jsonrpc: '2.0', method: 'eth_chainId', params: [], id: 1 }, UPSTREAM_TIMEOUT_MS),
+    callUpstream(cfg.upstream, { jsonrpc: '2.0', method: 'eth_blockNumber', params: [], id: 2 }, UPSTREAM_TIMEOUT_MS),
+  ]);
+  const elapsedMs = Math.round(performance.now() - startedAt);
+
+  if (chainIdRes.error) {
+    return {
+      chainId,
+      chainIdHex: '0x' + chainId.toString(16),
+      name: cfg.name,
+      upstream: cfg.upstream,
+      latencyMs: elapsedMs,
+      status: 'unreachable',
+      errors: [chainIdRes.error, blockRes.error || null].filter(Boolean),
+    };
+  }
+
+  const chainIdNum = hexToInt(chainIdRes.result);
+  if (chainIdNum === null) {
+    return {
+      chainId,
+      chainIdHex: '0x' + chainId.toString(16),
+      name: cfg.name,
+      upstream: cfg.upstream,
+      latencyMs: elapsedMs,
+      status: 'error',
+      errors: [chainIdRes.error || { code: -32603, message: 'malformed eth_chainId response' }],
+    };
+  }
+  if (chainIdNum !== chainId) {
+    return {
+      chainId,
+      chainIdHex: '0x' + chainIdNum.toString(16),
+      name: cfg.name,
+      upstream: cfg.upstream,
+      latencyMs: elapsedMs,
+      status: 'error',
+      errors: [
+        {
+          code: -32603,
+          message:
+            `chain-id mismatch: upstream reported 0x${chainIdNum.toString(16)} but expected 0x${chainId.toString(16)}`,
+        },
+      ],
+    };
+  }
+
+  const blockNum = hexToInt(blockRes.result);
+  if (blockNum === null) {
+    return {
+      chainId,
+      chainIdHex: '0x' + chainIdNum.toString(16),
+      name: cfg.name,
+      upstream: cfg.upstream,
+      latencyMs: elapsedMs,
+      status: 'error',
+      errors: [blockRes.error || { code: -32603, message: 'malformed eth_blockNumber response' }],
+    };
+  }
+
+  return {
+    chainId,
+    chainIdHex: '0x' + chainIdNum.toString(16),
+    name: cfg.name,
+    upstream: cfg.upstream,
+    blockNumber: blockNum,
+    blockNumberHex: blockRes.result,
+    latencyMs: elapsedMs,
+    status: 'healthy',
+  };
+}
+
+async function hookline_getHook_handler(params, id, ctx) {
+  const chainId = params[0];
+  const address = params[1];
+
+  if (!SUPPORTED_CHAINS.includes(chainId)) {
+    return rpcInvalidRequest(
+      -32602,
+      `params[0] must be a supported chainId (${SUPPORTED_CHAINS.join(', ')})`,
+      id
+    );
+  }
+  if (typeof address !== 'string') {
+    return rpcInvalidRequest(-32602, 'params[1] must be an address string', id);
+  }
+  const addr = address.toLowerCase().trim();
+  if (!ETH_ADDR_RE.test(addr)) {
+    return rpcInvalidRequest(-32602, 'params[1] must be a 0x-prefixed 40-hex address', id);
+  }
+
+  const cfg = CHAIN_CONFIG[chainId];
+  const startedAt = performance.now();
+
+  const codeRes = await callUpstream(
+    cfg.upstream,
+    { jsonrpc: '2.0', method: 'eth_getCode', params: [addr, 'latest'], id: 1 },
+    UPSTREAM_TIMEOUT_MS
+  );
+  if (codeRes.error) {
+    return rpcInvalidRequest(
+      -32000,
+      `eth_getCode failed for ${addr}: ${codeRes.error.message}`,
+      id
+    );
+  }
+  const bytecode = codeRes.result;
+  if (
+    typeof bytecode !== 'string' ||
+    !HEX_RE.test(bytecode) ||
+    (bytecode.length - 2) % 2 !== 0
+  ) {
+    return rpcInvalidRequest(
+      -32603,
+      `eth_getCode returned malformed bytecode for ${addr}`,
+      id
+    );
+  }
+  const codeByteLength = hexLengthBytes(bytecode);
+  const runtimeFingerprintHex = await sha256HexOfHex(bytecode);
+
+  // Owner probe — never fails the whole request.
+  const probeRes = await callUpstream(
+    cfg.upstream,
+    {
+      jsonrpc: '2.0',
+      method: 'eth_call',
+      params: [{ to: addr, data: OWNER_SELECTOR }, 'latest'],
+      id: 2,
+    },
+    UPSTREAM_TIMEOUT_MS
+  );
+  let owner = null;
+  let ownerProbeStatus = 'ok';
+  let ownerProbeError = null;
+  if (probeRes.error) {
+    // Owner probe error/revert must not fail hookline_getHook.
+    owner = null;
+    ownerProbeStatus = 'reverted';
+    ownerProbeError = probeRes.error.message;
+  } else if (typeof probeRes.result === 'string' && HEX_64_RE.test(probeRes.result)) {
+    // Valid 32-byte return: parse the last 20 bytes as a lowercase 0x address;
+    // the zero address maps to null.
+    const hex = probeRes.result.slice(2).toLowerCase();
+    const addrHex = hex.slice(-40);
+    if (addrHex !== '0'.repeat(40)) {
+      owner = '0x' + addrHex;
+    }
+  } else {
+    owner = null;
+    ownerProbeStatus = 'no-owner-function';
+    ownerProbeError = probeRes.result;
+  }
+
+  const { value, flags } = decodePermissionsLow14(addr);
+  return {
+    chainId,
+    chainIdHex: '0x' + chainId.toString(16),
+    name: cfg.name,
+    address: addr,
+    upstream: cfg.upstream,
+    codeByteLength,
+    runtimeFingerprint: { algorithm: 'SHA-256', fingerprint: runtimeFingerprintHex },
+    owner,
+    ownerProbeStatus,
+    ownerProbeError,
+    permissions: { value, flags },
+    latencyMs: Math.round(performance.now() - startedAt),
+  };
+}
+
+async function dispatchHooklineRpc(parsed, id, ctx) {
+  let result;
+  switch (parsed.method) {
+    case 'hookline_chains':
+      result = hookline_chains_handler(parsed.params, id);
+      break;
+    case 'hookline_decodePermissions':
+      result = hookline_decodePermissions_handler(parsed.params, id);
+      break;
+    case 'hookline_chainStatus':
+      result = await hookline_chainStatus_handler(parsed.params, id, ctx);
+      break;
+    case 'hookline_getHook':
+      result = await hookline_getHook_handler(parsed.params, id, ctx);
+      break;
+    default:
+      return sendRpcError(id, -32601, `method not found: ${parsed.method}`);
+  }
+
+  if (result && typeof result === 'object' && result.type) {
+    return sendRpcError(id, result.code, result.message);
+  }
+  return sendRpcResult(id, result);
+}
+
+// ---------------------------------------------------------------------------
+// Standard public proxy for POST /rpc/:chainId.
+// ---------------------------------------------------------------------------
+
+// Defensive write/admin/trace rejection, complementary to the allowlist below.
+function isWriteOrAdminMethod(method) {
+  if (method === 'net_version') return false;
+  if (method === 'web3_clientVersion') return false;
+  if (/^(admin|debug|trace|personal|eth_accounts|eth_requestAccounts)/i.test(method)) {
+    return true;
+  }
+  if (method === 'eth_sendTransaction' || method === 'eth_sendRawTransaction') {
+    return true;
+  }
+  return false;
+}
+
+async function proxyStandardRpc(chainId, parsed, id, ctx) {
+  const cfg = CHAIN_CONFIG[chainId];
+  if (!cfg) {
+    return sendRpcError(
+      id,
+      -32601,
+      `unsupported chainId ${chainId} (supported: ${SUPPORTED_CHAINS.join(', ')})`
+    );
+  }
+  if (!STANDARD_METHODS.has(parsed.method)) {
+    return sendRpcError(
+      id,
+      -32601,
+      `method not allowed: ${parsed.method} (safe-method JSON-RPC allowlist only)`
+    );
+  }
+  if (isWriteOrAdminMethod(parsed.method)) {
+    return sendRpcError(
+      id,
+      -32601,
+      `${parsed.method} is not supported: this endpoint never submits transactions`
+    );
+  }
+
+  // Full transaction details are not exposed by this public RPC.
+  if (parsed.method === 'eth_getBlockByNumber' || parsed.method === 'eth_getBlockByHash') {
+    if (parsed.params?.[1] === true) {
+      return sendRpcError(
+        id,
+        -32602,
+        'invalid params: full transaction details are not supported; use false or omit the parameter'
+      );
+    }
+  }
+
+  // Rate-cap eth_feeHistory blockCount at 128 (number or 0x-hex).
+  if (parsed.method === 'eth_feeHistory') {
+    const blockCount = parsed.params?.[0];
+    let n = null;
+    if (typeof blockCount === 'number') {
+      n = blockCount;
+    } else if (
+      typeof blockCount === 'string' &&
+      /^0x[0-9a-fA-F]+$/.test(blockCount)
+    ) {
+      n = hexToInt(blockCount);
+    }
+    if (!Number.isSafeInteger(n) || n < 1 || n > 128) {
+      return sendRpcError(
+        id,
+        -32602,
+        'invalid params: eth_feeHistory blockCount must be an integer from 1 to 128'
+      );
+    }
+  }
+
+  const startedAt = performance.now();
+  const res = await callUpstream(
+    cfg.upstream,
+    { jsonrpc: '2.0', method: parsed.method, params: parsed.params, id },
+    UPSTREAM_TIMEOUT_MS
+  );
+  const elapsedMs = Math.round(performance.now() - startedAt);
+
+  if (res.error) {
+    return sendRpcError(id, res.error.code, res.error.message);
+  }
+  return sendRpcResult(id, res.result);
+}
+
+// ---------------------------------------------------------------------------
+async function jsonMetricsBody() {
+  const entries = Object.entries(CHAIN_CONFIG);
+  const results = await Promise.all(
+    entries.map(async ([idKey, cfg]) => {
+      const start = performance.now();
+      try {
+        const res = await callUpstream(cfg.upstream, { jsonrpc: '2.0', method: 'eth_blockNumber', params: [], id: 'metrics-' + idKey }, UPSTREAM_TIMEOUT_MS);
+        const blockNumber = res.error ? null : hexToInt(res.result);
+        const healthy = !res.error && blockNumber !== null;
+        const error = res.error ? res.error.message : healthy ? null : 'malformed eth_blockNumber response';
+        const latencyMs = Math.round(performance.now() - start);
+        return { chainId: Number(idKey), name: cfg.name, healthy, blockNumber, latencyMs, error };
+      } catch (e) {
+        const latencyMs = Math.round(performance.now() - start);
+        return { chainId: Number(idKey), name: cfg.name, healthy: false, blockNumber: null, latencyMs, error: 'unexpected metrics probe failure' };
+      }
+    })
+  );
+  const chains = results;
+  const healthyChains = chains.filter(c => c.healthy).length;
+  const base = chains.find((chain) => chain.chainId === 8453);
+  const baseLatestBlock = base?.healthy ? base.blockNumber : null;
+  return { supportedChains: SUPPORTED_CHAINS.length, healthyChains, baseLatestBlock, generatedAt: new Date().toISOString(), chains };
+}
+
+// Health and documentation endpoints.
+// ---------------------------------------------------------------------------
+
+function jsonHealthBody() {
+  return {
+    name: 'hookline',
+    version: '0.1.0',
+    status: 'live',
+    mode: 'worker',
+    transaction_submission_supported: false,
+    chains: SUPPORTED_CHAINS.length,
+    chainsSupported: SUPPORTED_CHAINS,
+    documentationUrl: '/rpc',
+    healthUrl: '/health',
+    timestamp: Date.now(),
+  };
+}
+
+const JSON_DOCS_CURL_EXAMPLE = (origin) =>
+  `curl -sS ${origin}/rpc \\
+  -H 'Content-Type: application/json' \\
+  -d '{"jsonrpc":"2.0","method":"hookline_chains","params":[],"id":1}'`;
+
+function jsonDocsBody(request) {
+  const origin = new URL(request.url).origin;
+  const chainRoutes = SUPPORTED_CHAINS.map((id) => `/rpc/${id}`);
+  return {
+    service: 'hookline',
+    version: '0.1.0',
+    status: 'live',
+    mode: 'worker',
+    transaction_submission_supported: false,
+    origin: origin,
+    routes: {
+      rpcRoot: '/rpc',
+      paidRpc: '/rpc/paid',
+      metrics: '/metrics',
+      health: '/health',
+      documentation: '/rpc',
+      chainProxies: chainRoutes,
+    },
+    methods: {
+      hookline: [
+        'hookline_chains',
+        'hookline_decodePermissions',
+        'hookline_chainStatus',
+        'hookline_getHook',
+      ],
+      standardProxy: [...STANDARD_METHODS].sort(),
+    },
+    chains: Object.entries(CHAIN_CONFIG).map(([idKey, cfg]) => ({
+      chainId: Number(idKey),
+      chainIdHex: '0x' + Number(idKey).toString(16),
+      name: cfg.name,
+      code: cfg.code,
+      upstream: cfg.upstream,
+      route: `/rpc/${idKey}`,
+      transaction_submission_supported: false,
+    })),
+    curlExample: JSON_DOCS_CURL_EXAMPLE(origin),
+    paidAccess: {
+      endpoint: '/rpc/paid',
+      scheme: 'exact',
+      network: X402_NETWORK,
+      asset: X402_USDC_ASSET,
+      amountAtomic: X402_AMOUNT_ATOMIC,
+      priceUsd: '0.01',
+      token: 'USDC',
+      payTo: X402_PAY_TO,
+      facilitator: 'https://facilitator.payai.network',
+      rateLimit: 'paid requests bypass the public per-IP limit after verification',
+    },
+    constraints: {
+      batchesSupported: false,
+      maxBodyBytes: MAX_BODY_BYTES,
+      maxUpstreamResponseBytes: MAX_UPSTREAM_RESPONSE_BYTES,
+      upstreamTimeoutMs: UPSTREAM_TIMEOUT_MS,
+      bestEffortRequestsPerMinutePerIp: RATE_LIMIT_REQUESTS,
+      transactionSubmissionSupported: false,
+      upstreamUrlFromRequestSupported: false,
+    },
+    warnings: [
+      'rate-limited and subject to change',
+      'no transaction submission is supported',
+      'JSON-RPC batches are rejected',
+      'bodies over 32 KiB are rejected with a parse error',
+      'upstream requests time out after 8 seconds',
+      'responses carry no-store cache control',
+    ],
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Static asset serving.
+// ---------------------------------------------------------------------------
+
+function sendStaticAsset(path, type, content) {
+  const headers = Object.assign(
+    {
+      'Content-Type': type,
+      'Content-Length': String(new TextEncoder().encode(content).byteLength),
+      'Cache-Control':
+        path === '/'
+          ? 'no-cache, must-revalidate'
+          : 'public, max-age=300, must-revalidate',
+      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Credentials': 'false',
+    },
+    SECURITY_HEADERS
+  );
+  return new Response(content, { status: 200, headers });
+}
+
+function handleStaticAsset(path) {
+  const route = STATIC_ROUTES[path];
+  if (!route) return undefined;
+  const content = ASSETS[route.key];
+  if (content === undefined) {
+    return undefined;
+  }
+  return sendStaticAsset(path, route.type, content);
+}
+
+function sendNotFound() {
+  return new Response(
+    JSON.stringify(
+      makeRpcEnvelope('not-found', undefined, {
+        code: -404,
+        message:
+          'not found: visit #observatory, #compare or #network',
+      })
+    ),
+    { status: 404, headers: baseJsonHeaders({ 'Cache-Control': 'no-store' }) }
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Paid RPC access. Payment verification and settlement are delegated to the
+// official x402 middleware and PayAI facilitator. The public routes above stay
+// free and retain their best-effort per-IP rate limit.
+// ---------------------------------------------------------------------------
+
+let paidRpcApp;
+
+function getPaidRpcApp() {
+  if (paidRpcApp) return paidRpcApp;
+
+  // Cloudflare Workers forbid network I/O during module initialization. Build
+  // the x402 server on the first paid request so facilitator capability sync
+  // runs inside a request handler, then reuse it for the isolate lifetime.
+  const paidResourceServer = new x402ResourceServer(
+    new HTTPFacilitatorClient(payAiFacilitator)
+  ).register(X402_NETWORK, new ExactEvmScheme());
+
+  const app = new Hono();
+  app.use(
+    paymentMiddleware(
+      {
+        'POST /rpc/paid': {
+          accepts: {
+            scheme: 'exact',
+            network: X402_NETWORK,
+            payTo: X402_PAY_TO,
+            price: {
+              asset: X402_USDC_ASSET,
+              amount: X402_AMOUNT_ATOMIC,
+              extra: { name: 'USD Coin', version: '2' },
+            },
+            maxTimeoutSeconds: 300,
+          },
+          description: 'Higher-capacity Hookline JSON-RPC request',
+          mimeType: 'application/json',
+          serviceName: 'Hookline',
+        },
+      },
+      paidResourceServer,
+      undefined,
+      undefined,
+      true
+    )
+  );
+
+  app.post('/rpc/paid', async (c) => {
+    const parsed = await readJsonRpcBody(c.req.raw);
+    if ('type' in parsed && parsed.type) {
+      return sendRpcError(
+        parsed.rawId !== undefined ? parsed.rawId : null,
+        parsed.code,
+        parsed.message
+      );
+    }
+    return dispatchHooklineRpc(parsed, parsed.id, c.executionCtx);
+  });
+
+  paidRpcApp = app;
+  return paidRpcApp;
+}
+
+function withPaidResponseHeaders(response) {
+  const headers = new Headers(response.headers);
+  for (const [name, value] of Object.entries(SECURITY_HEADERS)) {
+    headers.set(name, value);
+  }
+  headers.set('Access-Control-Allow-Origin', '*');
+  headers.set('Access-Control-Allow-Credentials', 'false');
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Main entry point.
+// ---------------------------------------------------------------------------
+
+export default {
+  async fetch(request, env, ctx) {
+    const url = new URL(request.url);
+    const method = request.method.toUpperCase();
+
+    if (url.hostname === 'www.hookline.world') {
+      url.protocol = 'https:';
+      url.hostname = 'hookline.world';
+      return Response.redirect(url.toString(), 301);
+    }
+
+    // CORS preflight.
+    if (method === 'OPTIONS') {
+      return new Response(null, {
+        status: 204,
+        headers: makeCORSHeaders(),
+      });
+    }
+
+    // Static assets.
+    const staticResponse = handleStaticAsset(url.pathname);
+    if (staticResponse) {
+      return staticResponse;
+    }
+
+    // GET /metrics — machine-readable metrics.
+    if (method === 'GET' && url.pathname === '/metrics') {
+      return new Response(
+        JSON.stringify(await jsonMetricsBody()),
+        { headers: baseJsonHeaders({ 'Cache-Control': 'no-store' }) }
+      );
+    }
+
+    // GET /health — machine-readable status.
+    if (method === 'GET' && url.pathname === '/health') {
+      return new Response(
+        JSON.stringify(jsonHealthBody()),
+        { headers: baseJsonHeaders({ 'Cache-Control': 'no-store' }) }
+      );
+    }
+
+    // GET /rpc — human-readable documentation (origin derived from the request).
+    if (method === 'GET' && url.pathname === '/rpc') {
+      return new Response(
+        JSON.stringify(jsonDocsBody(request)),
+        { headers: baseJsonHeaders({ 'Cache-Control': 'no-store' }) }
+      );
+    }
+
+    // POST /rpc/paid — x402-protected Hookline methods. Parse a clone first so
+    // malformed JSON-RPC never triggers a payment challenge or consumes a paid
+    // request. The original body remains available to Hono after verification.
+    if (method === 'POST' && url.pathname === '/rpc/paid') {
+      const parsed = await readJsonRpcBody(request.clone());
+      if ('type' in parsed && parsed.type) {
+        return sendRpcError(
+          parsed.rawId !== undefined ? parsed.rawId : null,
+          parsed.code,
+          parsed.message
+        );
+      }
+      const paidResponse = await getPaidRpcApp().fetch(request, env, ctx);
+      return withPaidResponseHeaders(paidResponse);
+    }
+
+    // POST /rpc — Hookline public methods (JSON-RPC 2.0).
+    if (method === 'POST' && url.pathname === '/rpc') {
+      const parsed = await readJsonRpcBody(request);
+      if ('type' in parsed && parsed.type) {
+        return sendRpcError(
+          parsed.rawId !== undefined ? parsed.rawId : null,
+          parsed.code,
+          parsed.message
+        );
+      }
+      const rl = checkRateLimit(getConnectingIp(request));
+      if (rl.tooMany) {
+        return sendRateLimitError(parsed.id, rl.retryAfter);
+      }
+      return dispatchHooklineRpc(parsed, parsed.id, ctx);
+    }
+
+    // POST /rpc/:chainId — standard public JSON-RPC proxy.
+    const chainMatch = url.pathname.match(/^\/rpc\/([0-9]+)$/);
+    if (chainMatch && method === 'POST') {
+      const parsed = await readJsonRpcBody(request);
+      if ('type' in parsed && parsed.type) {
+        return sendRpcError(
+          parsed.rawId !== undefined ? parsed.rawId : null,
+          parsed.code,
+          parsed.message
+        );
+      }
+      const rl = checkRateLimit(getConnectingIp(request));
+      if (rl.tooMany) {
+        return sendRateLimitError(parsed.id, rl.retryAfter);
+      }
+      return proxyStandardRpc(
+        Number(chainMatch[1]),
+        parsed,
+        parsed.id,
+        ctx
+      );
+    }
+
+    return sendNotFound();
+  },
+};

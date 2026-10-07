@@ -1,97 +1,83 @@
-# Hookline — Implementation Summary
+# Hookline implementation
 
-Hookline is a static, single-page prototype: a multichain evidence observatory for Uniswap v4 hooks. It is a plain HTML/CSS/JavaScript artifact with **no build step, no network calls, no external assets, and no framework**. All code runs client-side in the browser.
+Hookline is the intelligence layer for onchain hooks. The current release is a live multichain desk for contract inspection, permission decoding, evidence history, network telemetry, watchlists, and developer access.
 
-## Local run command
+## Runtime
 
-The `dist/` directory is a self-contained static bundle. Serve it with a local HTTP server and open the URL in a browser:
+Cloudflare Worker source lives in `worker/index.js`. `scripts/build-hookline-worker.mjs` embeds the three browser assets from `dist/` into `dist/server/index.js`:
 
-```sh
-python3 -m http.server 8890 --directory dist --bind 127.0.0.1
-```
+- `dist/index.html` contains the semantic application shell.
+- `dist/styles.css` provides the responsive terminal-style interface.
+- `dist/app.js` handles live inspections, watchlists, comparisons, telemetry, routing, local persistence, and WebMCP registration.
 
-Then visit `http://127.0.0.1:8890/` (or `http://localhost:8890/`).
+The Worker serves the app and these endpoints:
 
-Syntax-validation of the application script is done with Node's parser only:
+- `GET /health` for service status.
+- `GET /metrics` for current upstream chain health, block height, and latency.
+- `GET /rpc` for machine-readable RPC documentation.
+- `POST /rpc` for Hookline JSON-RPC methods.
+- `POST /rpc/{chainId}` for an allowlisted Ethereum JSON-RPC proxy.
+- `POST /rpc/paid` for x402-protected capacity at 0.01 USDC per request on Base.
+
+Production domains are `hookline.world`, `www.hookline.world`, and `hookline.ravenos.xyz`. The `www` hostname permanently redirects to the apex domain. Cloudflare configuration lives in `wrangler.jsonc` and uses the Free plan.
+
+## Data provenance
+
+Current evidence comes directly from configured public RPC upstreams:
+
+- Ethereum: `https://ethereum-rpc.publicnode.com`
+- Base: `https://base-rpc.publicnode.com`
+- Arbitrum One: `https://arb1.arbitrum.io/rpc`
+- Robinhood Chain: `https://robinhood.drpc.org`
+
+An inspection reads deployed runtime bytecode, probes `owner()` when supported, calculates a SHA-256 runtime fingerprint, decodes the low 14 hook-address permission bits, and records the latest block. The interface never manufactures a successful observation. Failed refreshes retain the last successful evidence and show the new error separately.
+
+The current release provides point-in-time contract evidence. Pool discovery, swaps, liquidity changes, adoption metrics, and long-range history require the planned event indexer based on official PoolManager events.
+
+## Browser storage
+
+Named watchlists are stored in browser `localStorage` under `hookline:watchlists:v3`. Identity is always chain ID plus normalized contract address. The app migrates the previous v2 list when present.
+
+Limits are 20 lists, 100 contracts per list, and 100 observations per contract. Refresh-all uses two concurrent workers. JSON import is capped at 1 MB, validates the v3 structure, deduplicates identities, and merges without deleting existing lists. Export produces a portable JSON file.
+
+No automatic polling runs in the browser. Network probes occur only at page load or when a user explicitly inspects or refreshes data.
+
+## RPC methods and safety
+
+Hookline methods are:
+
+- `hookline_chains`
+- `hookline_decodePermissions`
+- `hookline_chainStatus`
+- `hookline_getHook`
+
+The public proxy uses an explicit allowlist and rejects transaction submission, account access, administrative methods, debug methods, trace methods, batches, oversized bodies, and oversized upstream responses. Requests time out after eight seconds. Public POST routes use a best-effort per-isolate limit of 60 requests per IP per minute.
+
+The paid route uses the official x402 Hono middleware, PayAI facilitator, `eip155:8453`, Base USDC, and settlement wallet `0x69e73F4B54ED92939D48B5472894179BF3292DD3`. Facilitator initialization is lazy because Cloudflare Workers do not permit network activity during module initialization.
+
+## WebMCP
+
+When `document.modelContext.registerTool` exists, the app registers:
+
+- `inspect_hook` to fetch live evidence for a supported-chain contract.
+- `decode_hook_address` to decode the canonical 14 permission bits.
+- `list_hookline_watchlists` to return locally saved list names and identities.
+
+Registration is feature-detected and non-fatal. The normal browser experience does not depend on WebMCP support.
+
+## Build, test, and deploy
 
 ```sh
 node --check dist/app.js
+node --check worker/index.js
+node scripts/build-hookline-worker.mjs
+node scripts/test-hookline-worker.mjs
+node node_modules/wrangler/bin/wrangler.js dev --config wrangler.jsonc
+node node_modules/wrangler/bin/wrangler.js deploy --config wrangler.jsonc
 ```
 
-## Static architecture
+The test suite checks static delivery, public claims, metrics behavior, x402 payment terms, malformed requests, permission decoding, contract inspection, method restrictions, size limits, rate limits, and the canonical-domain redirect.
 
-Three files in `dist/` form the entire deployable:
+## Next data layer
 
-- `dist/index.html` — semantic markup with landmarks (`header`, `main`, `section`, `aside`, `footer`), visible status bar, a skip-link, hash-based navigation, the three views, and the creator-fee estimator.
-- `dist/styles.css` — plain CSS, no framework; obsidian-black/bone-white surfaces with acid-lime and cyan signal colors, a fine grid/rule system, sharp corners, and responsive breakpoints down to 390px.
-- `dist/app.js` — self-contained IIFE (`'use strict'`) that drives state, rendering, actions, and WebMCP registration.
-
-### Views
-
-Hash-based routing (`#observatory`, `#compare`, `#network`) behind `loadViewFromHash()` and `hashchange`:
-
-1. **Observatory** — chain filter, watchlist (max 10), "add watch candidate" form (chain + 0x+40-hex validation), candidate detail card, simulated observations appended to an evidence timeline, and runtime permission-flag decoding.
-2. **Compare** — two candidate selectors; same-chain comparisons show permission deltas, block delta, fingerprint match/mismatch, and selector-probe differences. Cross-chain selections are refused with a message that state and block heights are not comparable, optionally showing a non-authoritative code-family hint.
-3. **Network** — launch thesis and creator-fee estimator (1% total fee × 80% launcher share = volume × 0.008) with seed buttons and an illustrative scenario table, plus external reference links.
-
-### Demo chains
-
-`dist/app.js` declares four supported chains via `CHAINS`: Ethereum (1), Base (8453), Arbitrum One (42161), Robinhood Chain (4663). The seed data includes a same-chain fingerprint-pair on Base (`fp_base_shared`) whose two candidates return different `owner()` selector values, demonstrating that fingerprint matches are only hints.
-
-## Identity and storage model
-
-Identity is **chain ID plus contract address**. Every candidate is keyed by a normalized composite key built as:
-
-```js
-`${String(chainId)}:${String(address).toLowerCase()}`
-```
-
-(see `candidateKey()`). This key is used everywhere: watchlist deduplication, selection state, compare select options, and the WebMCP `compare_candidates` tool.
-
-All user-managed state lives in **`localStorage`** under the key `hookline:watchlist:v1` (`WATCHLIST_KEY`):
-
-- `getWatchlist()` / `saveWatchlist()` wrap `localStorage.getItem` / `setItem` in `try/catch` to degrade gracefully when storage is unavailable (private/incognito mode or quota limits), keeping an in-memory `state.watchlist` copy.
-- On first load, `seedDemoData()` restores the persisted watchlist, or falls back to the bundled `DEMO_CANDIDATES` (four to six fictional candidates) if none exists.
-- Adding a candidate (`addCandidateInternal`) validates chain ID, then the address, rejects duplicates by key, and enforces the maximum of 10 candidates.
-- Selected, compared, and view state live only in the in-memory `state` object; they are not persisted.
-- The public inspection surface `window.Hookline` exposes `getState`, `decodePermissions`, `validateAddress`, `addCandidateInternal`, and `compareCandidates`.
-
-## Fictional demo-data disclaimer
-
-Everything in `dist/` is clearly marked as fictional demo data generated locally:
-
-- HTML metadata (`<meta name="description">`), the system status bar ("TOKEN NOT LIVE", "demo data only"), candidate objects, simulation timestamps, generated fingerprints/blocks/transactions, and the fee estimator all state that no live RPC reads, live prices, balances, partnerships, or returns exist.
-- The footer repeats that all evidence, candidates, blocks, transactions, and fee figures are fictional demo data.
-- Simulation is the only state mutation: "Simulate new observation" appends a synthetic evidence-timeline entry; the creator-fee estimator is labeled "estimate only" and explicitly notes creator fees require trading volume and are not guaranteed revenue.
-
-## WebMCP tools (three)
-
-The app feature-detects `navigator.modelContext.registerTool` and registers exactly three imperative tools (declarative WebMCP markup is not used). Registration failures are caught and logged but never fatal:
-
-1. **`decode_hook_address`** (read-only, `annotations: { readOnly: true }`)
-   - Inputs: `chainId` (integer, enum 1 / 8453 / 42161 / 4663) and `address` (`0x` + 40 hex).
-   - Returns identity (`chainId`, `chainName`, `address`, `addressBits`) plus all 14 decoded permission flags (`flag`, `enabled`, `bit`), decoded from the low 14 address bits in canonical Uniswap v4 bit order.
-
-2. **`add_watch_candidate`** (destructive, `annotations: { destructive: true }`)
-   - Inputs: `chainId`, `address` (`0x` + 40 hex), optional `label`.
-   - Calls `addCandidateInternal`, applying the same chain/0x-40 validation, duplicate-key deduplication, and 10-candidate limit as the UI form.
-
-3. **`compare_candidates`** (read-only, `annotations: { readOnly: true }`)
-   - Inputs: `leftKey` and `rightKey` in `CHAIN_ID:lowercaseAddress` format.
-   - Returns the same-chain comparison object or an explicit cross-chain refusal (`ok: false`) with the candidate pair and an optional non-authoritative code-family hint.
-
-## Current launch assumptions
-
-- **Status**: `DESIGN PHASE — TOKEN NOT LIVE`. Symbol `HKLN` is provisional; no claim of uniqueness is made.
-- **Launch chain**: preferred ecosystem is Robinhood Chain, but the Flaunchy venue is selecting between Base and Robinhood Chain; which one launches is undecided and not promised.
-- **No-wallet/no-gas** is a launch thesis under design, not a guarantee; creator fees require trading volume and are not guaranteed revenue; market cap itself does not produce fees (creator-fee estimator uses `volume × 0.008`).
-- **Reputation is tracked separately from token balance**.
-- Evidence flywheel: public hook evidence → trusted monitoring → paid capacity/API/adapter work → bounded contributor bounties → more verified chains → more useful evidence.
-- No live data of any kind: no RPC reads, no live prices/balances, no partnerships, no legal or safety claims.
-
-## Quality constraints
-
-- HTML-escape every user-supplied string (`esc()`) before inserting into the DOM.
-- Keyboard-accessible watchlist items (Enter/Space), visible focus, `aria-live` toasts, labels for every control, no color-only meaning, no horizontal overflow below 390px.
-- Validation is shared between the UI form and the WebMCP tools (`validateAddress`, `validateChainId`).
-
+The next product step is a sourced event index that maps hooks to pools, chains, deployers, code versions, swaps, and liquidity events. Every derived metric should retain chain, contract, block range, timestamp, and source. Explorer labels, verified source metadata, token prices, and project-submitted profiles should remain visibly distinct from direct onchain observations.

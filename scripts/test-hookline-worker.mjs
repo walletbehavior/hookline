@@ -1,0 +1,266 @@
+import assert from 'node:assert/strict';
+import { resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
+
+const root = resolve(import.meta.dirname, '..');
+const artifactUrl = pathToFileURL(resolve(root, 'dist/server/index.js'));
+artifactUrl.searchParams.set('test', String(Date.now()));
+
+const originalFetch = globalThis.fetch;
+const upstreamCalls = [];
+const expectedOwner = `0x${'ab'.repeat(20)}`;
+let failedUpstream = null;
+
+function upstreamChainId(url) {
+  if (url === 'https://ethereum-rpc.publicnode.com') return '0x1';
+  if (url === 'https://base-rpc.publicnode.com') return '0x2105';
+  if (url === 'https://arb1.arbitrum.io/rpc') return '0xa4b1';
+  if (url === 'https://robinhood.drpc.org') return '0x1237';
+  throw new Error(`unexpected upstream URL: ${url}`);
+}
+
+globalThis.fetch = async (url, init = {}) => {
+  const urlString = String(url);
+  if (urlString === 'https://facilitator.payai.network/supported') {
+    return new Response(JSON.stringify({
+      kinds: [{ x402Version: 2, scheme: 'exact', network: 'eip155:8453' }],
+      extensions: [],
+      signers: { 'eip155:*': [`0x${'cd'.repeat(20)}`] },
+    }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }
+
+  if (urlString === failedUpstream) {
+    return new Response('upstream unavailable', { status: 503 });
+  }
+
+  const payload = JSON.parse(init.body);
+  upstreamCalls.push({ url: urlString, payload });
+
+  let result;
+  switch (payload.method) {
+    case 'eth_chainId':
+      result = upstreamChainId(urlString);
+      break;
+    case 'eth_blockNumber':
+      result = '0x100';
+      break;
+    case 'eth_getCode':
+      result = '0x60006000';
+      break;
+    case 'eth_call':
+      result = `0x${'0'.repeat(24)}${expectedOwner.slice(2)}`;
+      break;
+    case 'web3_clientVersion':
+      result = 'hookline-test-client/1.0';
+      break;
+    default:
+      result = '0x1';
+  }
+
+  return new Response(JSON.stringify({ jsonrpc: '2.0', id: payload.id, result }), {
+    status: 200,
+    headers: { 'Content-Type': 'application/json' },
+  });
+};
+
+const { default: worker } = await import(artifactUrl.href);
+assert.equal(typeof worker?.fetch, 'function', 'worker must export default.fetch');
+
+let nextIp = 1;
+
+async function request(path, options = {}) {
+  return worker.fetch(
+    new Request(`https://hookline.example${path}`, options),
+    {},
+    { waitUntil() {}, passThroughOnException() {} }
+  );
+}
+
+async function rpc(path, body, ip = `198.51.100.${nextIp++}`) {
+  const response = await request(path, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'CF-Connecting-IP': ip,
+    },
+    body: JSON.stringify(body),
+  });
+  return { response, json: await response.json() };
+}
+
+function envelope(method, params, id = 1) {
+  return { jsonrpc: '2.0', method, params, id };
+}
+
+try {
+  const wwwRedirect = await worker.fetch(
+    new Request('https://www.hookline.world/network?source=www'),
+    {},
+    { waitUntil() {}, passThroughOnException() {} }
+  );
+  assert.equal(wwwRedirect.status, 301);
+  assert.equal(wwwRedirect.headers.get('location'), 'https://hookline.world/network?source=www');
+
+  const rootResponse = await request('/');
+  assert.equal(rootResponse.status, 200);
+  const rootHtml = await rootResponse.text();
+  assert.match(rootHtml, /HOOKS ANALYTICS DESK/);
+  assert.match(rootHtml, /Free RPC/);
+  assert.match(rootHtml, /Watchlists/);
+  assert.match(rootHtml, /POST \/rpc\/paid/);
+  assert.match(rootHtml, /0x11672C8cD5CB3F17364339244826B110Bac0AC91/);
+  assert.doesNotMatch(rootHtml, /read[- ]only/i);
+  assert.doesNotMatch(rootHtml, /\b(beta|sample|demo|simulated)\b/i);
+
+  const appResponse = await request('/app.js');
+  assert.equal(appResponse.status, 200);
+  const appSource = await appResponse.text();
+  assert.match(appSource, /hookline:watchlists:v3/);
+  assert.match(appSource, /Promise\.all\(\[worker\(\), worker\(\)\]\)/);
+  assert.match(appSource, /fetch\('\/metrics'/);
+  assert.doesNotMatch(appSource, /\.innerHTML\s*=/);
+
+  const healthResponse = await request('/health');
+  assert.equal(healthResponse.status, 200);
+  const health = await healthResponse.json();
+  assert.equal(health.status, 'live');
+  assert.equal(health.transaction_submission_supported, false);
+
+  const metricsResponse = await request('/metrics');
+  assert.equal(metricsResponse.status, 200);
+  const metrics = await metricsResponse.json();
+  assert.equal(metrics.supportedChains, 4);
+  assert.equal(metrics.healthyChains, 4);
+  assert.equal(metrics.baseLatestBlock, 256);
+  assert.equal(metrics.chains.length, 4);
+  assert.equal(metrics.chains.every((chain) => chain.healthy), true);
+
+  failedUpstream = 'https://base-rpc.publicnode.com';
+  const partialMetricsResponse = await request('/metrics');
+  assert.equal(partialMetricsResponse.status, 200);
+  const partialMetrics = await partialMetricsResponse.json();
+  assert.equal(partialMetrics.healthyChains, 3);
+  assert.equal(partialMetrics.baseLatestBlock, null);
+  const failedBase = partialMetrics.chains.find((chain) => chain.chainId === 8453);
+  assert.equal(failedBase.healthy, false);
+  assert.equal(failedBase.blockNumber, null);
+  assert.ok(failedBase.error);
+  failedUpstream = null;
+
+  const docsResponse = await request('/rpc');
+  const docs = await docsResponse.json();
+  assert.equal(docs.origin, 'https://hookline.example');
+  assert.equal(docs.constraints.batchesSupported, false);
+  assert.equal(docs.routes.paidRpc, '/rpc/paid');
+  assert.equal(docs.paidAccess.amountAtomic, '10000');
+  assert.equal(docs.paidAccess.network, 'eip155:8453');
+
+  const unpaidResponse = await request('/rpc/paid', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(envelope('hookline_chains', [], 40)),
+  });
+  assert.equal(unpaidResponse.status, 402);
+  const paymentRequiredHeader = unpaidResponse.headers.get('Payment-Required');
+  assert.ok(paymentRequiredHeader);
+  const paymentRequired = JSON.parse(
+    Buffer.from(paymentRequiredHeader, 'base64').toString('utf8')
+  );
+  assert.equal(paymentRequired.x402Version, 2);
+  assert.equal(paymentRequired.accepts.length, 1);
+  assert.equal(paymentRequired.accepts[0].scheme, 'exact');
+  assert.equal(paymentRequired.accepts[0].network, 'eip155:8453');
+  assert.equal(
+    paymentRequired.accepts[0].asset,
+    '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913'
+  );
+  assert.equal(paymentRequired.accepts[0].amount, '10000');
+  assert.equal(
+    paymentRequired.accepts[0].payTo,
+    '0x69e73F4B54ED92939D48B5472894179BF3292DD3'
+  );
+
+  const malformedPaid = await request('/rpc/paid', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: '{',
+  });
+  assert.equal(malformedPaid.status, 200);
+  assert.equal((await malformedPaid.json()).error.code, -32700);
+  assert.equal(malformedPaid.headers.get('Payment-Required'), null);
+
+  const batch = await rpc('/rpc', [envelope('hookline_chains', [], 1)]);
+  assert.equal(batch.json.error.code, -32600);
+  assert.match(batch.json.error.message, /batch/i);
+
+  const allBitsAddress = `0x${'0'.repeat(36)}3fff`;
+  const decoded = await rpc(
+    '/rpc',
+    envelope('hookline_decodePermissions', [allBitsAddress], 2)
+  );
+  assert.equal(decoded.json.result.value, 16383);
+  assert.equal(decoded.json.result.flags.length, 14);
+  assert.equal(decoded.json.result.flags.every((flag) => flag.enabled), true);
+
+  const hookAddress = `0x${'11'.repeat(20)}`;
+  const hook = await rpc(
+    '/rpc',
+    envelope('hookline_getHook', [1, hookAddress], 3)
+  );
+  assert.equal(hook.json.result.owner, expectedOwner);
+  assert.equal(hook.json.result.codeByteLength, 4);
+  const ownerCall = upstreamCalls.find((call) => call.payload.method === 'eth_call');
+  assert.equal(ownerCall.payload.params[0].data, '0x8da5cb5b');
+
+  const clientVersion = await rpc(
+    '/rpc/1',
+    envelope('web3_clientVersion', [], 4)
+  );
+  assert.equal(clientVersion.json.result, 'hookline-test-client/1.0');
+
+  const writeAttempt = await rpc(
+    '/rpc/1',
+    envelope('eth_sendRawTransaction', ['0x00'], 5)
+  );
+  assert.equal(writeAttempt.json.error.code, -32601);
+
+  const fullBlock = await rpc(
+    '/rpc/1',
+    envelope('eth_getBlockByNumber', ['latest', true], 6)
+  );
+  assert.equal(fullBlock.json.error.code, -32602);
+  assert.match(fullBlock.json.error.message, /full transaction details/i);
+
+  const feeHistory = await rpc(
+    '/rpc/1',
+    envelope('eth_feeHistory', ['0x81', 'latest', []], 7)
+  );
+  assert.equal(feeHistory.json.error.code, -32602);
+  assert.match(feeHistory.json.error.message, /1 to 128/i);
+
+  const rateIp = '203.0.113.77';
+  for (let i = 0; i < 60; i++) {
+    const allowed = await rpc(
+      '/rpc',
+      envelope('hookline_chains', [], 100 + i),
+      rateIp
+    );
+    assert.equal(allowed.response.status, 200);
+    assert.ok(allowed.json.result);
+  }
+  const limited = await rpc(
+    '/rpc',
+    envelope('hookline_chains', [], 999),
+    rateIp
+  );
+  assert.equal(limited.response.status, 429);
+  assert.equal(limited.json.error.code, -32029);
+  assert.ok(limited.response.headers.get('Retry-After'));
+
+  console.log('✓ Hookline Worker tests passed');
+} finally {
+  globalThis.fetch = originalFetch;
+}

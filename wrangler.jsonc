@@ -1,0 +1,28 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "hookline-site",
+  "main": "dist/server/index.js",
+  "compatibility_date": "2026-05-22",
+  "compatibility_flags": [
+    "nodejs_compat"
+  ],
+  "workers_dev": true,
+  "preview_urls": true,
+  "routes": [
+    {
+      "pattern": "hookline.ravenos.xyz",
+      "custom_domain": true
+    },
+    {
+      "pattern": "hookline.world",
+      "custom_domain": true
+    },
+    {
+      "pattern": "www.hookline.world",
+      "custom_domain": true
+    }
+  ],
+  "observability": {
+    "enabled": true
+  }
+}

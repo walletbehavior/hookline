@@ -1,297 +1,260 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Hookline — Uniswap v4 Hook Evidence Observatory</title>
-  <meta name="description" content="Hookline: a multichain evidence observatory for Uniswap v4 hooks. All data shown in this prototype is fictional demo data.">
-  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 24 24%22 fill=%22%23c8f73c%22%3E%3Cpath d=%22M12 2l9 4v6c0 5.25-3.5 10-9 12-5.5-2-9-6.75-9-12V6l9-4z%22/%3E%3Ccircle cx=%2212%22 cy=%2213%22 r=%223%22 fill=%22%230b0e12%22/%3E%3C/svg%3E">
+  <meta name="theme-color" content="#0b0e12">
+  <meta name="description" content="Hookline is the intelligence layer for onchain hooks: live contract evidence, multichain watchlists, comparisons, telemetry, and developer access.">
+  <title>Hookline | Onchain Hooks Intelligence</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' fill='%230b0e12'/%3E%3Cpath d='M38 8v27c0 11-6 17-15 17-7 0-12-4-12-10 0-6 5-10 11-10 4 0 7 1 9 4V8h7zm0 4h15v8H38' fill='none' stroke='%23c8f73c' stroke-width='6'/%3E%3C/svg%3E">
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-  <a href="#main" class="skip-link">Skip to main content</a>
+  <a class="skip-link" href="#main">Skip to main content</a>
 
-  <header class="site-header" role="banner">
-    <div class="header-inner">
-      <h1 class="site-title">Hookline</h1>
-      <p class="site-tagline">Multichain evidence observatory for Uniswap v4 hooks</p>
-      <nav class="main-nav" role="navigation" aria-label="Primary">
+  <header class="top-bar" role="banner">
+    <div class="top-inner">
+      <a class="wordmark" href="#/observatory" aria-label="Hookline home">HOOKLINE<span class="wordmark-mark">/</span></a>
+      <span class="product-label">HOOKS ANALYTICS DESK</span>
+      <nav class="main-nav" aria-label="Primary navigation">
         <ul>
-          <li><a href="#observatory" data-view="observatory" class="active">Observatory</a></li>
-          <li><a href="#compare" data-view="compare">Compare</a></li>
-          <li><a href="#network" data-view="network">Network</a></li>
+          <li><a href="#/observatory" data-view="observatory">Observe</a></li>
+          <li><a href="#/watchlists" data-view="watchlists">Watchlists</a></li>
+          <li><a href="#/network" data-view="network">Network</a></li>
         </ul>
       </nav>
+      <div class="top-meta">
+        <span id="top-live" class="live-indicator loading" role="status" aria-live="polite">PROBING</span>
+        <a class="social-link" href="https://x.com/_hookline" target="_blank" rel="noopener noreferrer" aria-label="Hookline on X">X</a>
+        <a class="social-link" href="https://flaunch.gg/base/coins/0x11672C8cD5CB3F17364339244826B110Bac0AC91" target="_blank" rel="noopener noreferrer">HKLN</a>
+        <button id="top-copy-ca" class="btn btn-ghost btn-compact" type="button">Copy CA</button>
+      </div>
     </div>
   </header>
 
-  <p class="system-bar" aria-live="polite">
-    <span class="status">Status: DESIGN PHASE — TOKEN NOT LIVE</span>
-    <span aria-hidden="true"> | </span>
-    <span>Symbol: HKLN (provisional) — demo data only</span>
-  </p>
+  <main id="main" class="view-container">
+    <section id="view-observatory" class="view" aria-labelledby="observe-title">
+      <div class="desk-heading">
+        <div>
+          <p class="eyebrow">THE INTELLIGENCE LAYER FOR ONCHAIN HOOKS</p>
+          <h1 id="observe-title">Observe the hook. Keep the evidence.</h1>
+          <p class="desk-lede">Inspect, verify, monitor, and build around programmable liquidity across chains.</p>
+        </div>
+        <div class="desk-scope" aria-label="Supported chains">
+          <span>ETHEREUM</span><span>BASE</span><span>ARBITRUM</span><span>ROBINHOOD</span>
+        </div>
+      </div>
 
-  <main id="main" class="view-container" role="main">
+      <div class="session-grid" aria-label="Live desk summary">
+        <div class="session-stat"><span class="stat-label">Chain health</span><strong id="observe-health">unavailable</strong></div>
+        <div class="session-stat"><span class="stat-label">Base block</span><strong id="observe-base-block">unavailable</strong></div>
+        <div class="session-stat"><span class="stat-label">Inspections this session</span><strong id="observe-session-count">0</strong></div>
+        <div class="session-stat"><span class="stat-label">Saved observations</span><strong id="observe-saved-count">0</strong></div>
+      </div>
 
-    <!-- ============ OBSERVATORY ============ -->
-    <section id="view-observatory" class="view active" aria-labelledby="observatory-heading">
-      <h2 id="observatory-heading" class="visually-hidden">Observatory</h2>
-      <div class="obs-layout">
-        <aside class="obs-sidebar" role="complementary" aria-labelledby="watchlist-heading">
-          <div class="filter-block">
-            <label for="chain-filter">Chain</label>
-            <select id="chain-filter">
-              <option value="all">All chains</option>
+      <div class="observe-workbench">
+        <form id="inspect-form" class="inspect-form" novalidate>
+          <div class="panel-kicker">LIVE INSPECTOR</div>
+          <div class="form-row">
+            <label for="inspect-chain">Chain</label>
+            <select id="inspect-chain" required>
               <option value="1">Ethereum (1)</option>
-              <option value="8453">Base (8453)</option>
+              <option value="8453" selected>Base (8453)</option>
               <option value="42161">Arbitrum One (42161)</option>
               <option value="4663">Robinhood Chain (4663)</option>
             </select>
           </div>
-
-          <div class="watchlist-block">
-            <h3 id="watchlist-heading">Watchlist</h3>
-            <p class="watchlist-count" aria-live="polite">
-              <span id="watchlist-count">0</span> candidate(s)
-            </p>
-            <ul id="watchlist-items" role="list" aria-label="Watchlist candidates"></ul>
-          </div>
-
-          <form id="add-candidate-form" class="add-form" aria-labelledby="add-candidate-heading" novalidate>
-            <h3 id="add-candidate-heading">Add watch candidate</h3>
-            <div class="form-row">
-              <label for="add-chain">Chain</label>
-              <select id="add-chain" required>
-                <option value="1">Ethereum (1)</option>
-                <option value="8453">Base (8453)</option>
-                <option value="42161">Arbitrum One (42161)</option>
-                <option value="4663">Robinhood Chain (4663)</option>
-              </select>
-            </div>
-            <div class="form-row">
-              <label for="add-address">Address</label>
-              <input id="add-address" type="text" pattern="^0x[0-9a-fA-F]{40}$" inputmode="verbatim"
-                     autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false"
-                     placeholder="0x0000000000000000000000000000000000000000" required>
-              <span class="hint">0x followed by 40 hexadecimal characters</span>
-            </div>
-            <div class="form-row">
-              <label for="add-label">Label (optional)</label>
-              <input id="add-label" type="text" placeholder="e.g. my hook">
-            </div>
-            <div id="add-form-error" class="form-error" role="alert" aria-live="assertive"></div>
-            <button type="submit" class="btn btn-primary">Add to watchlist</button>
-          </form>
-        </aside>
-        <article class="obs-main" aria-labelledby="detail-heading">
-          <div id="selection-empty" class="empty-state">
-            Select a candidate from the watchlist to inspect its evidence.
-          </div>
-
-          <div id="candidate-detail" class="detail-card" hidden>
-            <h3 id="detail-heading" class="card-title">
-              <span id="detail-label"></span>
-            </h3>
-            <ul class="detail-meta" role="list">
-              <li><span class="meta-label">Chain</span><span id="detail-chain"></span></li>
-              <li><span class="meta-label">Address</span><code id="detail-address"></code></li>
-              <li><span class="meta-label">Latest block</span><span id="detail-block"></span></li>
-              <li><span class="meta-label">Runtime fingerprint</span><code id="detail-fp"></code></li>
-              <li><span class="meta-label">owner() selector probe</span><code id="detail-owner"></code></li>
-            </ul>
-
-            <h4 class="perm-title">Runtime permission flags (low 14 address bits)</h4>
-            <p class="perm-note" id="perm-note">
-              Decoded from the low 14 bits of the address, in the Uniswap v4 canonical bit order
-              (beforeInitialize → afterRemoveLiquidityReturnDelta).
-            </p>
-            <div id="perm-grid" class="perm-grid" role="group" aria-label="Hook permission flags"></div>
-
-            <div class="detail-actions">
-              <button id="simulate-btn" class="btn btn-secondary">Simulate new observation</button>
-              <button id="unfollow-btn" class="btn btn-ghost">Unfollow</button>
-            </div>
-          </div>
-
-          <section id="evidence-section" class="evidence-section" hidden>
-            <h3 id="timeline-heading">Evidence timeline</h3>
-            <ul id="evidence-timeline" role="list" aria-label="Evidence timeline"></ul>
-          </section>
-        </article>
-      </div>
-    </section>
-
-    <!-- ============ COMPARE ============ -->
-    <section id="view-compare" class="view" aria-labelledby="compare-heading">
-      <h2 id="compare-heading">Compare candidates</h2>
-      <p class="note">Select two candidates. A full comparison is only available when both candidates share the same chain ID.</p>
-
-      <form id="compare-form" class="compare-form" aria-labelledby="compare-heading">
-        <div class="comp-select">
-          <label for="comp-left">Left candidate</label>
-          <select id="comp-left" aria-describedby="comp-left-desc"></select>
-          <p id="comp-left-desc" class="hint">Select a watchlisted candidate.</p>
-        </div>
-        <div class="comp-select">
-          <label for="comp-right">Right candidate</label>
-          <select id="comp-right" aria-describedby="comp-right-desc"></select>
-          <p id="comp-right-desc" class="hint">Select a watchlisted candidate.</p>
-        </div>
-        <button type="submit" class="btn btn-primary">Compare</button>
-      </form>
-
-      <div id="compare-results" class="compare-results" aria-live="polite" aria-atomic="true"></div>
-    </section>
-
-    <!-- ============ NETWORK ============ -->
-    <section id="view-network" class="view" aria-labelledby="network-heading">
-      <h2 id="network-heading">Network & launch thesis</h2>
-
-      <div class="status-banner" role="status">
-        <span class="status">Status: DESIGN PHASE — TOKEN NOT LIVE</span>
-      </div>
-
-      <section class="card" aria-labelledby="thesis-heading">
-        <h3 id="thesis-heading">Provisional identity</h3>
-        <ul class="identity-list">
-          <li><span class="meta-label">Symbol</span><span>HKLN</span> — provisional, not final</li>
-          <li><span class="meta-label">Uniqueness</span><span>No claim of uniqueness is made</span></li>
-          <li><span class="meta-label">Reputation vs token balance</span><span>Reputation is tracked separately from token balance</span></li>
-        </ul>
-      </section>
-
-      <section class="card" aria-labelledby="chain-heading">
-        <h3 id="chain-heading">Launch chain</h3>
-        <p>Preferred ecosystem: <strong>Robinhood Chain</strong>.</p>
-        <p>The Flaunchy venue currently selects a live launch chain between <strong>Base</strong> and <strong>Robinhood Chain</strong>. Which chain launches is not decided here and is not promised.</p>
-      </section>
-
-      <section class="card" aria-labelledby="no-wallet-heading">
-        <h3 id="no-wallet-heading">No-wallet / no-gas launch thesis</h3>
-        <p>The selected Flaunchy path lets the launcher initiate without a wallet, gas, or upfront liquidity. This is a launch thesis under design and does not promise that traders need no wallet or gas.</p>
-        <p class="note">Creator fees require trading volume and are <strong>not guaranteed revenue</strong>. Market cap itself does not produce fees; only realized trading volume does.</p>
-      </section>
-
-      <section class="card" aria-labelledby="flywheel-heading">
-        <h3 id="flywheel-heading">Evidence flywheel</h3>
-        <ol class="flywheel">
-          <li>Public hook evidence</li>
-          <li>→ trusted monitoring</li>
-          <li>→ paid capacity / API / adapter work</li>
-          <li>→ bounded contributor bounties</li>
-          <li>→ more verified chains</li>
-          <li>→ more useful evidence</li>
-        </ol>
-      </section>
-
-      <section class="card" aria-labelledby="fee-heading">
-        <h3 id="fee-heading">Creator-fee estimator (estimate only)</h3>
-        <p class="note">
-          Derived from a <strong>1% total trading fee</strong> and an <strong>80% launcher share</strong>:
-          estimated launcher fees = cumulative trading volume × 0.008. Denominated in USD-equivalent.
-          Payout would be in ETH per current Flaunchy venue documentation. Results are estimates, not promises.
-        </p>
-
-        <form id="fee-form" class="fee-form">
           <div class="form-row">
-            <label for="fee-mc">Market cap (USD-equivalent)</label>
-            <input id="fee-mc" type="number" min="0" step="1000" value="30000" aria-describedby="fee-mc-desc">
-            <p id="fee-mc-desc" class="hint">Used to compute trading volume; it does not itself produce fees.</p>
+            <label for="inspect-address">Contract address</label>
+            <input id="inspect-address" type="text" inputmode="verbatim" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" value="0xb08211d57032dd10b1974d4b876851a7f7596888" required>
           </div>
           <div class="form-row">
-            <label for="fee-vm">Volume multiple</label>
-            <select id="fee-vm">
-              <option value="0.5">0.5x</option>
-              <option value="1">1x</option>
-              <option value="3">3x</option>
-              <option value="10">10x</option>
-            </select>
+            <label for="inspect-label">Label <span class="optional">optional</span></label>
+            <input id="inspect-label" type="text" maxlength="80" autocomplete="off">
           </div>
-          <div class="form-row" style="flex-wrap: wrap; gap: 6px;">
-            <span>Seed:</span>
-            <button type="button" class="btn btn-ghost fee-seed" data-mc="30000">30k</button>
-            <button type="button" class="btn btn-ghost fee-seed" data-mc="100000">100k</button>
-            <button type="button" class="btn btn-ghost fee-seed" data-mc="500000">500k</button>
-            <button type="button" class="btn btn-ghost fee-seed" data-vm="0.5">0.5x</button>
-            <button type="button" class="btn btn-ghost fee-seed" data-vm="1">1x</button>
-            <button type="button" class="btn btn-ghost fee-seed" data-vm="3">3x</button>
-            <button type="button" class="btn btn-ghost fee-seed" data-vm="10">10x</button>
+          <div class="form-actions">
+            <button id="inspect-btn" class="btn btn-primary" type="submit">Inspect hook</button>
+            <button id="save-inspect-btn" class="btn btn-secondary" type="button" disabled>Save to active list</button>
           </div>
-          <div class="form-row">
-            <button type="submit" class="btn btn-primary">Calculate estimate</button>
-          </div>
-          <div id="fee-result" class="fee-result" role="status" aria-live="polite"></div>
+          <p id="inspect-form-error" class="form-error" role="alert" aria-live="assertive"></p>
+          <p class="form-footnote">Evidence is read directly from the selected chain through Hookline RPC.</p>
         </form>
-      </section>
 
-      <section class="card" aria-labelledby="scenario-heading">
-        <h3 id="scenario-heading">Scenario table (USD-equivalent, estimates)</h3>
+        <section id="inspect-evidence" class="evidence-panel" aria-labelledby="evidence-heading">
+          <div class="panel-kicker">EVIDENCE OUTPUT</div>
+          <h2 id="evidence-heading">Awaiting inspection</h2>
+          <p id="evidence-empty" class="empty-copy">Run an inspection to populate verified contract evidence.</p>
+          <div id="inspect-evidence-grid" class="data-grid" role="list" aria-label="Inspection evidence"></div>
+          <div id="inspect-permissions" hidden>
+            <h3>Permission flags <span class="section-note">low 14 address bits</span></h3>
+            <div id="inspect-perm-grid" class="perm-grid" role="group" aria-label="Hook permission flags"></div>
+          </div>
+          <p id="inspect-freshness" class="note" aria-live="polite"></p>
+        </section>
+      </div>
+    </section>
+
+    <section id="view-watchlists" class="view" aria-labelledby="watchlists-heading">
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">RESEARCH WORKSPACE</p>
+          <h1 id="watchlists-heading">Watchlists</h1>
+        </div>
+        <p>Named local lists, live refreshes, evidence history, and same-chain comparisons.</p>
+      </div>
+
+      <div class="watchlists-layout">
+        <aside class="lists-panel" aria-label="Watchlist selection">
+          <button id="new-list-btn" class="btn btn-primary btn-compact" type="button">New list</button>
+          <ul id="lists-list" role="list" aria-label="Saved lists"></ul>
+          <div id="lists-stats" class="lists-stats" role="status" aria-live="polite"></div>
+          <div class="lists-import">
+            <input type="file" id="import-file" accept=".json,application/json" hidden>
+            <button id="export-btn" class="btn btn-ghost btn-compact" type="button">Export JSON</button>
+            <button id="import-btn" class="btn btn-ghost btn-compact" type="button">Import JSON</button>
+          </div>
+        </aside>
+
+        <div class="workspace-panel">
+          <header class="workspace-toolbar">
+            <div>
+              <span class="panel-kicker">ACTIVE LIST</span>
+              <h2 id="active-list-name" class="active-list-name">Primary</h2>
+            </div>
+            <div class="toolbar-actions">
+              <button id="refresh-list-btn" class="btn btn-secondary btn-compact" type="button">Refresh list</button>
+              <progress id="refresh-progress" max="1" value="0" hidden aria-label="Refresh progress"></progress>
+              <input type="search" id="watchlist-search" class="search-input" aria-label="Search active watchlist">
+              <select id="watchlist-chain-filter" aria-label="Filter by chain">
+                <option value="all">All chains</option>
+                <option value="1">Ethereum</option>
+                <option value="8453">Base</option>
+                <option value="42161">Arbitrum</option>
+                <option value="4663">Robinhood</option>
+              </select>
+              <select id="watchlist-state-filter" aria-label="Filter by freshness state">
+                <option value="all">All states</option>
+                <option value="current">Current</option>
+                <option value="stale">Stale</option>
+                <option value="error">Error</option>
+                <option value="unobserved">Unobserved</option>
+              </select>
+              <button id="add-candidate-btn" class="btn btn-primary btn-compact" type="button">Inspect new</button>
+            </div>
+          </header>
+
+          <div id="watchlist-empty" class="empty-state" hidden>
+            <strong>No contracts saved here.</strong>
+            <span>Inspect a live address, then save the evidence to this list.</span>
+          </div>
+          <div class="watchlist-table-container">
+            <table id="watchlist-table" class="watchlist-table" aria-label="Watchlist contracts">
+              <thead><tr><th>Chain</th><th>Contract</th><th>Observed</th><th>Block</th><th>Owner</th><th>Freshness</th><th>Action</th></tr></thead>
+              <tbody id="watchlist-tbody"></tbody>
+            </table>
+          </div>
+
+          <section class="compare-section" aria-labelledby="compare-heading">
+            <div class="compare-heading-row">
+              <div><span class="panel-kicker">EVIDENCE DIFF</span><h2 id="compare-heading">Compare two contracts</h2></div>
+              <p id="cmp-desc">Same-chain comparisons only.</p>
+            </div>
+            <form id="compare-form" class="compare-form" novalidate>
+              <label>Left</label><select id="cmp-left"><option value="">Select a contract</option></select>
+              <label>Right</label><select id="cmp-right"><option value="">Select a contract</option></select>
+              <button class="btn btn-primary btn-compact" type="submit">Compare</button>
+            </form>
+            <div id="cmp-result" class="compare-results" role="status" aria-live="polite"></div>
+          </section>
+        </div>
+      </div>
+
+      <section id="watchlist-detail" class="detail-drawer" hidden aria-labelledby="detail-heading">
+        <header class="detail-header">
+          <div><span class="panel-kicker">SAVED EVIDENCE</span><h2 id="detail-heading"><span id="detail-label"></span></h2></div>
+          <div class="detail-actions">
+            <button id="refresh-candidate-btn" class="btn btn-secondary btn-compact" type="button">Refresh</button>
+            <button id="remove-candidate-btn" class="btn btn-ghost btn-compact" type="button">Remove</button>
+            <button id="close-detail-btn" class="btn btn-ghost btn-compact" type="button">Close</button>
+          </div>
+        </header>
+        <div class="detail-body">
+          <div id="detail-evidence" class="data-grid" role="list" aria-label="Saved contract evidence"></div>
+          <h3>Permission flags <span class="section-note">low 14 address bits</span></h3>
+          <div id="detail-perm-grid" class="perm-grid" role="group" aria-label="Permission flags"></div>
+        </div>
+      </section>
+    </section>
+
+    <section id="view-network" class="view" aria-labelledby="network-heading">
+      <div class="section-heading">
+        <div><p class="eyebrow">LIVE INFRASTRUCTURE</p><h1 id="network-heading">Network and API</h1></div>
+        <p>Real upstream health, block height, latency, and two ways to call Hookline.</p>
+      </div>
+
+      <section class="telemetry-card card" aria-labelledby="telemetry-heading">
+        <div class="telemetry-header">
+          <div><span class="panel-kicker">MULTICHAIN TELEMETRY</span><h2 id="telemetry-heading">Live network state</h2></div>
+          <button id="refresh-telemetry-btn" class="btn btn-ghost btn-compact" type="button">Refresh</button>
+        </div>
+        <div id="telemetry-summary" class="telemetry-summary" role="status" aria-live="polite"></div>
         <div class="table-scroll">
-          <table class="scenario-table">
-            <thead>
-              <tr>
-                <th scope="col">Market cap</th>
-                <th scope="col">0.5x volume</th>
-                <th scope="col">1x volume</th>
-                <th scope="col">3x volume</th>
-                <th scope="col">10x volume</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr>
-                <td><strong>30k</strong></td>
-                <td>$120</td>
-                <td>$240</td>
-                <td>$720</td>
-                <td>$2,400</td>
-              </tr>
-              <tr>
-                <td><strong>100k</strong></td>
-                <td>$400</td>
-                <td>$800</td>
-                <td>$2,400</td>
-                <td>$8,000</td>
-              </tr>
-              <tr>
-                <td><strong>500k</strong></td>
-                <td>$2,000</td>
-                <td>$4,000</td>
-                <td>$12,000</td>
-                <td>$40,000</td>
-              </tr>
-            </tbody>
+          <table id="chain-table" class="data-table" aria-label="Chain health table">
+            <thead><tr><th>Chain</th><th>ID</th><th>Status</th><th>Latest block</th><th>Latency</th><th>Last error</th></tr></thead>
+            <tbody id="chain-table-body"></tbody>
           </table>
         </div>
-        <p class="note">Scenarios are illustrative. Payout, if any, would be in ETH per current Flaunchy venue documentation.</p>
       </section>
 
-      <section class="card" aria-labelledby="references-heading">
-        <h3 id="references-heading">References (external)</h3>
-        <ul class="references">
-          <li>
-            <a href="https://docs.flaunch.gg/protocol/frequently-asked-questions" target="_blank" rel="noopener noreferrer">
-              Flaunchy — FAQ
-            </a>
-          </li>
-          <li>
-            <a href="https://docs.flaunch.gg/community/flaunchy" target="_blank" rel="noopener noreferrer">
-              Flaunchy — Documentation
-            </a>
-          </li>
-        </ul>
-        <p class="note">These external links are provided for context only. This project is not affiliated with Robinhood, Flaunch, or Uniswap.</p>
-      </section>
+      <div class="api-grid">
+        <section class="card api-card">
+          <span class="panel-kicker">PUBLIC ACCESS</span>
+          <h2>Free RPC</h2>
+          <p>Hook inspection, permission decoding, chain status, and safe JSON-RPC methods. Rate limited to protect the service.</p>
+          <ul class="rpc-endpoints">
+            <li><span>Hookline methods</span><code>POST /rpc</code><button class="btn btn-ghost btn-compact" type="button" data-copy="/rpc">Copy</button></li>
+            <li><span>Chain proxy</span><code>POST /rpc/{chainId}</code><button class="btn btn-ghost btn-compact" type="button" data-copy="/rpc/{chainId}">Copy</button></li>
+            <li><span>Docs</span><code>GET /rpc</code><button class="btn btn-ghost btn-compact" type="button" data-copy="/rpc">Copy</button></li>
+          </ul>
+        </section>
+
+        <section class="card api-card paid-card">
+          <span class="panel-kicker">X402 CAPACITY</span>
+          <h2>Paid RPC</h2>
+          <p>Verified requests settle 0.01 USDC on Base to unlock the paid capacity path.</p>
+          <ul class="rpc-endpoints">
+            <li><span>Endpoint</span><code>POST /rpc/paid</code><button class="btn btn-ghost btn-compact" type="button" data-copy="/rpc/paid">Copy</button></li>
+            <li><span>Network</span><code>eip155:8453</code></li>
+            <li><span>Asset</span><code>USDC</code></li>
+            <li><span>Settlement</span><code class="breakable">0x69e73F4B54ED92939D48B5472894179BF3292DD3</code></li>
+          </ul>
+        </section>
+      </div>
     </section>
-
   </main>
 
-  <footer class="site-footer" role="contentinfo">
-    <p>Hookline prototype. All evidence, candidates, blocks, transactions, and fee figures are fictional demo data generated locally. No live RPC, no external assets.</p>
-    <p><a href="#network">Network & launch thesis</a> · <a href="#compare">Compare</a> · <a href="#observatory">Observatory</a></p>
+  <section class="token-strip" aria-label="HKLN service information">
+    <div class="token-inner">
+      <div class="token-intro"><span class="panel-kicker">SERVICE LAYER</span><strong>HKLN on Base</strong><p>Public service access, paid capacity infrastructure, and ecosystem alignment.</p></div>
+      <div class="token-col"><span>Contract</span><code class="breakable">0x11672C8cD5CB3F17364339244826B110Bac0AC91</code><button id="strip-copy-ca" class="btn btn-ghost btn-compact" type="button">Copy CA</button></div>
+      <div class="token-col"><span>Capacity wallet</span><code class="breakable">0x69e73F4B54ED92939D48B5472894179BF3292DD3</code><button id="strip-copy-fee" class="btn btn-ghost btn-compact" type="button">Copy wallet</button></div>
+      <div class="token-links"><a href="https://basescan.org/token/0x11672C8cD5CB3F17364339244826B110Bac0AC91" target="_blank" rel="noopener noreferrer">BaseScan</a><a href="https://flaunch.gg/base/coins/0x11672C8cD5CB3F17364339244826B110Bac0AC91" target="_blank" rel="noopener noreferrer">Flaunch</a><a href="https://x.com/_hookline" target="_blank" rel="noopener noreferrer">X</a></div>
+    </div>
+  </section>
+
+  <footer class="site-footer">
+    <span>HOOKLINE / MULTICHAIN HOOKS ANALYTICS DESK</span>
+    <span>Ethereum · Base · Arbitrum · Robinhood Chain</span>
+    <a href="#/network">RPC and network</a>
+    <p>
+      <code>0x11672C8cD5CB3F17364339244826B110Bac0AC91</code> ·
+      <code>0x69e73F4B54ED92939D48B5472894179BF3292DD3</code> ·
+      <a href="https://x.com/_hookline" target="_blank" rel="noopener noreferrer">X</a> ·
+      <a href="https://flaunch.gg/base/coins/0x11672C8cD5CB3F17364339244826B110Bac0AC91" target="_blank" rel="noopener noreferrer">Flaunch</a>
+    </p>
   </footer>
 
   <div id="hookline-toast" class="toast" role="status" aria-live="polite" aria-atomic="true"></div>
-
   <script src="app.js"></script>
 </body>
 </html>
