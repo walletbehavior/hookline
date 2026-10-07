@@ -963,6 +963,21 @@
     };
   }
 
+  function normalizeVerifiedContract(raw) {
+    if (!raw || typeof raw !== 'object') return null;
+    const name = cleanString(raw.name, 160);
+    if (!name) return null;
+    return {
+      name,
+      fullyQualifiedName: cleanString(raw.fullyQualifiedName, 500) || null,
+      language: cleanString(raw.language, 40) || null,
+      compiler: cleanString(raw.compiler, 40) || null,
+      compilerVersion: cleanString(raw.compilerVersion, 100) || null,
+      verifiedAt: cleanString(raw.verifiedAt, 80) || null,
+      provenance: cleanString(raw.provenance, 80) || 'Sourcify verified source',
+    };
+  }
+
   function normalizeBoardSnapshot(raw) {
     if (!raw || raw.schemaVersion !== 1 || !Array.isArray(raw.hooks) || !Array.isArray(raw.projects)) return null;
     const projects = raw.projects.map(normalizeBoardProject).filter(Boolean);
@@ -973,20 +988,21 @@
       if (!Number.isSafeInteger(chainId) || !checked.ok) return null;
       const id = `${chainId}_${checked.address}`;
       const project = normalizeBoardProject(hook.project) || byHook.get(id) || null;
+      const verifiedContract = normalizeVerifiedContract(hook.verifiedContract);
       const permissions = permissionProfiles(checked.address);
       return {
         kind: 'hook', id, chainId, chainName: cleanString(hook.chainName, 100) || `Chain ${chainId}`,
         address: checked.address, indexedAddress: cleanString(hook.address, 42) || checked.address,
         numberOfPools: Math.max(0, Number(hook.numberOfPools) || 0),
         numberOfSwaps: Math.max(0, Number(hook.numberOfSwaps) || 0),
-        liveInspection: SUPPORTED_CHAINS.includes(chainId), project, permissions,
+        liveInspection: SUPPORTED_CHAINS.includes(chainId), project, verifiedContract, permissions,
       };
     }).filter(Boolean);
     const linked = new Set(hooks.filter((hook) => hook.project).map((hook) => hook.project.sourceId).filter(Boolean));
     const directory = projects.filter((project) => !project.hookId || !linked.has(project.sourceId)).map((project) => ({
       kind: 'project', id: `project:${project.sourceId || project.name.toLowerCase()}`, chainId: null,
       chainName: 'Unlinked', address: null, numberOfPools: null, numberOfSwaps: null,
-      liveInspection: false, project, permissions: { enabled: [], profiles: [] },
+      liveInspection: false, project, verifiedContract: null, permissions: { enabled: [], profiles: [] },
     }));
     const generatedAt = Date.parse(raw.generatedAt);
     return {
@@ -997,7 +1013,7 @@
   }
 
   function boardItemName(item) {
-    return item.project ? item.project.name : `Hook ${shorten(item.address, 8, 6)}`;
+    return item.project?.name || item.verifiedContract?.name || `Hook ${shorten(item.address, 8, 6)}`;
   }
 
   function boardProfileLabels(item) {
@@ -1016,9 +1032,9 @@
     const result = state.board.items.filter((item) => {
       if (chain !== 'all' && String(item.chainId) !== chain) return false;
       if (profile !== 'all' && !item.permissions.profiles.includes(profile)) return false;
-      if (state.boardProjectsOnly && !item.project) return false;
+      if (state.boardProjectsOnly && !item.project && !item.verifiedContract) return false;
       if (!query) return true;
-      const fields = [boardItemName(item), item.chainName, item.address, item.project?.type, item.project?.stage, ...boardProfileLabels(item)];
+      const fields = [boardItemName(item), item.chainName, item.address, item.project?.type, item.project?.stage, item.verifiedContract?.fullyQualifiedName, ...boardProfileLabels(item)];
       return fields.some((value) => String(value || '').toLowerCase().includes(query));
     });
     result.sort((a, b) => {
@@ -1071,7 +1087,7 @@
     if (!state.board) return;
     const filtered = filteredBoardItems();
     const visible = filtered.slice(0, state.boardVisible);
-    $('board-result-count').textContent = `${formatNumber(filtered.length)} results · ${formatNumber(state.board.hooks.length)} deployed hook identities · ${formatNumber(state.board.projects.length)} project records`;
+    $('board-result-count').textContent = `${formatNumber(filtered.length)} results · ${formatNumber(state.board.hooks.length)} hooks · ${formatNumber(state.board.coverage?.verifiedIdentityCount || 0)} verified titles · ${formatNumber(state.board.projects.length)} project records`;
     visible.forEach((item, index) => {
       const row = document.createElement('tr');
       row.dataset.id = item.id;
@@ -1139,7 +1155,7 @@
     if (!item) return;
     const project = item.project;
     $('hook-profile-chain').textContent = item.chainName;
-    $('hook-profile-source').textContent = project ? project.provenance : 'indexed identity';
+    $('hook-profile-source').textContent = project?.provenance || item.verifiedContract?.provenance || 'indexed identity';
     $('hook-profile-title').textContent = boardItemName(item);
     $('hook-profile-address').textContent = item.address || 'No deployment address linked';
     $('hook-profile-copy').hidden = !item.address;
@@ -1393,6 +1409,7 @@
         x: item.project.x,
         provenance: item.project.provenance,
       } : null,
+      verifiedContract: item.verifiedContract,
       numberOfPools: item.numberOfPools,
       numberOfSwaps: item.numberOfSwaps,
       permissionMask: item.address ? decodePermissions(item.address).value : null,
@@ -1406,7 +1423,7 @@
       filters: {
         query: $('board-search').value.trim(), chain: $('board-chain').value,
         capability: $('board-profile').value, sort: $('board-sort').value,
-        namedProjectsOnly: state.boardProjectsOnly,
+        namedOnly: state.boardProjectsOnly,
       },
       records,
     };

@@ -1,9 +1,10 @@
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 
 const SEARCH_URL = 'https://www.v4.xyz/api/search?q=';
 const INFO_URL = 'https://www.v4.xyz/api/hooks/info';
 const OUTPUT = resolve('dist/hooks.json');
+const VERIFIED_IDENTITIES = resolve('data/verified-hook-identities.json');
 const HEX = '0123456789abcdef';
 const RESULT_CAP = 5;
 // The public endpoint caps each search at five hooks. Two address nibbles
@@ -12,6 +13,17 @@ const RESULT_CAP = 5;
 const MAX_PREFIX_LENGTH = 2;
 const CONCURRENCY = 6;
 const MAX_RETRIES = 5;
+
+function verifiedIdentityMap() {
+  if (!existsSync(VERIFIED_IDENTITIES)) return new Map();
+  try {
+    const snapshot = JSON.parse(readFileSync(VERIFIED_IDENTITIES, 'utf8'));
+    const identities = snapshot && typeof snapshot.identities === 'object' ? snapshot.identities : {};
+    return new Map(Object.entries(identities));
+  } catch {
+    return new Map();
+  }
+}
 
 const CHAIN_NAMES = Object.freeze({
   1: 'Ethereum',
@@ -157,6 +169,7 @@ const [info] = await Promise.all([
 ]);
 
 const communityProjects = projectRecords(info);
+const verifiedIdentities = verifiedIdentityMap();
 const projectKeys = new Set(HOOKLINE_RESEARCHED_PROJECTS.map((project) => project.hookId || project.name.toLowerCase()));
 const projects = HOOKLINE_RESEARCHED_PROJECTS.concat(
   communityProjects.filter((project) => !projectKeys.has(project.hookId || project.name.toLowerCase()))
@@ -178,7 +191,11 @@ for (const project of HOOKLINE_RESEARCHED_PROJECTS) {
   });
 }
 const sortedHooks = [...hooks.values()]
-  .map((hook) => ({ ...hook, project: projectsByHook.get(hook.id) || null }))
+  .map((hook) => ({
+    ...hook,
+    project: projectsByHook.get(hook.id) || null,
+    verifiedContract: verifiedIdentities.get(hook.id) || null,
+  }))
   .sort((a, b) => b.numberOfSwaps - a.numberOfSwaps || b.numberOfPools - a.numberOfPools || a.id.localeCompare(b.id));
 const chains = [...new Set(sortedHooks.map((hook) => hook.chainId))]
   .map((chainId) => ({
@@ -202,6 +219,7 @@ const snapshot = {
     searchPrefixDepth: MAX_PREFIX_LENGTH,
     discoveryMethod: 'top activity results for every two-nibble address prefix',
     exhaustive: false,
+    verifiedIdentityCount: sortedHooks.filter((hook) => hook.verifiedContract?.name).length,
   },
   sources: [
     {
@@ -213,6 +231,11 @@ const snapshot = {
       label: 'v4.xyz hook directory',
       role: 'project-submitted or community-curated names and descriptions',
       url: INFO_URL,
+    },
+    {
+      label: 'Sourcify verified contract dataset',
+      role: 'verified deployed contract titles',
+      url: 'https://export.sourcify.dev/v2/',
     },
   ],
   chains,

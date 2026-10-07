@@ -183,6 +183,11 @@ try {
   assert.ok(hookData.coverage.chainCount >= 10);
   assert.ok(hookData.hooks.some((hook) => hook.project?.name === 'CLAUS'));
   assert.ok(hookData.projects.some((project) => project.provenance === 'Hookline researched'));
+  assert.ok(hookData.coverage.verifiedIdentityCount >= 1);
+  assert.equal(
+    hookData.hooks.find((hook) => hook.id === '4663_0xe5e702641ea86f4ae6cc3cdaed2b886f976be044')?.verifiedContract?.name,
+    'PonsV2MemeHook'
+  );
 
   const marketsResponse = await request(`/api/hook-markets?chainId=8453&address=0x${'ab'.repeat(20)}`);
   assert.equal(marketsResponse.status, 200);
