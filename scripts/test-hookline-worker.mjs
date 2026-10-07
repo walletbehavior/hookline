@@ -33,6 +33,43 @@ globalThis.fetch = async (url, init = {}) => {
     });
   }
 
+  if (urlString.startsWith('https://www.v4.xyz/api/pools-by-hook?')) {
+    return new Response(JSON.stringify({
+      Pool: [{
+        chainId: '8453',
+        hooks: `0x${'ab'.repeat(20)}`,
+        id: `8453_0x${'12'.repeat(32)}`,
+        name: 'WETH / TEST - 0.3%',
+        txCount: '42',
+        volumeUSD: '12000',
+        totalValueLockedUSD: '5000',
+      }],
+    }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+  }
+
+  if (urlString.startsWith('https://api.dexscreener.com/latest/dex/pairs/base/')) {
+    return new Response(JSON.stringify({
+      pairs: [{
+        chainId: 'base',
+        dexId: 'uniswap',
+        labels: ['v4'],
+        url: `https://dexscreener.com/base/0x${'12'.repeat(32)}`,
+        pairAddress: `0x${'12'.repeat(32)}`,
+        baseToken: { address: `0x${'34'.repeat(20)}`, name: 'Test Token', symbol: 'TEST' },
+        quoteToken: { address: `0x${'56'.repeat(20)}`, name: 'Wrapped Ether', symbol: 'WETH' },
+        priceUsd: '0.0042',
+        priceChange: { h24: 5.5 },
+        volume: { h24: 12000 },
+        liquidity: { usd: 5000 },
+        marketCap: 420000,
+        info: {
+          websites: [{ url: 'https://example.com', label: 'Website' }],
+          socials: [{ url: 'https://x.com/example', type: 'twitter' }],
+        },
+      }],
+    }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+  }
+
   if (urlString === failedUpstream) {
     return new Response('upstream unavailable', { status: 503 });
   }
@@ -147,6 +184,14 @@ try {
   assert.ok(hookData.hooks.some((hook) => hook.project?.name === 'CLAUS'));
   assert.ok(hookData.projects.some((project) => project.provenance === 'Hookline researched'));
 
+  const marketsResponse = await request(`/api/hook-markets?chainId=8453&address=0x${'ab'.repeat(20)}`);
+  assert.equal(marketsResponse.status, 200);
+  const markets = await marketsResponse.json();
+  assert.equal(markets.markets.length, 1);
+  assert.equal(markets.markets[0].baseToken.symbol, 'TEST');
+  assert.equal(markets.markets[0].marketCap, 420000);
+  assert.match(markets.markets[0].chartUrl, /^https:\/\/dexscreener\.com\//);
+
   const healthResponse = await request('/health');
   assert.equal(healthResponse.status, 200);
   const health = await healthResponse.json();
@@ -180,6 +225,7 @@ try {
   assert.equal(docs.constraints.batchesSupported, false);
   assert.equal(docs.routes.paidRpc, '/rpc/paid');
   assert.equal(docs.routes.hookBoard, '/data/hooks.json');
+  assert.match(docs.routes.hookMarkets, /^\/api\/hook-markets/);
   assert.equal(docs.paidAccess.amountAtomic, '10000');
   assert.equal(docs.paidAccess.network, 'eip155:8453');
   assert.equal('payTo' in docs.paidAccess, false);

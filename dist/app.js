@@ -30,6 +30,12 @@
     146: '#d7d0c5', 480: '#72a892', 1868: '#7590bd', 4663: '#839a79', 8453: '#5e84b2',
     42161: '#3f8ed0', 42220: '#fcff52', 43114: '#e84142', 57073: '#8a68ff', 81457: '#ffdfb5',
   });
+  const DEXSCREENER_CHAIN_SLUGS = Object.freeze({
+    1: 'ethereum', 10: 'optimism', 56: 'bsc', 130: 'unichain', 137: 'polygon', 143: 'monad',
+    146: 'sonic', 480: 'worldchain', 1868: 'soneium', 8453: 'base', 42161: 'arbitrum',
+    42220: 'celo', 43114: 'avalanche', 57073: 'ink', 81457: 'blast',
+  });
+  const MARKET_RESOLVER_VERSION = '3';
 
   const $ = (id) => document.getElementById(id);
   const $$ = (selector) => Array.from(document.querySelectorAll(selector));
@@ -163,6 +169,14 @@
     if (!Number.isFinite(number)) return '—';
     if (number < 1000) return number.toLocaleString();
     return new Intl.NumberFormat(undefined, { notation: 'compact', maximumFractionDigits: 1 }).format(number);
+  }
+
+  function formatUsd(value, compact) {
+    const number = Number(value);
+    if (!Number.isFinite(number)) return '—';
+    if (compact && Math.abs(number) >= 1000) return '$' + compactNumber(number);
+    const digits = Math.abs(number) < 0.01 ? 8 : Math.abs(number) < 1 ? 5 : 2;
+    return '$' + number.toLocaleString(undefined, { maximumFractionDigits: digits });
   }
 
   function candidateKey(candidate) {
@@ -962,7 +976,8 @@
       const permissions = permissionProfiles(checked.address);
       return {
         kind: 'hook', id, chainId, chainName: cleanString(hook.chainName, 100) || `Chain ${chainId}`,
-        address: checked.address, numberOfPools: Math.max(0, Number(hook.numberOfPools) || 0),
+        address: checked.address, indexedAddress: cleanString(hook.address, 42) || checked.address,
+        numberOfPools: Math.max(0, Number(hook.numberOfPools) || 0),
         numberOfSwaps: Math.max(0, Number(hook.numberOfSwaps) || 0),
         liveInspection: SUPPORTED_CHAINS.includes(chainId), project, permissions,
       };
@@ -1101,7 +1116,7 @@
   }
 
   function setProfileRecord(id, value) {
-    $(id).textContent = value || 'not supplied';
+    $(id).textContent = value || '—';
   }
 
   function safeProfileLink(url, label) {
@@ -1128,19 +1143,22 @@
     $('hook-profile-title').textContent = boardItemName(item);
     $('hook-profile-address').textContent = item.address || 'No deployment address linked';
     $('hook-profile-copy').hidden = !item.address;
-    $('hook-profile-description').textContent = project?.description || (item.kind === 'hook'
-      ? 'A deployed hook identity discovered through the cross-chain community index. Open live inspection for direct contract evidence where supported.'
-      : 'A hook ecosystem project record without an indexed deployment address.');
+    const description = $('hook-profile-description');
+    description.textContent = project?.description || '';
+    description.hidden = !description.textContent;
     $('hook-profile-pools').textContent = item.numberOfPools == null ? '—' : formatNumber(item.numberOfPools);
     $('hook-profile-swaps').textContent = item.numberOfSwaps == null ? '—' : formatNumber(item.numberOfSwaps);
     $('hook-profile-mask').textContent = item.address ? `0x${decodePermissions(item.address).value.toString(16).padStart(4, '0')}` : '—';
     const permissions = $('hook-profile-permissions');
     permissions.replaceChildren();
-    if (item.permissions.enabled.length) {
-      item.permissions.enabled.forEach((name) => permissions.append(makeElement('span', '', name)));
+    if (item.permissions.profiles.length) {
+      const labels = { swap: 'Swap', liquidity: 'Liquidity', initialize: 'Initialize', donate: 'Donate', delta: 'Return delta' };
+      item.permissions.profiles.forEach((name) => permissions.append(makeElement('span', '', labels[name] || name)));
     } else {
-      permissions.append(makeElement('span', 'none', item.address ? 'no callback bits enabled' : 'deployment not linked'));
+      permissions.append(makeElement('span', 'none', item.address ? 'none encoded' : '—'));
     }
+    $('hook-profile-callback-count').textContent = item.address ? `${item.permissions.enabled.length} / 14 bits` : '';
+    renderBoardMarkets(item);
     renderBoardLiveEvidence(item);
     $('hook-profile-project').hidden = !project;
     if (project) {
@@ -1154,18 +1172,65 @@
       if (website) links.append(website);
       if (x) links.append(x);
     }
-    const supported = item.kind === 'hook' && item.liveInspection;
-    $('hook-profile-inspect').disabled = !supported;
-    $('hook-profile-inspect').textContent = supported && state.boardEvidence.get(item.id)?.result ? 'Refresh live' : 'Inspect live';
-    $('hook-profile-watch').disabled = !supported;
+    const inspectable = item.kind === 'hook' && Boolean(item.address);
+    const cached = state.boardEvidence.get(item.id);
+    $('hook-profile-inspect').disabled = !inspectable;
+    $('hook-profile-inspect').textContent = inspectable && (cached?.result || cached?.markets) ? 'Refresh' : 'Inspect';
+    $('hook-profile-watch').disabled = !(inspectable && item.liveInspection);
     $('hook-profile-share').disabled = item.kind !== 'hook';
     const explorer = $('hook-profile-explorer');
     const explorerUrl = item.address ? explorerAddressUrl(item.chainId, item.address) : null;
     explorer.hidden = !explorerUrl;
     if (explorerUrl) explorer.href = explorerUrl;
-    $('hook-profile-boundary').textContent = supported
-      ? 'Pool and swap totals are indexed aggregates. Use live inspection for bytecode, ownership probe, permission state, and current-chain evidence.'
-      : item.kind === 'project' ? 'This directory entry is not yet linked to a deployed hook address.' : 'This hook is indexed, but Hookline live inspection does not yet cover this chain.';
+    $('hook-profile-boundary').textContent = item.kind === 'project'
+      ? 'Directory record · deployment not linked'
+      : item.liveInspection ? 'Counts · v4.xyz snapshot   Contract · live RPC' : 'Counts · v4.xyz snapshot   Contract RPC · unavailable';
+  }
+
+  function renderBoardMarkets(item) {
+    const section = $('hook-profile-markets');
+    const list = $('hook-profile-market-list');
+    const status = $('hook-profile-market-status');
+    list.replaceChildren();
+    const cached = state.boardEvidence.get(item.id);
+    const markets = Array.isArray(cached?.markets) ? cached.markets.slice(0, 4) : [];
+    section.hidden = markets.length === 0;
+    if (!markets.length) return;
+    const hasLiveMarkets = markets.some((market) => market.priceUsd != null && Number.isFinite(Number(market.priceUsd)));
+    status.textContent = `${markets.length} shown · ${hasLiveMarkets ? 'DexScreener' : 'pool index'}`;
+    markets.forEach((market) => {
+      const card = makeElement('article', 'profile-market-card');
+      const head = makeElement('div', 'market-card-head');
+      const identity = makeElement('div', 'market-identity');
+      identity.append(
+        makeElement('strong', '', market.baseToken?.symbol ? `$${market.baseToken.symbol}` : market.poolName),
+        makeElement('span', '', market.baseToken?.name || market.poolName || 'Token market'),
+      );
+      const change = Number(market.priceChange24h);
+      const changeNode = makeElement('b', Number.isFinite(change) ? (change > 0 ? 'positive' : change < 0 ? 'negative' : '') : '', Number.isFinite(change) ? `${change > 0 ? '+' : ''}${change.toFixed(2)}%` : '—');
+      head.append(identity, changeNode);
+      const pair = makeElement('p', 'market-pair', `${market.baseToken?.symbol || '?'} / ${market.quoteToken?.symbol || '?'} · ${market.dexLabel || 'DEX'}`);
+      const stats = makeElement('div', 'market-stats');
+      [
+        ['PRICE', formatUsd(market.priceUsd, false)],
+        ['MKT CAP', formatUsd(market.marketCap, true)],
+        ['LIQ', formatUsd(market.liquidityUsd, true)],
+        ['VOL 24H', formatUsd(market.volume24h, true)],
+      ].forEach(([label, value]) => {
+        const stat = makeElement('div', '');
+        stat.append(makeElement('span', '', label), makeElement('strong', '', value));
+        stats.append(stat);
+      });
+      const links = makeElement('div', 'market-links');
+      const chart = safeProfileLink(market.chartUrl, 'Chart ↗');
+      const website = safeProfileLink(market.website, 'Website ↗');
+      const x = safeProfileLink(market.x, 'X ↗');
+      if (chart) links.append(chart);
+      if (website) links.append(website);
+      if (x) links.append(x);
+      card.append(head, pair, stats, links);
+      list.append(card);
+    });
   }
 
   function renderBoardLiveEvidence(item) {
@@ -1173,61 +1238,119 @@
     const status = $('hook-profile-live-status');
     const note = $('hook-profile-live-note');
     grid.replaceChildren();
+    note.hidden = true;
+    note.textContent = '';
     const cached = state.boardEvidence.get(item.id);
     if (!item.liveInspection || !item.address) {
-      status.textContent = 'not covered';
-      note.textContent = item.kind === 'project' ? 'A deployment address is required for live evidence.' : 'Hookline live RPC does not yet cover this chain.';
+      status.textContent = 'unavailable';
       return;
     }
     if (!cached) {
-      status.textContent = 'not requested';
-      note.textContent = 'Run a live inspection for current bytecode, ownership probe, runtime fingerprint, block, and latency.';
+      status.textContent = 'not loaded';
       return;
     }
     if (cached.error) {
-      status.textContent = 'request failed';
-      note.textContent = cached.error;
+      status.textContent = 'failed';
+      note.textContent = cleanString(cached.error, 140) || 'RPC read failed.';
+      note.hidden = false;
+      return;
+    }
+    if (!cached.result) {
+      status.textContent = 'not loaded';
       return;
     }
     const { evidence, observation } = cached.result;
     const values = [
-      ['Code size', `${formatNumber(evidence.codeByteLength)} bytes`],
-      ['Owner probe', evidence.owner ? shorten(evidence.owner, 9, 7) : evidence.ownerProbeStatus || 'none found'],
-      ['Block', observation.block == null ? 'unavailable' : formatNumber(observation.block)],
-      ['Latency', formatLatency(evidence.latencyMs)],
-      ['Runtime SHA-256', fingerprintOf(evidence) ? shorten(fingerprintOf(evidence), 14, 10) : 'unavailable'],
+      ['Bytecode', `${formatNumber(evidence.codeByteLength)} bytes`],
+      ['owner()', evidence.owner ? shorten(evidence.owner, 9, 7) : evidence.ownerProbeStatus === 'reverted' ? 'reverted' : 'not returned'],
+      ['Block', observation.block == null ? '—' : formatNumber(observation.block)],
+      ['RPC', formatLatency(evidence.latencyMs)],
+      ['Runtime hash', fingerprintOf(evidence) || '—'],
     ];
     values.forEach(([label, value]) => {
       const row = makeElement('div', 'profile-live-row');
-      row.append(makeElement('span', '', label), makeElement('code', '', value));
+      const code = makeElement('code', '', value);
+      code.title = value;
+      row.append(makeElement('span', '', label), code);
       grid.append(row);
     });
-    status.textContent = 'observed now';
-    note.textContent = `Direct RPC evidence observed ${relativeTime(observation.observedAt)}.`;
+    status.textContent = new Date(observation.observedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  }
+
+  async function readHookMarkets(item) {
+    const params = new URLSearchParams({
+      chainId: String(item.chainId),
+      address: item.indexedAddress || item.address,
+      v: MARKET_RESOLVER_VERSION,
+    });
+    const response = await fetch(`/api/hook-markets?${params}`, { headers: { Accept: 'application/json' } });
+    const payload = await response.json().catch(() => null);
+    if (!response.ok || !payload || !Array.isArray(payload.markets)) throw new Error('Market lookup failed.');
+    const markets = payload.markets;
+    const dexSlug = DEXSCREENER_CHAIN_SLUGS[item.chainId];
+    const pairIds = markets.map((market) => cleanString(market.pairAddress, 70)).filter((value) => /^0x[0-9a-fA-F]{64}$/.test(value));
+    if (!dexSlug || !pairIds.length || markets.every((market) => market.priceUsd != null && Number.isFinite(Number(market.priceUsd)))) return markets;
+    try {
+      const dexResponse = await fetch(`https://api.dexscreener.com/latest/dex/pairs/${dexSlug}/${pairIds.join(',')}`, { headers: { Accept: 'application/json' } });
+      if (!dexResponse.ok) return markets;
+      const dexPayload = await dexResponse.json();
+      const pairs = Array.isArray(dexPayload?.pairs) ? dexPayload.pairs : [];
+      const byPool = new Map(pairs.map((pair) => [String(pair?.pairAddress || '').toLowerCase(), pair]));
+      return markets.map((market) => {
+        const pair = byPool.get(String(market.pairAddress || '').toLowerCase());
+        if (!pair) return market;
+        const websites = Array.isArray(pair.info?.websites) ? pair.info.websites : [];
+        const socials = Array.isArray(pair.info?.socials) ? pair.info.socials : [];
+        const website = websites.find((entry) => entry && typeof entry.url === 'string')?.url || market.website;
+        const x = socials.find((entry) => ['twitter', 'x'].includes(String(entry?.type || '').toLowerCase()))?.url || market.x;
+        return {
+          ...market,
+          baseToken: pair.baseToken || market.baseToken,
+          quoteToken: pair.quoteToken || market.quoteToken,
+          dexLabel: pair.dexId === 'uniswap' ? `Uniswap ${Array.isArray(pair.labels) && pair.labels[0] ? pair.labels[0] : ''}`.trim() : cleanString(pair.dexId, 40) || market.dexLabel,
+          priceUsd: Number.isFinite(Number(pair.priceUsd)) ? Number(pair.priceUsd) : market.priceUsd,
+          priceChange24h: Number.isFinite(Number(pair.priceChange?.h24)) ? Number(pair.priceChange.h24) : market.priceChange24h,
+          volume24h: Number.isFinite(Number(pair.volume?.h24)) ? Number(pair.volume.h24) : market.volume24h,
+          liquidityUsd: Number.isFinite(Number(pair.liquidity?.usd)) ? Number(pair.liquidity.usd) : market.liquidityUsd,
+          marketCap: Number.isFinite(Number(pair.marketCap ?? pair.fdv)) ? Number(pair.marketCap ?? pair.fdv) : market.marketCap,
+          chartUrl: cleanString(pair.url, 500) || market.chartUrl,
+          website: cleanString(website, 500) || null,
+          x: cleanString(x, 500) || null,
+        };
+      });
+    } catch (_) {
+      return markets;
+    }
   }
 
   async function inspectSelectedProfile() {
     const item = selectedBoardItem();
-    if (!item || !item.liveInspection || !item.address) return;
+    if (!item || item.kind !== 'hook' || !item.address) return;
     const button = $('hook-profile-inspect');
     button.disabled = true;
     button.textContent = 'Inspecting…';
-    $('hook-profile-live-status').textContent = 'reading chain';
-    try {
-      const result = await readHook(item.chainId, item.address);
-      state.boardEvidence.set(item.id, { result });
+    if (item.liveInspection) $('hook-profile-live-status').textContent = 'reading';
+    const [contract, markets] = await Promise.allSettled([
+      item.liveInspection ? readHook(item.chainId, item.address) : Promise.resolve(null),
+      readHookMarkets(item),
+    ]);
+    const next = {};
+    if (contract.status === 'fulfilled' && contract.value) next.result = contract.value;
+    if (contract.status === 'rejected') next.error = contract.reason?.message || 'RPC read failed.';
+    if (markets.status === 'fulfilled') next.markets = markets.value;
+    if (markets.status === 'rejected') next.marketError = markets.reason?.message || 'Market lookup failed.';
+    state.boardEvidence.set(item.id, next);
+    if (next.result || next.markets?.length) {
       state.inspectionsThisSession += 1;
       updateDeskCounters();
-      renderBoardLiveEvidence(item);
-      toast('Live evidence captured.', 'info');
-    } catch (error) {
-      state.boardEvidence.set(item.id, { error: error.message });
-      renderBoardLiveEvidence(item);
-      toast(error.message, 'alert');
-    } finally {
-      button.disabled = false;
-      button.textContent = state.boardEvidence.get(item.id)?.result ? 'Refresh live' : 'Inspect live';
+      toast(next.markets?.length ? `${next.markets.length} related markets resolved.` : 'Contract read complete.', 'info');
+    } else {
+      toast(next.error || next.marketError || 'Inspection failed.', 'alert');
     }
+    renderBoardMarkets(item);
+    renderBoardLiveEvidence(item);
+    button.disabled = false;
+    button.textContent = next.result || next.markets ? 'Refresh' : 'Inspect';
   }
 
   function addSelectedToWatchlist() {

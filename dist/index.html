@@ -110,22 +110,25 @@
               <div class="profile-metrics">
                 <div><span>POOLS</span><strong id="hook-profile-pools"></strong></div>
                 <div><span>SWAPS</span><strong id="hook-profile-swaps"></strong></div>
-                <div><span>PERMISSION MASK</span><strong id="hook-profile-mask"></strong></div>
+                <div><span>CALLBACK MASK</span><strong id="hook-profile-mask"></strong></div>
               </div>
-              <section class="profile-section">
-                <h3>Address capabilities</h3>
-                <div id="hook-profile-permissions" class="profile-permissions"></div>
-                <p>Derived from the canonical low 14 address bits. Runtime behavior still requires code-level review.</p>
-              </section>
-              <section class="profile-section profile-live-section">
-                <div class="profile-section-heading"><h3>Live contract evidence</h3><span id="hook-profile-live-status">not requested</span></div>
-                <div id="hook-profile-live-grid" class="profile-live-grid"></div>
-                <p id="hook-profile-live-note">Run a live inspection for current bytecode, ownership probe, runtime fingerprint, block, and latency.</p>
+              <section id="hook-profile-markets" class="profile-section profile-markets" hidden>
+                <div class="profile-section-heading"><h3>Related markets</h3><span id="hook-profile-market-status"></span></div>
+                <div id="hook-profile-market-list" class="profile-market-list"></div>
               </section>
               <section id="hook-profile-project" class="profile-section" hidden>
-                <h3>Project record</h3>
+                <h3>Project</h3>
                 <dl class="profile-record"><div><dt>Type</dt><dd id="hook-profile-type"></dd></div><div><dt>Stage</dt><dd id="hook-profile-stage"></dd></div><div><dt>DEX</dt><dd id="hook-profile-dex"></dd></div></dl>
                 <div id="hook-profile-links" class="profile-links"></div>
+              </section>
+              <section class="profile-section">
+                <div class="profile-section-heading"><h3>Callbacks</h3><span id="hook-profile-callback-count"></span></div>
+                <div id="hook-profile-permissions" class="profile-permissions"></div>
+              </section>
+              <section class="profile-section profile-live-section">
+                <div class="profile-section-heading"><h3>Live contract</h3><span id="hook-profile-live-status">not loaded</span></div>
+                <div id="hook-profile-live-grid" class="profile-live-grid"></div>
+                <p id="hook-profile-live-note" hidden></p>
               </section>
               <div class="profile-actions">
                 <button id="hook-profile-inspect" class="btn btn-primary" type="button">Inspect live</button>

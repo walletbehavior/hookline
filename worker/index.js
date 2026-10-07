@@ -79,6 +79,28 @@ const X402_NETWORK = 'eip155:8453';
 const X402_USDC_ASSET = '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913';
 const X402_AMOUNT_ATOMIC = '10000';
 const EVM_ADDRESS_RE = /^0x[0-9a-fA-F]{40}$/;
+const V4_POOLS_BY_HOOK_URL = 'https://www.v4.xyz/api/pools-by-hook';
+const DEXSCREENER_PAIRS_URL = 'https://api.dexscreener.com/latest/dex/pairs';
+const MARKET_UPSTREAM_TIMEOUT_MS = 7000;
+const MARKET_UPSTREAM_MAX_BYTES = 2 * 1024 * 1024;
+const MARKET_RESULT_LIMIT = 8;
+const DEXSCREENER_CHAIN_SLUGS = Object.freeze({
+  1: 'ethereum',
+  10: 'optimism',
+  56: 'bsc',
+  130: 'unichain',
+  137: 'polygon',
+  143: 'monad',
+  146: 'sonic',
+  480: 'worldchain',
+  1868: 'soneium',
+  8453: 'base',
+  42161: 'arbitrum',
+  42220: 'celo',
+  43114: 'avalanche',
+  57073: 'ink',
+  81457: 'blast',
+});
 
 // ---------------------------------------------------------------------------
 // Rate limiting (per-isolate, best effort): 60 POST RPC requests per minute
@@ -162,7 +184,7 @@ const SECURITY_HEADERS = Object.freeze({
   'Referrer-Policy': 'strict-origin-when-cross-origin',
   'Content-Security-Policy':
     "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; " +
-    "img-src 'self' data:; connect-src 'self'; font-src 'self'; frame-ancestors 'none'; form-action 'self'",
+    "img-src 'self' data:; connect-src 'self' https://api.dexscreener.com; font-src 'self'; frame-ancestors 'none'; form-action 'self'",
 });
 
 function baseJsonHeaders(extra) {
@@ -892,6 +914,137 @@ async function jsonMetricsBody() {
   return { supportedChains: SUPPORTED_CHAINS.length, healthyChains, baseLatestBlock, generatedAt: new Date().toISOString(), chains };
 }
 
+async function fetchBoundedJson(url) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), MARKET_UPSTREAM_TIMEOUT_MS);
+  try {
+    const response = await fetch(url, {
+      headers: { Accept: 'application/json', 'User-Agent': 'Hookline market resolver (https://hookline.world)' },
+      signal: controller.signal,
+    });
+    if (!response.ok) throw new Error(`upstream returned HTTP ${response.status}`);
+    const contentLength = Number(response.headers.get('content-length'));
+    if (Number.isFinite(contentLength) && contentLength > MARKET_UPSTREAM_MAX_BYTES) {
+      throw new Error('upstream response was too large');
+    }
+    const text = await response.text();
+    if (new TextEncoder().encode(text).byteLength > MARKET_UPSTREAM_MAX_BYTES) {
+      throw new Error('upstream response was too large');
+    }
+    return JSON.parse(text);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function finiteMarketNumber(value) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
+}
+
+function poolAddress(pool) {
+  const value = typeof pool?.id === 'string' ? pool.id.split('_').pop() : '';
+  return /^0x[0-9a-fA-F]{64}$/.test(value) ? value.toLowerCase() : null;
+}
+
+function tokenShape(token) {
+  if (!token || typeof token !== 'object') return null;
+  const address = typeof token.address === 'string' && EVM_ADDRESS_RE.test(token.address) ? token.address : null;
+  const name = typeof token.name === 'string' ? token.name.slice(0, 100) : null;
+  const symbol = typeof token.symbol === 'string' ? token.symbol.slice(0, 24) : null;
+  return address || name || symbol ? { address, name, symbol } : null;
+}
+
+function safeExternalUrl(value, hosts) {
+  if (typeof value !== 'string') return null;
+  try {
+    const parsed = new URL(value);
+    if (parsed.protocol !== 'https:') return null;
+    if (hosts && !hosts.includes(parsed.hostname.toLowerCase())) return null;
+    return parsed.href;
+  } catch {
+    return null;
+  }
+}
+
+function marketProjectLink(info, type) {
+  const values = type === 'website' ? info?.websites : info?.socials;
+  if (!Array.isArray(values)) return null;
+  const candidate = type === 'website'
+    ? values.find((entry) => entry && typeof entry.url === 'string')
+    : values.find((entry) => entry && ['twitter', 'x'].includes(String(entry.type).toLowerCase()));
+  return type === 'website'
+    ? safeExternalUrl(candidate?.url)
+    : safeExternalUrl(candidate?.url, ['x.com', 'www.x.com', 'twitter.com', 'www.twitter.com']);
+}
+
+async function resolveHookMarkets(chainId, address) {
+  const v4Url = new URL(V4_POOLS_BY_HOOK_URL);
+  v4Url.searchParams.set('hookAddress', address);
+  v4Url.searchParams.set('chainId', String(chainId));
+  const v4Payload = await fetchBoundedJson(v4Url.toString());
+  const pools = Array.isArray(v4Payload?.Pool) ? v4Payload.Pool : [];
+  const ranked = pools
+    .filter((pool) => poolAddress(pool))
+    .sort((left, right) => (
+      (finiteMarketNumber(right.totalValueLockedUSD) || 0) - (finiteMarketNumber(left.totalValueLockedUSD) || 0)
+      || (finiteMarketNumber(right.volumeUSD) || 0) - (finiteMarketNumber(left.volumeUSD) || 0)
+    ))
+    .slice(0, MARKET_RESULT_LIMIT);
+
+  let dexPairs = [];
+  let dexError = null;
+  const dexSlug = DEXSCREENER_CHAIN_SLUGS[chainId];
+  if (dexSlug && ranked.length) {
+    try {
+      const pairIds = ranked.map(poolAddress).join(',');
+      const dexPayload = await fetchBoundedJson(`${DEXSCREENER_PAIRS_URL}/${dexSlug}/${pairIds}`);
+      dexPairs = Array.isArray(dexPayload?.pairs) ? dexPayload.pairs : [];
+    } catch (error) {
+      dexPairs = [];
+      dexError = error instanceof Error ? error.message.slice(0, 120) : 'DexScreener request failed';
+    }
+  }
+  const byPool = new Map(dexPairs.map((pair) => [String(pair?.pairAddress || '').toLowerCase(), pair]));
+  const markets = ranked.map((pool) => {
+    const addressKey = poolAddress(pool);
+    const pair = byPool.get(addressKey);
+    const fallbackSymbols = String(pool.name || '').split(' - ')[0].split('/').map((value) => value.trim());
+    const commonQuotes = new Set(['ETH', 'WETH', 'USDC', 'USDT', 'DAI', 'WBTC']);
+    const reverseFallback = commonQuotes.has(String(fallbackSymbols[0]).toUpperCase())
+      && !commonQuotes.has(String(fallbackSymbols[1]).toUpperCase());
+    const fallbackBase = reverseFallback ? fallbackSymbols[1] : fallbackSymbols[0];
+    const fallbackQuote = reverseFallback ? fallbackSymbols[0] : fallbackSymbols[1];
+    return {
+      poolId: typeof pool.id === 'string' ? pool.id : null,
+      poolName: typeof pool.name === 'string' ? pool.name.slice(0, 140) : null,
+      pairAddress: addressKey,
+      baseToken: tokenShape(pair?.baseToken) || { address: null, name: fallbackBase || null, symbol: fallbackBase || null },
+      quoteToken: tokenShape(pair?.quoteToken) || { address: null, name: fallbackQuote || null, symbol: fallbackQuote || null },
+      dexLabel: pair?.dexId === 'uniswap' ? `Uniswap ${Array.isArray(pair.labels) && pair.labels[0] ? pair.labels[0] : ''}`.trim() : String(pair?.dexId || 'Uniswap v4').slice(0, 40),
+      priceUsd: finiteMarketNumber(pair?.priceUsd),
+      priceChange24h: finiteMarketNumber(pair?.priceChange?.h24),
+      volume24h: finiteMarketNumber(pair?.volume?.h24),
+      liquidityUsd: finiteMarketNumber(pair?.liquidity?.usd) ?? finiteMarketNumber(pool.totalValueLockedUSD),
+      marketCap: finiteMarketNumber(pair?.marketCap) ?? finiteMarketNumber(pair?.fdv),
+      transactions: finiteMarketNumber(pool.txCount),
+      chartUrl: safeExternalUrl(pair?.url, ['dexscreener.com', 'www.dexscreener.com'])
+        || `https://www.v4.xyz/pool/${encodeURIComponent(pool.id)}`,
+      website: marketProjectLink(pair?.info, 'website'),
+      x: marketProjectLink(pair?.info, 'x'),
+    };
+  });
+  return {
+    chainId,
+    hook: address,
+    observedAt: new Date().toISOString(),
+    source: dexPairs.length ? 'v4.xyz + DexScreener' : 'v4.xyz',
+    dexError,
+    totalPoolsReturned: pools.length,
+    markets,
+  };
+}
+
 // Health and documentation endpoints.
 // ---------------------------------------------------------------------------
 
@@ -931,6 +1084,7 @@ function jsonDocsBody(request) {
       metrics: '/metrics',
       health: '/health',
       hookBoard: '/data/hooks.json',
+      hookMarkets: '/api/hook-markets?chainId={chainId}&address={hookAddress}',
       documentation: '/rpc',
       chainProxies: chainRoutes,
     },
@@ -1135,6 +1289,29 @@ export default {
     const staticResponse = handleStaticAsset(url.pathname);
     if (staticResponse) {
       return staticResponse;
+    }
+
+    // GET /api/hook-markets — pool identities from v4.xyz enriched with
+    // current DexScreener market data and chart destinations.
+    if (method === 'GET' && url.pathname === '/api/hook-markets') {
+      const chainId = Number(url.searchParams.get('chainId'));
+      const address = String(url.searchParams.get('address') || '').trim();
+      if (!Number.isSafeInteger(chainId) || chainId <= 0 || !EVM_ADDRESS_RE.test(address)) {
+        return new Response(JSON.stringify({ error: 'valid chainId and hook address required' }), {
+          status: 400,
+          headers: baseJsonHeaders({ 'Cache-Control': 'no-store' }),
+        });
+      }
+      try {
+        return new Response(JSON.stringify(await resolveHookMarkets(chainId, address)), {
+          headers: baseJsonHeaders({ 'Cache-Control': 'public, max-age=120, s-maxage=300' }),
+        });
+      } catch {
+        return new Response(JSON.stringify({ error: 'market data unavailable', markets: [] }), {
+          status: 502,
+          headers: baseJsonHeaders({ 'Cache-Control': 'no-store' }),
+        });
+      }
     }
 
     // GET /metrics — machine-readable metrics.
