@@ -80,6 +80,12 @@ cannot edit measured data. Requests are bounded, rate limited, and private.
   infer these from permissions, configured percentages, or aggregate swap counts.
 - Browsing performs no chain writes. Telegram holds no signing authority.
 
+## Source-bound outcomes and provider limits
+
+CLAUS readers are gated to the observed verified implementation. Configuration is read in raw ppm with a stated gross-ETH basis; accrued balances are not payouts. Buyback/burn events optionally carry `evidence.receiptProof`: `transfer_confirmed` requires the exact source log and matching token/from/to/amount transfer in the same successful, pinned transaction receipt. Otherwise the event remains `contract_reported`, with a reason. NFT payment events and FOMO transfers remain distinct from burns. ENGRAM accrued owner fees do not become paid totals.
+
+Collector transport uses immutable, method-specific provider lists. Fallback state providers must match the chain and pinned block hash. At most 240 actual HTTP requests and a 42-second wall budget cover a scan, including provider validation and receipt proofs; at most four burn receipts are checked. A rate limit respects cooldown and stops work rather than pretending a smaller log range solved it. Unavailable historical log providers leave visible cursor lag. No provider, visitor, or follow count can expand those limits.
+
 ## Acceptance
 
 1. Broad registry, searchable by project, mechanism category, chain, or address.

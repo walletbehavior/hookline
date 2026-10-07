@@ -93,6 +93,24 @@ Public snapshots are briefly cached. Private receipt, DNS verification, owner-me
 
 `GET /api/v3/hook-markets?chainId={chainId}&address={hook}` resolves indexed pools and available market readings. Fee metadata contains `feeMode` (`static`, `dynamic`, `invalid`, or `unavailable`), a nullable `advertisedFeePercent`, and `feeSource`. A dynamic flag has no numeric current fee. These fields do not measure hook extraction.
 
+## Private accounts
+
+Account endpoints accept only the canonical `https://hookline.world` origin, use secure HttpOnly same-origin cookies, and return `Cache-Control: no-store`. They are not public cross-origin APIs. Writes require `X-Hookline-CSRF` from the authenticated session, except the browser-bound sign-in challenge and login. Signatures authorize identity, never spending.
+
+| Route | Purpose |
+| --- | --- |
+| `POST /api/account/challenge` | `{address,chainId}` creates a ten-minute EIP-4361 challenge bound to this browser |
+| `POST /api/account/login` | `{challengeId,signature}` consumes the challenge once and starts a seven-day session |
+| `GET /api/account/session` | Authenticated account identity and CSRF token, or guest status |
+| `POST /api/account/logout`, `/logout-all` | Revoke the current session or all sessions for this account |
+| `GET`, `PUT /api/account/watchlists` | Private metadata document; PUT requires `{revision,watchlists}` |
+| `GET`, `PUT /api/account/preferences` | Private slippage/presets; PUT requires `{revision,patch}` |
+| `GET`, `POST`, `DELETE /api/account/telegram-link` | Read link status, issue a one-use ten-minute private-chat link, or unlink |
+
+Writes use revision comparison; stale writes return 409, never last-write-wins. Watchlists permit up to 20 lists, 100 contracts per list, 500 total, and 256 KiB. Measurements and execution authority are rejected. Identity verification supports EOAs and deployed EIP-1271 contracts on the five inspection chains, with at most five fixed-endpoint RPC reads, a five-second deadline, and a pinned block/hash. A contract account is chain-bound; same-address wallets on different chains are not merged. No EIP-6492 deployment or simulation occurs.
+
+Telegram links require an authenticated private user/chat/from match, are hashed at rest, expire, and are consumed once. Linking does not merge settings, delete alerts, or grant signing authority. Rate limits and bounded expiration cleanup protect the existing storage budget. No Privy plan, wallet creation, sponsorship, or order execution is enabled by this API.
+
 ## Reviewed execution routes
 
 `GET /api/execution/status` returns current per-chain quote, fee, instant-rebate, and wallet-handoff capability.

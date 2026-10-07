@@ -103,10 +103,11 @@
       "id": "claus", "name": "CLAUS",
       "summary": "A token project with upgradeable hook behavior for project revenue, buybacks, burns, liquidity, NFT rewards, and other configurable mechanisms.",
       "category": "Programmable token", "website": "https://claus.si/", "provenance": "researched project record",
-      "sources": [{"label": "Project hook documentation", "url": "https://claus.si/read/Hooks"}, {"label": "Published board deployment references", "url": "https://ikaxbt.com/claus/data.json"}],
+      "sources": [{"label": "Project hook documentation", "url": "https://claus.si/read/Hooks"}, {"label": "Published board deployment references", "url": "https://ikaxbt.com/claus/data.json"}, {"label": "NFT rewards and deployment", "url": "https://claus.si/read/Hooks/NFTs"}],
       "deployments": [
         {"chainId": 1, "address": "0x37bfb8ac7c960e558657871d41ca70e07e7dbfff", "role": "hook", "name": "CLAUS published hook proxy", "provenance": "published project deployment reference", "sourceUrl": "https://ikaxbt.com/claus/data.json", "monitor": true},
-        {"chainId": 1, "address": "0x1b54e762aa34cf6e28e9c082f2848e28e45da6b8", "role": "token", "name": "CLAUS token", "provenance": "published project deployment reference", "sourceUrl": "https://ikaxbt.com/claus/data.json", "monitor": false}
+        {"chainId": 1, "address": "0x1b54e762aa34cf6e28e9c082f2848e28e45da6b8", "role": "token", "name": "CLAUS token", "provenance": "published project deployment reference", "sourceUrl": "https://ikaxbt.com/claus/data.json", "monitor": false},
+        {"chainId": 1, "address": "0x80396c7131159eb92e7e84839e51c9887a7a95d9", "role": "token", "name": "CLAUS NFT reward distributor", "provenance": "official deployment reference", "sourceUrl": "https://claus.si/read/Hooks/NFTs", "monitor": true}
       ]
     },
     {

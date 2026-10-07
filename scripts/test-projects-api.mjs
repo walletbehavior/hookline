@@ -84,7 +84,7 @@ async function withDns(name, value, operation) {
     assert.equal(endpoint.pathname, '/dns-query');
     assert.equal(endpoint.searchParams.get('name'), name);
     assert.equal(endpoint.searchParams.get('type'), 'TXT');
-    assert.equal(options.redirect, 'error');
+    assert.equal(options.redirect, 'manual');
     return new Response(JSON.stringify({ Status: 0, Answer: [{ name: name + '.', type: 16, data: JSON.stringify(value) }] }), { headers: { 'content-type': 'application/dns-json' } });
   };
   try { return await operation(); } finally { globalThis.fetch = noFetch; }

@@ -45,8 +45,8 @@ export async function renderTradingSettings(ctx,userId,chatId,section='main',not
     lines.push('Limit orders','', 'Not active. This bot does not place or monitor limit orders. Market execution is available through a fresh website quote and your wallet confirmation.');
     keyboard.push([{text:'Open Hookline',url:'https://hookline.world/#/board'}]);
   } else if(['wallets','transfer','bridge'].includes(section)) {
-    lines.push(({wallets:'Your wallets',transfer:'Transfer assets',bridge:'Bridge assets'})[section],'',section==='wallets'?'Connect an existing wallet on Hookline. Telegram never creates custodial wallets or stores keys.':section==='transfer'?'Transfers are not executed by this bot. Use your wallet’s send screen and verify the destination and chain.':'Bridging is not executed by this bot. Use your wallet’s supported bridge flow and review its fees and destination chain.','', 'Never paste a private key or seed phrase into this chat.');
-    keyboard.push([{text:'Open wallet connection',url:'https://hookline.world/#/board'}]);
+    lines.push(({wallets:'Your wallets',transfer:'Transfer assets',bridge:'Bridge assets'})[section],'',section==='wallets'?'Create an embedded wallet with a supported website login, or connect an existing wallet on Hookline. You approve every signature. Telegram never stores keys.':section==='transfer'?'Transfers are not executed by this bot. Use your wallet’s send screen and verify the destination and chain.':'Bridging is not executed by this bot. Use your wallet’s supported bridge flow and review its fees and destination chain.','', 'Never paste a private key or seed phrase into this chat.');
+    keyboard.push([{text:'Open wallet setup',url:'https://hookline.world/#/wallets'}]);
   } else return renderTradingSettings(ctx,userId,chatId,'main',notice);
   if(section!=='main') keyboard.push([button('Back to settings','main')]);
   keyboard.push(...navigationRows());

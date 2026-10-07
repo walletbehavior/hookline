@@ -63,6 +63,9 @@
     healthOk: null,
     toastTimer: null,
     refreshing: false,
+    pendingLocalReads: 0,
+    accountController: null,
+    wallets: { controller: null, loading: null, provider: null, source: null, unbind: null },
     board: null,
     boardItems: [],
     runtimeFamilies: null,
@@ -87,6 +90,9 @@
       quote: null,
       receipt: null,
       submittedHash: null,
+      pendingApprovalHash: null,
+      pendingProvider: null,
+      pendingIntentId: null,
       capability: null,
       busy: false,
       tokenCache: new Map(),
@@ -361,6 +367,7 @@
       try { localStorage.setItem(EXECUTION_PREFERENCES_KEY, JSON.stringify(preferences)); }
       catch (_) { throw new Error('Settings work for this visit, but browser storage is unavailable.'); }
       $('execution-settings-status').textContent = 'Saved on this device.';
+      state.accountController?.localChanged();
       renderExecutionPresets(); resetExecutionQuote();
     } catch (error) { $('execution-settings-status').textContent = error.message; resetExecutionQuote(); }
   }
@@ -454,10 +461,82 @@
   }
 
   function executionProvider() {
+    if (state.wallets.provider) return state.wallets.provider;
     const injected = globalThis.ethereum;
     if (!injected) return null;
     if (Array.isArray(injected.providers)) return injected.providers.find((provider) => provider?.isMetaMask) || injected.providers[0] || null;
     return injected;
+  }
+
+  function hasPendingExecution() {
+    return Boolean(state.execution.pendingApprovalHash || (state.execution.submittedHash && !state.execution.receipt));
+  }
+
+  function walletIdentityBusy() {
+    return state.execution.busy || hasPendingExecution() || Boolean(state.accountController?.isBusy());
+  }
+
+  function bindExecutionProvider(provider) {
+    state.wallets.unbind?.();
+    const accountsChanged = (accounts) => {
+      const selected = state.execution.account;
+      const address = Array.isArray(accounts) && accounts.find(value => String(value).toLowerCase() === selected);
+      const checked = validateAddress(address || accounts?.[0]);
+      state.execution.account = checked.ok ? checked.address : null;
+      renderWalletIdentity();
+      // A wallet event invalidates an unsigned quote, never a submitted receipt.
+      resetExecutionQuote();
+    };
+    const chainChanged = () => resetExecutionQuote();
+    provider.on?.('accountsChanged', accountsChanged);
+    provider.on?.('chainChanged', chainChanged);
+    state.wallets.unbind = () => {
+      provider.removeListener?.('accountsChanged', accountsChanged);
+      provider.removeListener?.('chainChanged', chainChanged);
+    };
+  }
+
+  async function selectWalletProvider({provider, address, embedded = false}) {
+    if (walletIdentityBusy()) throw new Error('Finish the current wallet or account request first.');
+    const checked = validateAddress(address);
+    if (!checked.ok || !provider?.request) throw new Error('Invalid wallet selection.');
+    const accounts = await provider.request({method:'eth_accounts'});
+    if (!accounts?.some(value => String(value).toLowerCase() === checked.address)) throw new Error('Wallet selection changed.');
+    if (walletIdentityBusy()) throw new Error('Finish the current wallet or account request first.');
+    state.wallets.provider = provider;
+    state.wallets.source = embedded ? 'embedded' : 'external';
+    state.execution.account = checked.address;
+    bindExecutionProvider(provider);
+    resetExecutionQuote();renderWalletIdentity();
+    toast('Wallet selected. Every signature still needs your confirmation.', 'info');
+  }
+
+  async function openWalletSetup() {
+    if (walletIdentityBusy()) { toast('Finish the current request or check the pending transaction first.', 'alert'); return; }
+    for (const id of ['account-dialog','execution-dialog']) if ($(id).open) $(id).close();
+    try {
+      if (!state.wallets.controller) {
+        if (!state.wallets.loading) {
+          const appUrl = document.querySelector('script[src*="app.js"]')?.src || location.origin + '/app.js';
+          state.wallets.loading = import(new URL('./privy-wallet.js', appUrl).href).then(({mountWallets}) => {
+            state.wallets.controller = mountWallets({
+              isBusy: walletIdentityBusy,
+              select: selectWalletProvider,
+              connectBrowser: async () => {
+                const injected = globalThis.ethereum;
+                const provider = Array.isArray(injected?.providers) ? injected.providers.find(value=>value?.isMetaMask) || injected.providers[0] : injected;
+                if (!provider?.request) throw new Error('No browser wallet found. Use the sign-in picker for mobile wallets.');
+                const accounts = await provider.request({method:'eth_requestAccounts'});
+                await selectWalletProvider({provider,address:accounts?.[0]});
+              },
+              beforeLogout: addresses => state.accountController?.signOutMatching(addresses),
+              disconnected: async () => { disconnectExecutionWallet(); },
+            });
+          }).catch(error => {state.wallets.loading=null;throw error;});
+        }
+        await state.wallets.loading;
+      } else state.wallets.controller.open();
+    } catch { toast('Wallet setup could not load. You can still use an existing browser wallet.', 'alert'); }
   }
 
   function nativeSymbol(chainId) {
@@ -519,10 +598,11 @@
 
   function setExecutionBusy(busy) {
     state.execution.busy = busy;
+    const locked = busy || hasPendingExecution();
     ['execution-amount', 'execution-slippage', 'execution-buy-presets', 'execution-sell-presets', 'execution-settings-save',
-      'execution-side-buy', 'execution-side-sell', 'execution-wallet', 'execution-switch-wallet', 'execution-disconnect', 'top-wallet']
-      .forEach((id) => { $(id).disabled = busy; });
-    $$('#execution-presets button').forEach((button) => { button.disabled = busy; });
+      'execution-side-buy', 'execution-side-sell', 'execution-wallet', 'execution-switch-wallet', 'execution-disconnect', 'execution-wallet-setup', 'top-wallet']
+      .forEach((id) => { $(id).disabled = locked; });
+    $$('#execution-presets button').forEach((button) => { button.disabled = locked; });
     if (!busy) renderWalletIdentity();
   }
 
@@ -566,10 +646,16 @@
   }
 
   function resetExecutionQuote() {
+    if (hasPendingExecution()) {
+      $('execution-submit').disabled = state.execution.busy;
+      $('execution-submit').textContent = 'Check confirmation';
+      return;
+    }
     state.execution.quote = null;
     state.execution.quoteContext = null;
     state.execution.receipt = null;
     state.execution.submittedHash = null;
+    state.execution.pendingIntentId = null;
     $('execution-quote').hidden = true;
     $('execution-receipt').hidden = true;
     $('execution-output').textContent = '—';
@@ -699,6 +785,10 @@
 
   function openExecutionDialog(item, market, prefill = {}) {
     const execution = state.execution;
+    if (hasPendingExecution()) {
+      if (!$('execution-dialog').open) $('execution-dialog').showModal();
+      toast('Check the submitted transaction before starting another trade.', 'alert'); return;
+    }
     if (execution.busy) { toast('Finish the current wallet request before opening another trade.', 'alert'); return; }
     if (!executionMarketReady(item, market)) { toast('This market is not ready for execution review.', 'alert'); return; }
     execution.item = item;
@@ -732,17 +822,19 @@
   function renderWalletIdentity() {
     const account = state.execution.account;
     const top = $('top-wallet');
-    top.textContent = account ? shorten(account, 7, 5) : 'Connect wallet';
+    top.textContent = account ? shorten(account, 7, 5) : 'Wallets';
     top.classList.toggle('connected', Boolean(account));
-    top.title = account ? 'Disconnect wallet from Hookline' : 'Connect an EVM wallet';
+    top.title = 'Sign in, create or choose a wallet';
     $('execution-wallet').textContent = account ? shorten(account, 7, 5) : 'Connect wallet';
-    $('execution-switch-wallet').disabled = !account;
-    $('execution-disconnect').disabled = !account;
+    $('execution-switch-wallet').disabled = !account || hasPendingExecution() || state.execution.busy;
+    $('execution-disconnect').disabled = !account || hasPendingExecution() || state.execution.busy;
     $('execution-wallet-address').textContent = account || 'No wallet connected';
   }
 
   function disconnectExecutionWallet() {
-    if (state.execution.busy) { toast('Finish the current wallet request before disconnecting.', 'alert'); return; }
+    if (walletIdentityBusy()) { toast('Finish the current request or check the pending transaction first.', 'alert'); return; }
+    state.wallets.unbind?.();state.wallets.unbind=null;
+    state.wallets.provider=null;state.wallets.source=null;
     state.execution.account = null;
     state.execution.quote = null;
     state.execution.receipt = null;
@@ -752,19 +844,32 @@
   }
 
   async function connectExecutionWallet() {
+    if(state.accountController?.isBusy()) throw new Error('Finish the account request before connecting for a trade.');
     const provider = executionProvider();
-    if (!provider || typeof provider.request !== 'function') throw new Error('Open Hookline in a browser with an EVM wallet.');
+    if (!provider || typeof provider.request !== 'function') throw new Error('Open Wallets to sign in, create a wallet or connect a mobile wallet.');
     const accounts = await provider.request({ method: 'eth_requestAccounts' });
-    const checked = validateAddress(accounts?.[0]);
+    const checked = validateAddress(accounts?.find(value=>String(value).toLowerCase()===state.execution.account) || accounts?.[0]);
     if (!checked.ok) throw new Error('The wallet did not return a valid account.');
     state.execution.account = checked.address;
+    bindExecutionProvider(provider);
     renderWalletIdentity();
     resetExecutionQuote();
     return { provider, account: checked.address };
   }
 
+  // Identity-only connection. Never reset an execution quote or receipt here.
+  async function connectAccountWallet() {
+    const provider=executionProvider();
+    if(!provider?.request) throw new Error('Choose Sign in or create wallet first, then sign this account message.');
+    const accounts=await provider.request({method:'eth_requestAccounts'});
+    const checked=validateAddress(accounts?.find(value=>String(value).toLowerCase()===state.execution.account) || accounts?.[0]);
+    if(!checked.ok) throw new Error('The wallet did not return a valid account.');
+    return {provider,account:checked.address};
+  }
+
   async function switchExecutionWallet() {
-    if (state.execution.busy) return;
+    if (walletIdentityBusy()) return;
+    if (state.wallets.provider) return openWalletSetup();
     const provider = executionProvider();
     if (!provider?.request) throw new Error('Open Hookline in a browser with an EVM wallet.');
     await provider.request({ method: 'wallet_requestPermissions', params: [{ eth_accounts: {} }] });
@@ -783,17 +888,7 @@
       state.execution.account = null;
     }
     renderWalletIdentity();
-    if (typeof provider.on === 'function') {
-      provider.on('accountsChanged', (accounts) => {
-        const checked = validateAddress(accounts?.[0]);
-        state.execution.account = checked.ok ? checked.address : null;
-        state.execution.quote = null;
-        state.execution.receipt = null;
-        renderWalletIdentity();
-        resetExecutionQuote();
-      });
-      provider.on('chainChanged', () => resetExecutionQuote());
-    }
+    bindExecutionProvider(provider);
   }
 
   async function ensureExecutionChain(provider, chainId) {
@@ -813,7 +908,7 @@
   }
 
   async function requestExecutionQuote() {
-    if (state.execution.busy) return;
+    if (state.execution.busy || hasPendingExecution() || state.wallets.controller?.isBusy()) return;
     setExecutionBusy(true);
     const submit = $('execution-submit');
     submit.disabled = true;
@@ -875,12 +970,26 @@
     for (let attempt = 0; attempt < 40; attempt += 1) {
       const receipt = await provider.request({ method: 'eth_getTransactionReceipt', params: [transactionHash] });
       if (receipt) {
-        if (String(receipt.status).toLowerCase() !== '0x1') throw new Error('The transaction reverted.');
+        if (String(receipt.status).toLowerCase() !== '0x1') throw Object.assign(new Error('The transaction reverted. No successful fill.'),{revertedReceipt:receipt});
         return receipt;
       }
       await new Promise((resolve) => setTimeout(resolve, 1500));
     }
     throw new Error('Transaction submitted. Confirmation is still pending.');
+  }
+
+  async function requestWalletConfirmation(provider, transaction) {
+    const accounts=await provider.request({method:'eth_accounts'});
+    if(!accounts?.some(value=>String(value).toLowerCase()===String(transaction.from).toLowerCase())) throw new Error('The selected account is no longer connected.');
+    const chain=String(await provider.request({method:'eth_chainId'})).toLowerCase();
+    if(chain!==EXECUTION_CHAINS[state.execution.item.chainId]?.chainId) throw new Error('Wallet chain changed. Review a fresh quote.');
+    const dialog=$('execution-dialog'),wasOpen=dialog.open;
+    if(wasOpen) dialog.close();
+    try {
+      const hash=await provider.request({method:'eth_sendTransaction',params:[transaction]});
+      if(!/^0x[0-9a-f]{64}$/i.test(String(hash))) throw new Error('Wallet returned no valid transaction hash. Check its activity before trying again.');
+      return hash;
+    } finally {if(wasOpen&&!dialog.open)dialog.showModal();}
   }
 
   async function approveExecutionToken(pair, quote) {
@@ -891,14 +1000,18 @@
       throw new Error('Exact token approval is unavailable.');
     }
     const data = `0x095ea7b3${spender.slice(2).padStart(64, '0')}${BigInt(amount).toString(16).padStart(64, '0')}`;
-    const hash = await provider.request({ method: 'eth_sendTransaction', params: [{
+    const hash = await requestWalletConfirmation(provider, {
       from: state.execution.account,
       to: pair.input.address,
       data,
       value: '0x0',
-    }] });
+    });
+    state.execution.pendingApprovalHash=hash;
+    state.execution.pendingProvider=provider;
     setExecutionMessage('Approval submitted. Waiting for confirmation…', '');
     await waitForWalletReceipt(provider, hash);
+    state.execution.pendingApprovalHash=null;
+    state.execution.pendingProvider=null;
     state.execution.quote = null;
     return true;
   }
@@ -925,15 +1038,20 @@
     if (transaction.gas_price != null) walletTransaction.gasPrice = decimalToHexQuantity(transaction.gas_price);
     if (transaction.max_fee_per_gas != null) walletTransaction.maxFeePerGas = decimalToHexQuantity(transaction.max_fee_per_gas);
     if (transaction.max_priority_fee_per_gas != null) walletTransaction.maxPriorityFeePerGas = decimalToHexQuantity(transaction.max_priority_fee_per_gas);
-    const hash = await provider.request({ method: 'eth_sendTransaction', params: [walletTransaction] });
+    const hash = await requestWalletConfirmation(provider, walletTransaction);
     state.execution.submittedHash = hash;
+    state.execution.pendingIntentId = intent.intent_id;
     setExecutionMessage(`Submitted ${shorten(hash, 10, 8)}. Waiting for confirmation…`, '');
     await waitForWalletReceipt(provider, hash);
     setExecutionMessage(`Confirmed onchain. Verifying Hookline receipt…`, '');
+    await loadSubmittedExecutionReceipt(intent.intent_id, hash);
+  }
+
+  async function loadSubmittedExecutionReceipt(intentId, hash) {
     const response = await fetch('/api/execution/receipt', {
       method: 'POST',
       headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
-      body: JSON.stringify({ intent_id: intent.intent_id, transaction_hash: hash }),
+      body: JSON.stringify({ intent_id: intentId, transaction_hash: hash }),
     });
     const payload = await response.json().catch(() => null);
     if (!response.ok || !payload?.receipt) {
@@ -948,8 +1066,33 @@
     $('execution-submit').textContent = 'Confirmed';
   }
 
+  async function checkExecutionConfirmation() {
+    if(state.execution.busy || !hasPendingExecution()) return;
+    setExecutionBusy(true);$('execution-submit').disabled=true;
+    try {
+      if(state.execution.pendingApprovalHash) {
+        const provider=state.execution.pendingProvider;
+        await ensureExecutionChain(provider,state.execution.item.chainId);
+        await waitForWalletReceipt(provider,state.execution.pendingApprovalHash);
+        state.execution.pendingApprovalHash=null;state.execution.pendingProvider=null;
+        resetExecutionQuote();setExecutionMessage('Approval confirmed. Request a fresh quote before trading.','success');
+      } else await loadSubmittedExecutionReceipt(state.execution.pendingIntentId,state.execution.submittedHash);
+    } catch(error) {
+      if(error.revertedReceipt) {
+        state.execution.pendingApprovalHash=null;state.execution.pendingProvider=null;
+        state.execution.receipt={reverted:true};resetExecutionQuote();
+      }
+      setExecutionMessage(error.message || 'Confirmation is not available yet. Do not resubmit.','error');
+    } finally {
+      setExecutionBusy(false);
+      if(hasPendingExecution() || !state.execution.quote) resetExecutionQuote();
+      else if(!state.execution.receipt) resetExecutionQuote();
+    }
+  }
+
   async function advanceExecution() {
-    if (state.execution.busy) return;
+    if (state.execution.busy || state.accountController?.isBusy() || state.wallets.controller?.isBusy()) return;
+    if (hasPendingExecution()) return checkExecutionConfirmation();
     const quote = state.execution.quote;
     if (!quote) return requestExecutionQuote();
     try { if (state.execution.quoteContext !== executionQuoteContext()) throw new Error('Trade settings changed. Get a fresh quote.'); }
@@ -979,16 +1122,20 @@
       if (quote.allowance?.state === 'approval_required') approved = await approveExecutionToken(pair, quote);
       else await submitExecutionTransaction(quote);
     } catch (error) {
-      if (state.execution.submittedHash) {
-        setExecutionMessage(`Transaction ${shorten(state.execution.submittedHash, 10, 8)} was submitted. Receipt verification needs another check; do not resubmit.`, 'error');
-        $('execution-submit').disabled = true;
-        $('execution-submit').textContent = 'Submitted';
+      if(error.revertedReceipt) {
+        state.execution.pendingApprovalHash=null;state.execution.pendingProvider=null;
+        state.execution.receipt={reverted:true};resetExecutionQuote();
+        setExecutionMessage(error.message,'error');
+      } else if (hasPendingExecution()) {
+        setExecutionMessage(`Transaction ${shorten(state.execution.submittedHash || state.execution.pendingApprovalHash, 10, 8)} was submitted. Check confirmation; do not resubmit.`, 'error');
+        $('execution-submit').textContent = 'Check confirmation';
       } else {
         setExecutionMessage(error.message || 'Wallet action failed.', 'error');
         $('execution-submit').disabled = false;
       }
     } finally {
       setExecutionBusy(false);
+      if(hasPendingExecution() || !state.execution.quote) resetExecutionQuote();
     }
     if (approved) await requestExecutionQuote();
   }
@@ -1173,6 +1320,7 @@
       toast('Browser storage is unavailable. Changes will last for this tab only.', 'alert');
     }
     updateDeskCounters();
+    state.accountController?.localChanged();
   }
 
   function activeList() {
@@ -1221,6 +1369,8 @@
   }
 
   async function readHook(chainId, address) {
+    state.pendingLocalReads++;
+    try {
     const startedAt = performance.now();
     const [hook, chainStatus] = await Promise.all([
       rpcCall('hookline_getHook', [chainId, address]),
@@ -1243,6 +1393,7 @@
       latencyMs: Number.isFinite(evidence.latencyMs) ? evidence.latencyMs : performance.now() - startedAt,
     }, chainId, address);
     return { evidence, observation };
+    } finally {state.pendingLocalReads--;}
   }
 
   function appendData(container, label, value, mono) {
@@ -2907,6 +3058,7 @@
     if (meta.zeroLabel && (value === 0 || value === '0' || value === ZERO_ADDRESS || value === '0x0')) return String(meta.zeroLabel);
     if (typeof value === 'boolean') return value ? 'Yes' : 'No';
     if (meta.unit === 'bps' && /^\d{1,9}$/.test(String(value))) return `${Number(value) / 100}% (${value} bps)${meta.basis ? ` · ${meta.basis}` : ''}`;
+    if (meta.unit === 'ppm' && /^\d{1,9}$/.test(String(value))) return `${Number(value) / 10000}% (${value} ppm)${meta.basis ? ` · ${meta.basis}` : ''}`;
     if (meta.unit === 'wei' && meta.asset === 'ETH' && /^\d{1,80}$/.test(String(value))) {
       const units = BigInt(value), whole = units / (10n ** 18n), raw = (units % (10n ** 18n)).toString().padStart(18, '0');
       const fraction = raw.replace(/0+$/, '');
@@ -2984,12 +3136,12 @@
     if (scope) card.append(makeElement('p', 'project-event-scope', scope));
     if (event.after && typeof event.after === 'object' && evidence.scope === 'contract event') {
       const facts = makeElement('dl', 'project-observation-fields');
-      const candidates = [event.deploymentField,event.hookField,event.poolField,event.amountField,event.recipientField,event.assetField,
+      const candidates = [event.deploymentField,event.hookField,event.poolField,event.amountField,event.recipientField,event.assetField,...Object.keys(event.fieldUnits || {}),
         'tokenName','tokenSymbol','tokenAddress','token','hook','poolHook','mind','implementation','newOwner','recipient','to','eth','tag','version'];
       const keys = [...new Set(candidates.filter((key) => key && event.after[key] != null))].slice(0, 6);
       keys.forEach((key) => {
         const row = makeElement('div', '');
-        const meta = key === event.amountField ? {unit:event.unit,asset:event.asset} : {};
+        const meta = event.fieldUnits?.[key] || (key === event.amountField ? {unit:event.unit,asset:event.asset} : {});
         const raw = event.after[key];
         const label = key === event.recipientField ? 'Recipient' : key === event.amountField ? 'Amount' : key.replace(/([a-z])([A-Z])/g, '$1 $2');
         const display = /^0x[0-9a-f]{40}$/i.test(String(raw)) ? projectExternalLink(explorerAddressUrl(event.chainId, raw), shorten(raw, 10, 8)) : makeElement('span', '', projectValue(raw, meta));
@@ -2997,6 +3149,11 @@
         row.append(makeElement('dt', '', label), value); facts.append(row);
       });
       if (keys.length) card.append(facts);
+      if(evidence.receiptProof?.status==='transfer_confirmed') {
+        card.append(makeElement('p','project-receipt-proof','Burn transfer matched in the successful transaction receipt.'));
+      } else if(evidence.receiptProof?.status==='contract_reported') {
+        card.append(makeElement('p','project-event-scope','Contract-reported event. Matching token transfer not confirmed.'));
+      }
     } else if (event.before != null || event.after != null) {
       const delta = makeElement('div', 'project-event-delta');
       [['Before', event.before], ['After', event.after]].forEach(([label, value]) => {
@@ -3382,6 +3539,7 @@
     if (view === 'watchlists') renderWatchlists();
     if (view === 'network') renderTelemetry(state.metrics);
     if (location.hash.startsWith('#/trade/')) void openExecutionRoute();
+    if (location.hash === '#/wallets') void openWalletSetup();
     window.scrollTo(0, 0);
   }
 
@@ -3464,18 +3622,9 @@
   }
 
   function setupEvents() {
-    $('top-wallet').addEventListener('click', async () => {
-      if (state.execution.account) {
-        disconnectExecutionWallet();
-        return;
-      }
-      try {
-        await connectExecutionWallet();
-        toast('Wallet connected for reviewed execution.', 'info');
-      } catch (error) {
-        toast(error.message || 'Wallet connection failed.', 'alert');
-      }
-    });
+    $('top-wallet').addEventListener('click', () => void openWalletSetup());
+    $('account-wallet-setup').addEventListener('click', () => void openWalletSetup());
+    $('execution-wallet-setup').addEventListener('click', () => void openWalletSetup());
     $('board-search').addEventListener('input', (event) => {
       state.boardVisible = BOARD_PAGE_SIZE;
       if (state.boardMode === 'hook') {
@@ -3578,9 +3727,10 @@
     $('export-btn').addEventListener('click', exportWatchlists);
     $('import-btn').addEventListener('click', () => $('import-file').click());
     $('import-file').addEventListener('change', async (event) => {
+      state.pendingLocalReads++;
       try { await importWatchlists(event.target.files && event.target.files[0]); }
       catch (error) { toast(error.message, 'alert'); }
-      finally { event.target.value = ''; }
+      finally { state.pendingLocalReads--;event.target.value = ''; }
     });
     $('refresh-telemetry-btn').addEventListener('click', () => loadTelemetry(true));
     $$('[data-copy]').forEach((button) => button.addEventListener('click', (event) => copyText(button.dataset.copy, event.currentTarget)));
@@ -3600,6 +3750,41 @@
     restoreExecutionWallet();
     loadHealth();
     loadTelemetry(false);
+    void import('/accounts-ui.js').then(({mountAccounts})=>{
+      state.accountController=mountAccounts({
+        getWatchlists:()=>state.model,
+        setWatchlists:model=>{state.model=normalizeModel(model,true);state.selectedId=null;saveModel();renderWatchlists();},
+        getPreferences:loadExecutionPreferences,
+        setPreferences:preferences=>{
+          const normalized=normalizeExecutionPreferences(preferences);
+          localStorage.setItem(EXECUTION_PREFERENCES_KEY,JSON.stringify(normalized));
+          state.execution.preferences=normalized;
+          $('execution-slippage').value=String(normalized.slippageBps/100);
+          $('execution-buy-presets').value=normalized.buyPresets.join(', ');
+          $('execution-sell-presets').value=normalized.sellPresets.join(', ');
+          resetExecutionQuote();renderExecutionPresets();renderExecutionSettingsSummary();
+        },
+        isBusy:()=>state.execution.busy || hasPendingExecution() || Boolean(state.wallets.controller?.isBusy())
+          || state.refreshing || state.pendingLocalReads>0 || state.boardLoading.size>0,
+        connectWallet:connectAccountWallet,
+        clearDevice:()=>{
+          [WATCHLISTS_KEY,WATCHLISTS_V2_KEY,EXECUTION_PREFERENCES_KEY,MARKET_CACHE_KEY].forEach(key=>localStorage.removeItem(key));
+          state.model=blankModel();state.selectedId=null;state.inspected=null;
+          state.boardEvidence.clear();state.execution.preferences=loadExecutionPreferences();
+          $('evidence-heading').textContent='Awaiting inspection';
+          $('evidence-empty').textContent='Run an inspection to populate verified contract evidence.';
+          $('evidence-empty').hidden=false;$('inspect-evidence-grid').replaceChildren();
+          $('inspect-perm-grid').replaceChildren();$('inspect-permissions').hidden=true;
+          $('inspect-freshness').textContent='';$('inspect-form-error').textContent='';
+          $('save-inspect-btn').disabled=true;state.inspectionsThisSession=0;
+          $('execution-slippage').value=String(state.execution.preferences.slippageBps/100);
+          $('execution-buy-presets').value=state.execution.preferences.buyPresets.join(', ');
+          $('execution-sell-presets').value=state.execution.preferences.sellPresets.join(', ');
+          $('hook-profile-close').click();renderBoard();renderExecutionPresets();renderExecutionSettingsSummary();updateDeskCounters();
+          saveModel();renderWatchlists();resetExecutionQuote();
+        },
+      });
+    }).catch(()=>{$('top-account').disabled=true;$('top-account').textContent='Sign-in unavailable';});
   }
 
   window.Hookline = {

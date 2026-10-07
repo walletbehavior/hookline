@@ -19,6 +19,10 @@ Hookline is a multichain evidence and analytics desk for programmable-liquidity 
 - Best-effort `owner()` probing with explicit probe status
 - Canonical Uniswap v4 low-14-bit permission decoding
 - Named local watchlists with bounded evidence history
+- Optional gas-free wallet sign-in for explicit private list/settings save and load across devices
+- Lazy-loaded Privy login, explicit embedded-wallet creation, secure export, and external-wallet selection
+- Private one-use Telegram linking without trading authority or silent settings merges
+- CLAUS allocation/accrual/event separation, with exact same-receipt burn transfer confirmation where supported
 - Same-chain contract and permission comparisons
 - Live upstream health, block height, and latency telemetry
 - Persistent Telegram alerts for runtime changes, new indexed pool relationships, and 10% liquidity moves across an unchanged, fully measured indexed pool set
@@ -29,7 +33,7 @@ Hookline is a multichain evidence and analytics desk for programmable-liquidity 
 - Free, allowlisted JSON-RPC access
 - x402-protected capacity at 0.01 USDC per request on Base
 
-The board's discovery and aggregate counts come from a timestamped v4.xyz community-indexer snapshot. Project descriptions are community-curated, team-authored, agent-reviewed, or Hookline-researched and labeled in the interface. Projects has its own broad registry, source-linked deployments, block-pinned observations, selected mechanism event readers, shared activity, and Telegram follows. The bounded scanner rotates targets on the existing 10-minute schedule; each profile reports its actual scan progress. Complete pool/swap indexing and fee/payout reconciliation remain roadmap work.
+The board's discovery and aggregate counts come from a timestamped v4.xyz community-indexer snapshot. Project descriptions are community-curated, team-authored, agent-reviewed, or Hookline-researched and labeled in the interface. Projects has its own broad registry, source-linked deployments, block-pinned observations, selected mechanism event readers, shared activity, and Telegram follows. The bounded scanner rotates targets on the existing 10-minute schedule; each profile reports its actual scan progress. Complete pool/swap indexing, generalized fee attribution, and lifetime payout reconciliation remain roadmap work. A confirmed individual burn transfer is not a lifetime total or investment outcome.
 
 The October 7 Projects release starts with 39 records, including tokenized projects, launch infrastructure, liquidity mechanisms, and developer tooling. Ten projects have explicitly selected monitoring targets. A listed project is not automatically a monitored or verified deployment. [Release notes and current boundaries](docs/RELEASE_2026-10-07.md) distinguish what is measured from what remains planned.
 
@@ -41,6 +45,7 @@ Requirements: Node.js 22 or newer.
 
 ```sh
 npm ci
+npm ci --prefix wallet-client
 node scripts/build-hookline-worker.mjs
 node scripts/test-hookline-worker.mjs
 node node_modules/wrangler/bin/wrangler.js dev --config wrangler.jsonc
@@ -66,6 +71,7 @@ curl https://hookline.world/rpc \
 ```text
 dist/                         browser application and generated Worker artifact
 worker/index.js               maintainable Cloudflare Worker source
+wallet-client/                isolated, pinned browser-only Privy/React package
 scripts/sync-hook-board.mjs   reproducible community-index snapshot sync
 scripts/build-hookline-worker.mjs
 scripts/test-hookline-worker.mjs
@@ -74,6 +80,8 @@ wrangler.jsonc                Cloudflare deployment configuration
 ```
 
 The build script embeds `dist/index.html`, `dist/styles.css`, `dist/app.js`, and the generated `dist/hooks.json` snapshot into a single Cloudflare Worker artifact at `dist/server/index.js`.
+
+It also builds the isolated wallet client into `dist/privy-wallet.js`. The SDK loads only when someone opens Wallets; the evidence desk has no login dependency. Hookline's public Privy app ID is client configuration, not a secret. Google, email, and external wallets are enabled. Telegram and Apple login are intentionally disabled; the Telegram bot, alerts, and private identity links remain available separately. The live login picker reflects the dashboard's enabled methods, not a hard-coded promise. No paid plan, gas sponsorship, server signer, or session key is enabled by this build. Embedded EOA creation is not smart-account deployment.
 
 ## Data model
 

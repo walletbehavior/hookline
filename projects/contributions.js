@@ -227,7 +227,7 @@ export async function verifyClaim(env,id,options = {}) {
   const name=`_hookline.${domain}`; const url=new URL(DNS_RESOLVER); url.searchParams.set('name',name); url.searchParams.set('type','TXT');
   let dns;
   try {
-    const response=await (options.fetcher || fetch)(url.href,{method:'GET',headers:{accept:'application/dns-json'},redirect:'error',signal:AbortSignal.timeout(5000)});
+    const response=await (options.fetcher || fetch)(url.href,{method:'GET',headers:{accept:'application/dns-json'},redirect:'manual',signal:AbortSignal.timeout(5000)});
     if (!response.ok) throw new Error('resolver unavailable');
     dns=await boundedJson(response);
   } catch { fail(503,'dns_unavailable','DNS verification is temporarily unavailable. Your claim is still awaiting proof.'); }

@@ -20,6 +20,33 @@ const PONS_DOCS = 'https://docs.ponsfamily.com/v2';
 const PONS_FACTORY = '0x7ed598bcef8bd9edd8c97a195c6d13f40801ec7e';
 const CLANKER_ABI = 'https://raw.githubusercontent.com/clanker-devco/v4-contracts/main/base_mainnet_abis/Clanker.sol/Clanker.json';
 const CLANKER_FACTORY = '0xe85a59c628f7d27878aceb4bf3b35733630083a9';
+const CLAUS_HOOK = '0x37bfb8ac7c960e558657871d41ca70e07e7dbfff';
+const CLAUS_IMPLEMENTATION = '0x767ea7dce972abd91fa81fe90f105eafcc2959fc';
+const CLAUS_TOKEN = '0x1b54e762aa34cf6e28e9c082f2848e28e45da6b8';
+const CLAUS_NFT = '0x80396c7131159eb92e7e84839e51c9887a7a95d9';
+const CLAUS_SOURCE = `https://eth.blockscout.com/api/v2/smart-contracts/${CLAUS_IMPLEMENTATION}`;
+const CLAUS_NFT_SOURCE = `https://eth.blockscout.com/api/v2/smart-contracts/${CLAUS_NFT}`;
+const CLAUS_VERSION = 'Verified FeePrivacyHook 0x767ea7dce972abd91fa81fe90f105eafcc2959fc, Solidity 0.8.26, observed 2026-10-07';
+
+const clausHookDefinition = (definition) => ({
+  chainId: 1, address: CLAUS_HOOK, implementationAddress: CLAUS_IMPLEMENTATION,
+  sourceUrl: CLAUS_SOURCE, sourceVersion: CLAUS_VERSION, ...definition,
+});
+const clausAllocation = (definition) => clausHookDefinition({
+  classification: 'configuration', returns: 'uint24', unit: 'ppm', denominator: 1_000_000,
+  basis: 'gross ETH', ...definition,
+});
+const clausAccrued = (definition) => clausHookDefinition({
+  classification: 'accrued', returns: 'uint256', unit: 'wei', asset: 'ETH', ...definition,
+});
+const clausNftEvent = (definition) => ({
+  chainId: 1, address: CLAUS_NFT,
+  sourceUrl: CLAUS_NFT_SOURCE,
+  sourceVersion: 'Verified non-proxy ClausNFT / NftRewards, observed 2026-10-07',
+  unit: 'wei', asset: 'ETH', amountField: 'amount', ...definition,
+});
+const ethWei = { unit: 'wei', asset: 'ETH' };
+const clausUnits = { unit: 'raw-token-units', asset: CLAUS_TOKEN, decimals: 18 };
 
 const engramRead = (definition) => ({
   chainId: 1,
@@ -47,6 +74,132 @@ const clankerDefinition = (definition) => ({
 });
 
 export const READERS = {
+  claus: {
+    version: 1,
+    maxReads: 12,
+    label: 'CLAUS verified fee, buyback and NFT-reward records',
+    sources: [
+      { label: 'Verified FeePrivacyHook ABI and inherited source', url: CLAUS_SOURCE },
+      { label: 'Verified ClausNFT reward ABI and source', url: CLAUS_NFT_SOURCE },
+      { label: 'Official NFT deployment and reward documentation', url: 'https://claus.si/read/Hooks/NFTs' },
+    ],
+    reads: [
+      clausAllocation({
+        key: 'configuredBurnAllocation', label: 'Configured burn allocation', signature: 'BURN_FEE_PIPS()',
+        description: 'Current weather-dependent allocation on gross ETH. A configured allocation is not a completed buyback or burn.',
+      }),
+      clausAllocation({
+        key: 'configuredLiquidityAllocation', label: 'Configured liquidity allocation', signature: 'LIQUIDITY_FEE_PIPS()',
+        description: 'Current allocation earmarked for liquidity, not ETH already added to the pool. Read at the same block as the burn allocation.',
+      }),
+      clausAllocation({
+        key: 'configuredWalletAllocation', label: 'Configured project-wallet allocation', signature: 'WALLET_FEE_PIPS()',
+        description: 'Configured project-wallet component. It absorbs the NFT share while NFT supply is zero; do not replace this call with a fixed percentage.',
+      }),
+      clausAllocation({
+        key: 'configuredNftAllocation', label: 'Configured NFT-reward allocation', signature: 'NFT_FEE_PIPS()',
+        description: 'Configured gross-ETH share for the NFT reward pot. Zero is a valid response when NFT supply is zero. Accrual is not a holder payout.',
+      }),
+      clausAllocation({
+        key: 'configuredFomoAllocation', label: 'Configured FOMO-buyback allocation', signature: 'FOMO_FEE_PIPS()',
+        description: 'Allocation for token purchases sent to the configured FOMO recipient, not burns. These five allocation getters cover the project share, not the platform share or full hook charge.',
+      }),
+      clausHookDefinition({
+        key: 'feeRecipient', label: 'Configured project fee recipient', signature: 'feeRecipient()', returns: 'address',
+        classification: 'configuration',
+        description: 'Recipient recorded in launch storage. It is not the proxy administrator and is not evidence of a completed payment.',
+      }),
+      clausHookDefinition({
+        key: 'fomoRecipient', label: 'Configured FOMO token recipient', signature: 'fomoRecipient()', returns: 'address',
+        classification: 'configuration',
+        description: 'Recipient of purchased FOMO tokens. It is not the recipient of every hook fee or of burned tokens.',
+      }),
+      clausHookDefinition({
+        key: 'nftRewardsContract', label: 'NFT reward contract', signature: 'nft()', returns: 'address',
+        classification: 'configuration',
+        description: 'Reward-accounting contract. Individual holder payments are emitted there, not by this hook proxy.',
+      }),
+      clausAccrued({
+        key: 'projectFeesAccrued', label: 'Project fees awaiting claim', signature: 'projectFeeBalance()',
+        description: 'Outstanding native-ETH claims in the project revenue vault at this block. Not lifetime revenue or money already paid to the wallet.',
+      }),
+      clausAccrued({
+        key: 'burnFundsAccrued', label: 'Burn funds awaiting processing', signature: 'pendingBurnEth()',
+        description: 'Native-ETH claims awaiting the buyback processor. A zero balance does not prove a buyback happened; inspect its event and receipt.',
+      }),
+      clausAccrued({
+        key: 'liquidityFundsAccrued', label: 'Liquidity ETH awaiting processing', signature: 'pendingLiquidityEth()',
+        description: 'Earmarked native-ETH claims, excluding any token-side reserve. Not deployed liquidity or USD value.',
+      }),
+      clausAccrued({
+        key: 'fomoFundsAccrued', label: 'FOMO funds awaiting processing', signature: 'pendingFomoEth()',
+        description: 'Native-ETH claims awaiting purchases for the FOMO recipient. Not tokens already received or burned.',
+      }),
+    ],
+    events: [
+      clausHookDefinition({
+        key: 'feesAccrued', label: 'Hook fee accrual recorded', classification: 'accrued',
+        signature: 'event ProjectFeeAccrued(bytes32 indexed poolId, address indexed sender, bool exactInput, uint256 grossEth, uint256 feeEth)',
+        amountField: 'feeEth', poolField: 'poolId', unit: 'wei', asset: 'ETH',
+        fieldUnits: { grossEth: ethWei, feeEth: ethWei },
+        description: 'Despite the event name, feeEth is the total hook charge including platform allocation, on grossEth. It is not the LP fee or a completed recipient payout; sender is the caller.',
+      }),
+      clausHookDefinition({
+        key: 'feeAllocationRecorded', label: 'Project and platform allocation recorded', classification: 'accrued',
+        signature: 'event FeeAllocation(uint256 grossEth, uint256 projectEth, uint256 platformEth)',
+        fieldUnits: { grossEth: ethWei, projectEth: ethWei, platformEth: ethWei },
+        description: 'Native-ETH claims allocated between project and platform. Do not add these amounts again to ProjectFeeAccrued.feeEth or call them paid revenue.',
+      }),
+      clausHookDefinition({
+        key: 'buybackBurnRecorded', label: 'Buyback and burn recorded', classification: 'executed',
+        signature: 'event BuybackBurn(bytes32 indexed poolId, address indexed sender, uint256 spentEth, uint256 burnedTokens, uint256 pendingEth)',
+        amountField: 'burnedTokens', poolField: 'poolId', unit: 'raw-token-units', asset: CLAUS_TOKEN,
+        receiptProof: { kind: 'erc20_transfer', token: CLAUS_TOKEN, from: CLAUS_HOOK,
+          to: '0x0000000000000000000000000000000000000000', amountField: 'burnedTokens' },
+        fieldUnits: { spentEth: ethWei, burnedTokens: clausUnits, pendingEth: ethWei },
+        description: 'Hook-emitted processor record. burnedTokens is raw CLAUS units; spentEth and pendingEth are wei. sender is the executor, not a payee. Confirm the same-transaction CLAUS Transfer from this hook to zero before labeling the burn receipt-reconciled.',
+      }),
+      clausHookDefinition({
+        key: 'fomoBuybackRecorded', label: 'FOMO token purchase recorded', classification: 'transferred',
+        signature: 'event FomoBuyback(bytes32 indexed poolId, address indexed recipient, uint256 spentEth, uint256 sentTokens, uint256 pendingEth)',
+        amountField: 'sentTokens', recipientField: 'recipient', poolField: 'poolId', unit: 'raw-token-units', asset: CLAUS_TOKEN,
+        fieldUnits: { spentEth: ethWei, sentTokens: clausUnits, pendingEth: ethWei },
+        description: 'Purchased tokens recorded as sent to the named recipient, not burned. Reconcile the token Transfer in this transaction separately; never merge sentTokens into burn totals.',
+      }),
+      clausHookDefinition({
+        key: 'nftFeesAccrued', label: 'NFT fee allocation recorded', classification: 'accrued',
+        signature: 'event NftFeeAccrued(uint256 grossEth, uint256 nftEth, uint256 epoch)',
+        amountField: 'nftEth', unit: 'wei', asset: 'ETH',
+        fieldUnits: { grossEth: ethWei, nftEth: ethWei, epoch: { unit: 'count' } },
+        description: 'Fee credited to the NFT reward pot. This is not a holder payment. The collection also emits an accrual record for the same funds; do not count both as new revenue.',
+      }),
+      clausHookDefinition({
+        key: 'liquidityAddedRecorded', label: 'Liquidity addition recorded', classification: 'executed',
+        signature: 'event LiquidityAdded(uint256 indexed tokenId, uint128 liquidity, uint256 ethAdded, uint256 tokensAdded, uint256 buyEth)',
+        amountField: 'ethAdded', unit: 'wei', asset: 'ETH',
+        fieldUnits: { ethAdded: ethWei, tokensAdded: clausUnits, buyEth: ethWei, liquidity: { unit: 'raw-liquidity-units' } },
+        description: 'Processor-recorded position addition. ethAdded excludes buyEth spent acquiring tokens; tokensAdded is raw CLAUS, while liquidity is a liquidity unit, not a token amount or USD.',
+      }),
+      clausNftEvent({
+        key: 'nftRewardsAccrued', label: 'NFT reward pot credited', classification: 'accrued',
+        signature: 'event NftRewardAccrued(uint256 indexed epoch, uint256 amount)',
+        fieldUnits: { amount: ethWei, epoch: { unit: 'count' } },
+        description: 'Reward-accounting record of the same NFT allocation recorded at the hook. Not a second charge and not a completed holder payment.',
+      }),
+      clausNftEvent({
+        key: 'nftRewardPaymentRecorded', label: 'NFT holder payment recorded', classification: 'transferred',
+        signature: 'event NftRewardPaid(uint256 indexed epoch, address indexed account, uint256 amount)',
+        recipientField: 'account', fieldUnits: { amount: ethWei, epoch: { unit: 'count' } },
+        description: 'The verified NFT reward contract emits this only after its native-ETH call succeeds. It is a contract-reported payment to account, not an independently reconciled recipient balance total.',
+      }),
+      clausNftEvent({
+        key: 'nftRewardPaymentDeferred', label: 'NFT holder payment deferred', classification: 'deferred',
+        signature: 'event NftRewardDeferred(uint256 indexed epoch, address indexed account, uint256 amount)',
+        recipientField: 'account', fieldUnits: { amount: ethWei, epoch: { unit: 'count' } },
+        description: 'Native-ETH payment failed and the paid counters were restored. This amount remains owed; exclude it from all paid-reward or reconciled-payment totals.',
+      }),
+    ],
+  },
   clanker: {
     version: 1,
     label: 'Clanker Base token factory',

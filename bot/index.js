@@ -147,7 +147,7 @@ export async function handleUpdate(update, ctx = {}) {
 async function handleMessage(message, ctx, userId) {
   const client = makeClient(ctx.env);
   if (!client) return { handled: false, reason: 'telegram_not_configured' };
-  const parsed = parseMessage(message);
+  const parsed = {...parseMessage(message),chatType:message.chat?.type};
   const pendingInput=getSession(userId)?.pendingInput;
   if(parsed.kind!=='command' && pendingInput?.expiresAt>Date.now() && privateConversation(parsed.chatId,userId,parsed.fromId)) {
     if(pendingInput.kind==='setting') {
@@ -215,6 +215,23 @@ async function handleMessage(message, ctx, userId) {
 }
 
 async function startCommand(client, parsed, ctx, userId) {
+  const accountLink=String(parsed.args || '').match(/^account_([A-Za-z0-9_-]{20,60})$/);
+  if(accountLink) {
+    if(parsed.chatType!=='private' || !privateConversation(parsed.chatId,userId,parsed.fromId)) {
+      const reply=await client.reply(parsed.chatId,'Open your own private Hookline chat to link an account.');
+      return {handled:true,messageId:reply?.message_id};
+    }
+    let text;
+    try {
+      if(typeof ctx.services?.accounts?.consumeTelegramLink!=='function') throw new Error('unavailable');
+      const result=await ctx.services.accounts.consumeTelegramLink({token:accountLink[1],userId,chatId:parsed.chatId,fromId:parsed.fromId,chatType:parsed.chatType});
+      text=`Hookline account linked\n\n${result.account.address}\n\nThis links your identities, not wallet permissions. Your existing alerts and preferences are unchanged. Refresh Account on hookline.world to confirm.`;
+    } catch {
+      text='This account link could not be used. It may have expired, already been used, or conflict with an existing link. Open Account on hookline.world to create a fresh private link.';
+    }
+    const reply=await client.reply(parsed.chatId,text,{reply_markup:{inline_keyboard:navigationRows()},disable_web_page_preview:true});
+    return {handled:true,messageId:reply?.message_id,kind:'account_link'};
+  }
   const deepLink = String(parsed.args || '').match(/^(hook|alert)_(\d+)_(?:0x)?([0-9a-fA-F]{40})$/);
   if (deepLink) {
     const address = `0x${deepLink[3].toLowerCase()}`;
@@ -397,8 +414,8 @@ async function alertAddressLookup(client,ctx,chatId,userId,address) {
 async function walletCommand(client, parsed) {
   const reply = await client.reply(
     parsed.chatId,
-    '*User-owned wallet*\n\nOpen a reviewed route on hookline.world and connect your EVM wallet. Your wallet signs and submits. Telegram never receives a private key, seed phrase, or signing session.',
-    { parse_mode: 'Markdown',reply_markup:{inline_keyboard:[[{text:'Connect on Hookline',url:'https://hookline.world/#/board'}],...navigationRows()]} }
+    '*Your wallet*\n\nSign in on Hookline to create an embedded wallet, or connect one you already own. Return with the same login to use the same wallet. You confirm each signature.\n\nTelegram never receives a private key, seed phrase, or signing session. Automatic orders are not active.',
+    { parse_mode: 'Markdown',reply_markup:{inline_keyboard:[[{text:'Create or connect wallet',url:'https://hookline.world/#/wallets'}],...navigationRows()]} }
   );
   return { handled: true, messageId: reply?.message_id };
 }

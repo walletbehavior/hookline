@@ -1,0 +1,152 @@
+{
+  "schemaVersion": 1,
+  "researchDate": "2026-10-07",
+  "purpose": "Source audit and immutable offline fixtures, not a live price, fee, or payout feed.",
+  "chainId": 1,
+  "hook": "0x37bfb8ac7c960e558657871d41ca70e07e7dbfff",
+  "implementation": "0x767ea7dce972abd91fa81fe90f105eafcc2959fc",
+  "token": "0x1b54e762aa34cf6e28e9c082f2848e28e45da6b8",
+  "nft": "0x80396c7131159eb92e7e84839e51c9887a7a95d9",
+  "sources": [
+    { "url": "https://eth.blockscout.com/api/v2/smart-contracts/0x37bfb8ac7c960e558657871d41ca70e07e7dbfff", "role": "Verified HookProxy and EIP-1967 implementation relationship" },
+    { "url": "https://eth.blockscout.com/api/v2/smart-contracts/0x767ea7dce972abd91fa81fe90f105eafcc2959fc", "role": "Verified FeePrivacyHook ABI and inherited implementation source" },
+    { "url": "https://eth.blockscout.com/api/v2/smart-contracts/0x80396c7131159eb92e7e84839e51c9887a7a95d9", "role": "Verified, non-proxy ClausNFT ABI and NftRewards source" },
+    { "url": "https://claus.si/read/Hooks/NFTs", "role": "Official NFT contract and hook deployment relationship" },
+    { "url": "https://claus.si/read/Hooks/Funding", "role": "Official mechanism description, not the source of direct observations" },
+    { "url": "https://claus.si/fee-state.json", "role": "Project-reported corroboration only; the reader does not ingest its values" },
+    { "url": "https://ikaxbt.com/claus/data.json", "role": "Published deployment and implementation references; cached dashboard figures are not measured Hookline outcomes" },
+    { "url": "https://ethereum-rpc.publicnode.com", "role": "Direct pinned-block read and bounded log/receipt fixture source" }
+  ],
+  "verifiedImplementation": {
+    "name": "FeePrivacyHook",
+    "compiler": "0.8.26+commit.8a97fa7a",
+    "abiJsonSha256": "ef516440d5d6a934d984198be14ea0a3d9da2083a028ed9a7d31861946cd7922",
+    "deployedBytecodeSha256": "54a9a29644542163ee15719f9f650bd0a167e78b7cd771c3c03475cc489f4234",
+    "sourceSha256": {
+      "src/privacy/FeePrivacyHook.sol": "bad5d4c2617fed50adfc4b4de12ed4fa130cd5fe758e9c7b55a61639bd4eb360",
+      "src/FeeEfficientHook.sol": "7747fd8b318d6c89580c961fa2a535a52182e1dfb3c5e522406982b5547b3ade",
+      "src/FeeNftHook.sol": "72cacac87f3d1a2d7619a679121c0145347da2d76aa81c8c10eb496cd1ab98e3",
+      "src/FeeMath.sol": "23e116cfd5e39977a7d7176638d25e79654ecdead4c5a8d1d991a6689199ad47",
+      "src/FeeProcessor.sol": "42d3bbb4b48523e56ac37b0b7174f87ff7075865df2a9c764da943c32fcc8efe",
+      "src/ProjectRevenue.sol": "e4b4ccb9f7af1579cf105ad8f66a86edc31a313be5fb155d6878426faf508e92",
+      "src/NftRewards.sol": "521fb84d7640c2918cac423895b872a32c8a2af9dfb40e28f21e00e99f2d3440",
+      "src/IMDWeather.sol": "98e30cb524b9ca5d34f7f146f474c51429f8b1941794a72cd33cf6a155f5604b"
+    }
+  },
+  "verifiedNft": {
+    "name": "ClausNFT",
+    "proxy": false,
+    "abiJsonSha256": "4d9eec85bea13ac78fe0e7d14f282ab8a2f057270051b28f977839cbafdedad3",
+    "deployedBytecodeSha256": "442e33e5f19bff0202060161789637cd32a53fdcc217fe5bf821bf6315a492e1"
+  },
+  "reads": [
+    { "signature": "BURN_FEE_PIPS()", "returns": "uint24", "selector": "0xeaf33476", "observedValue": "1500" },
+    { "signature": "LIQUIDITY_FEE_PIPS()", "returns": "uint24", "selector": "0x638b12a0", "observedValue": "3500" },
+    { "signature": "WALLET_FEE_PIPS()", "returns": "uint24", "selector": "0xc314876d", "observedValue": "10000" },
+    { "signature": "NFT_FEE_PIPS()", "returns": "uint24", "selector": "0xc269a3e2", "observedValue": "3500" },
+    { "signature": "FOMO_FEE_PIPS()", "returns": "uint24", "selector": "0xfb26015f", "observedValue": "1500" },
+    { "signature": "feeRecipient()", "returns": "address", "selector": "0x46904840", "observedValue": "0xbb145ca83272c3806d4ddc75ca1d5514789cf1c5" },
+    { "signature": "fomoRecipient()", "returns": "address", "selector": "0x28accf09", "observedValue": "0x04f1e9f9848c92508699bfcd59e0522e8246dc16" },
+    { "signature": "nft()", "returns": "address", "selector": "0x47ccca02", "observedValue": "0x80396c7131159eb92e7e84839e51c9887a7a95d9" },
+    { "signature": "projectFeeBalance()", "returns": "uint256", "selector": "0x46158ffc", "observedValue": "11775557843307869856" },
+    { "signature": "pendingBurnEth()", "returns": "uint256", "selector": "0xbbc2520d", "observedValue": "0" },
+    { "signature": "pendingLiquidityEth()", "returns": "uint256", "selector": "0x3bd13251", "observedValue": "44736581150006862" },
+    { "signature": "pendingFomoEth()", "returns": "uint256", "selector": "0x8c2d6cf4", "observedValue": "0" }
+  ],
+  "observation": {
+    "source": "https://ethereum-rpc.publicnode.com",
+    "blockNumber": 26143461,
+    "blockHash": "0x6b7a53c25c27135f87e82fbf723f2ff92c2b24f75424b6f7631f0b2fa3b16b2d",
+    "blockTime": "2026-10-07T22:20:59.000Z",
+    "finality": "finalized",
+    "implementationSlot": "0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc",
+    "implementationResult": "0x000000000000000000000000767ea7dce972abd91fa81fe90f105eafcc2959fc",
+    "callsPinnedToBlock": true,
+    "notForRuntimeDefaults": true
+  },
+  "events": [
+    { "emitter": "hook", "signature": "event ProjectFeeAccrued(bytes32 indexed poolId, address indexed sender, bool exactInput, uint256 grossEth, uint256 feeEth)", "topic": "0x8a16a886daeed8721143e653d371511dc8d04c6e40ed9dbde857ccf86004f956" },
+    { "emitter": "hook", "signature": "event FeeAllocation(uint256 grossEth, uint256 projectEth, uint256 platformEth)", "topic": "0x30860b03e8a75f18269f1d68389c3d8cafe3abd5aed5ac9887e7ca538f39bf06" },
+    { "emitter": "hook", "signature": "event BuybackBurn(bytes32 indexed poolId, address indexed sender, uint256 spentEth, uint256 burnedTokens, uint256 pendingEth)", "topic": "0x817bb2e86151cf2f497afcde26537ab77f844c8eebdb29c1fbc720ed4bbdcf2e" },
+    { "emitter": "hook", "signature": "event FomoBuyback(bytes32 indexed poolId, address indexed recipient, uint256 spentEth, uint256 sentTokens, uint256 pendingEth)", "topic": "0xe1e7d2926cb6821231b4e1d0d5d2433fbcf404a40a50bc3f26c93f55f5306fc9" },
+    { "emitter": "hook", "signature": "event NftFeeAccrued(uint256 grossEth, uint256 nftEth, uint256 epoch)", "topic": "0x29f0079abe49c4c29ec2718b6d8bff13c03c0185f94804878ae1aed57c058240" },
+    { "emitter": "hook", "signature": "event LiquidityAdded(uint256 indexed tokenId, uint128 liquidity, uint256 ethAdded, uint256 tokensAdded, uint256 buyEth)", "topic": "0x5784b587c773079de171c8f871fe70e3a555944e563fc671692e551c9bcaa023" },
+    { "emitter": "nft", "signature": "event NftRewardAccrued(uint256 indexed epoch, uint256 amount)", "topic": "0xac7dc39afd367df5aef025ffe354519c4ad98b8621d36e3dee1710859b08ef14" },
+    { "emitter": "nft", "signature": "event NftRewardPaid(uint256 indexed epoch, address indexed account, uint256 amount)", "topic": "0x59c291ea227bb50b8809b7b583f9811e567fb0eb35198028b2d536d0ee1e321e" },
+    { "emitter": "nft", "signature": "event NftRewardDeferred(uint256 indexed epoch, address indexed account, uint256 amount)", "topic": "0x6fe0a71720db06681c156f7c6fb144f50a25f6b450a882575ddddba26ccc8560" }
+  ],
+  "interpretation": {
+    "feeUnit": "ppm of gross ETH, denominator 1000000; 1500 ppm is 0.15%, not 15% or 1500 bps",
+    "fiveAllocationReads": "Only the project allocation components. Their sum is not the full hook charge because platform allocation is separate.",
+    "sourceOnlyPolicy": "Verified FeeMath contains TOTAL_PIPS 23000 and PROJECT_PIPS 20000 for this implementation. There is no corresponding public getter. Neither constant is inserted as a direct observed field or measured fee.",
+    "dynamicAllocations": "Burn and liquidity depend on weather. NFT allocation is zero at zero NFT supply and the wallet share absorbs it. Failed calls are unavailable, never a fixed default.",
+    "projectFeeAccrued": "feeEth is the total hook charge including platform, despite the event name. It is not a recipient payment.",
+    "doubleCounting": "FeeAllocation divides the same fee observed in ProjectFeeAccrued. NftFeeAccrued and NftRewardAccrued represent the same earmarked funds. Never sum these overlapping records as separate revenue.",
+    "burn": "FeeProcessor runs by delegatecall and emits BuybackBurn at the hook proxy after calling the token burn. sender is the executor. burnedTokens must be matched to the exact token Transfer from hook to zero in the same successful transaction and block before receipt-confirmed labeling.",
+    "fomo": "FomoBuyback records tokens sent to recipient, not a burn. A same-transaction transfer to the FOMO recipient must never satisfy the burn proof.",
+    "nftPaid": "NftRewardPaid is emitted by ClausNFT only after a successful native-ETH call. This is a decoded contract-reported payment, not an independently reconciled recipient balance total.",
+    "nftDeferred": "Failed native-ETH calls restore paid and totalPaid counters, then emit NftRewardDeferred. Deferred amounts are not paid.",
+    "projectClaims": "The current collectProjectFees delegates to ProjectRevenue.claimActive. RevenueClaimed is emitted at the revenue vault, not at the hook. The inherited ProjectFeesClaimed ABI entry is not used by this implementation and is deliberately not indexed as a payout.",
+    "scope": "Historical log definitions are implementation-bound. A proxy upgrade requires source review; a first observation is a baseline, not a change. This fixture does not establish comprehensive lifetime activity."
+  },
+  "burnReceiptFixture": {
+    "source": "https://ethereum-rpc.publicnode.com",
+    "searchedBlockRange": [26143261, 26143461],
+    "selection": "Only the hook BuybackBurn, matching burn Transfer, and non-burn FOMO Transfer are retained. This is not the complete transaction receipt.",
+    "status": "0x1",
+    "transactionHash": "0x4ebb126dabedebdb23b57365f0c7f4f1c483d97fca01b93d94e88a0ea359674c",
+    "blockHash": "0xb3ff36e50ab973027bb71eb274ca297b75f630c85c27fc7e3c87ff2df493a3dc",
+    "blockNumber": "0x18eeadc",
+    "logs": [
+      {
+        "address": "0x37bfb8ac7c960e558657871d41ca70e07e7dbfff",
+        "topics": [
+          "0x817bb2e86151cf2f497afcde26537ab77f844c8eebdb29c1fbc720ed4bbdcf2e",
+          "0xfaa42866f7667e3a1a10d783f3b629171febd45f056336b8df766d74afc0f0f7",
+          "0x0000000000000000000000000005ea683517b3a4463bfd798c9850ad2d586795"
+        ],
+        "data": "0x000000000000000000000000000000000000000000000000000019dc8043870b000000000000000000000000000000000000000000000000397f7baa126fec790000000000000000000000000000000000000000000000000000000000000000",
+        "blockHash": "0xb3ff36e50ab973027bb71eb274ca297b75f630c85c27fc7e3c87ff2df493a3dc",
+        "blockNumber": "0x18eeadc",
+        "transactionHash": "0x4ebb126dabedebdb23b57365f0c7f4f1c483d97fca01b93d94e88a0ea359674c",
+        "logIndex": "0x39a",
+        "removed": false
+      },
+      {
+        "address": "0x1b54e762aa34cf6e28e9c082f2848e28e45da6b8",
+        "topics": [
+          "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef",
+          "0x00000000000000000000000037bfb8ac7c960e558657871d41ca70e07e7dbfff",
+          "0x0000000000000000000000000000000000000000000000000000000000000000"
+        ],
+        "data": "0x000000000000000000000000000000000000000000000000397f7baa126fec79",
+        "blockHash": "0xb3ff36e50ab973027bb71eb274ca297b75f630c85c27fc7e3c87ff2df493a3dc",
+        "blockNumber": "0x18eeadc",
+        "transactionHash": "0x4ebb126dabedebdb23b57365f0c7f4f1c483d97fca01b93d94e88a0ea359674c",
+        "logIndex": "0x398",
+        "removed": false
+      },
+      {
+        "address": "0x1b54e762aa34cf6e28e9c082f2848e28e45da6b8",
+        "topics": [
+          "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef",
+          "0x000000000000000000000000000000000004444c5dc75cb358380d2e3de08a90",
+          "0x00000000000000000000000004f1e9f9848c92508699bfcd59e0522e8246dc16"
+        ],
+        "data": "0x000000000000000000000000000000000000000000000000397f7baa126fec79",
+        "blockHash": "0xb3ff36e50ab973027bb71eb274ca297b75f630c85c27fc7e3c87ff2df493a3dc",
+        "blockNumber": "0x18eeadc",
+        "transactionHash": "0x4ebb126dabedebdb23b57365f0c7f4f1c483d97fca01b93d94e88a0ea359674c",
+        "logIndex": "0x399",
+        "removed": false
+      }
+    ],
+    "expected": {
+      "spentEth": "28434835408651",
+      "burnedTokens": "4143166152588127353",
+      "pendingEth": "0",
+      "matchingTransferLogIndex": "0x398",
+      "unrelatedFomoTransferLogIndex": "0x399"
+    }
+  }
+}

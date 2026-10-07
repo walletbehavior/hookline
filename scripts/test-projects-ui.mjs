@@ -50,6 +50,8 @@ assert.equal(ui.projectExternalLink('https://user:pass@alpha.example', 'Credenti
 assert.equal(ui.projectExternalLink('https://alpha.example', 'Safe').rel, 'noopener noreferrer');
 assert.equal(ui.projectValue(null), 'Unavailable');
 assert.equal(ui.projectValue(0), '0');
+assert.equal(ui.projectValue('1500', {unit:'ppm',basis:'gross ETH'}), '0.15% (1500 ppm) · gross ETH');
+assert.equal(ui.projectValue('0', {unit:'ppm'}), '0% (0 ppm)');
 assert.equal(ui.projectValue('0x' + '0'.repeat(40), { zeroLabel: 'Default model' }), 'Default model');
 assert.equal(ui.projectCount({ coverage: { monitoredDeployments: 10 } }, 'observedDeployments'), null, 'Scheduled targets must not masquerade as observed coverage.');
 assert.equal(ui.projectTime(null), null);

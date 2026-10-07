@@ -39,8 +39,11 @@ import { handleTelegramUpdate, verifyWebhookSecret } from '../bot/index.js';
 import { runAlertScan } from '../bot/alert-runner.js';
 import { handleProjectsApi, canonicalProjectRegistry, projectContext } from '../projects/api.js';
 import { runProjectScan, deliverProjectEvents } from '../projects/evidence.js';
+import { createProjectRpcPool, createRpcPoolHealth } from '../projects/rpc-pool.js';
 import { TelegramClient } from '../bot/bot-api.js';
 import { digest as projectDigest } from '../projects/evidence.js';
+import { handleAccountsApi, consumeTelegramLink, pruneAccountEphemera } from '../accounts/index.js';
+import { createEip1271Verifier } from '../accounts/contract-signatures.js';
 
 'use strict';
 
@@ -235,6 +238,8 @@ const STATIC_ROUTES = Object.freeze({
   '/styles.css': { type: 'text/css; charset=utf-8', key: 'css' },
   '/app.js': { type: 'application/javascript; charset=utf-8', key: 'app' },
   '/execution-rail.js': { type: 'application/javascript; charset=utf-8', key: 'executionRail' },
+  '/accounts-ui.js': { type: 'application/javascript; charset=utf-8', key: 'accountsUi' },
+  '/privy-wallet.js': { type: 'application/javascript; charset=utf-8', key: 'privyWallet' },
   '/data/hooks.json': { type: 'application/json; charset=utf-8', key: 'hooks' },
   '/data/token-hooks.json': { type: 'application/json; charset=utf-8', key: 'tokenHooks' },
   '/data/runtime-families.json': { type: 'application/json; charset=utf-8', key: 'runtimeFamilies' },
@@ -279,8 +284,13 @@ const SECURITY_HEADERS = Object.freeze({
   'X-XSS-Protection': '1; mode=block',
   'Referrer-Policy': 'strict-origin-when-cross-origin',
   'Content-Security-Policy':
-    "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; " +
-    "img-src 'self' data:; connect-src 'self' https://api.dexscreener.com; font-src 'self'; frame-ancestors 'none'; form-action 'self'",
+    "default-src 'self'; script-src 'self' https://challenges.cloudflare.com https://telegram.org; style-src 'self' 'unsafe-inline'; " +
+    "img-src 'self' data: blob: https://auth.privy.io https://explorer-api.walletconnect.com; font-src 'self'; object-src 'none'; base-uri 'self'; " +
+    "frame-src https://auth.privy.io https://verify.walletconnect.com https://verify.walletconnect.org https://challenges.cloudflare.com https://oauth.telegram.org; " +
+    "connect-src 'self' https://api.dexscreener.com https://auth.privy.io https://*.rpc.privy.systems https://explorer-api.walletconnect.com " +
+    "wss://relay.walletconnect.com wss://relay.walletconnect.org wss://www.walletlink.org https://mainnet.base.org https://eth.merkle.io " +
+    "https://eth.drpc.org https://bsc-dataseed.bnbchain.org https://arb1.arbitrum.io https://rpc.mainnet.chain.robinhood.com; " +
+    "worker-src 'self'; manifest-src 'self'; frame-ancestors 'none'; form-action 'self'",
 });
 
 function baseJsonHeaders(extra) {
@@ -1448,7 +1458,7 @@ function sendStaticAsset(path, type, content) {
 }
 
 function handleStaticAsset(path) {
-  const versionedAsset = path.match(/^\/assets\/[a-f0-9]{12}\/(styles\.css|app\.js|execution-rail\.js)$/);
+  const versionedAsset = path.match(/^\/assets\/[a-f0-9]{12}\/(styles\.css|app\.js|execution-rail\.js|accounts-ui\.js|privy-wallet\.js)$/);
   const routePath = versionedAsset ? `/${versionedAsset[1]}` : path;
   const route = STATIC_ROUTES[routePath];
   if (!route) return undefined;
@@ -1879,38 +1889,30 @@ async function readExecutionTokenMetadata(chainId, address, env) {
 // Main entry point.
 // ---------------------------------------------------------------------------
 
+const projectRpcHealth=createRpcPoolHealth();
+const verifySmartWalletSignature=createEip1271Verifier({allowedChains:SUPPORTED_CHAINS,rpc:async({chainId,method,params,signal})=>{
+  const config=CHAIN_CONFIG[chainId];
+  if(!config || !['eth_chainId','eth_getBlockByNumber','eth_getCode','eth_call'].includes(method)) throw new Error('Unsupported verification read.');
+  const response=await fetch(config.upstream,{method:'POST',redirect:'manual',signal,
+    headers:{'Content-Type':'application/json','Accept':'application/json'},body:JSON.stringify({jsonrpc:'2.0',id:1,method,params})});
+  if(!response.ok || Number(response.headers.get('content-length'))>1024*1024 || !response.body) throw new Error('Signature verification provider unavailable.');
+  const reader=response.body.getReader(),chunks=[];let bytes=0;
+  try {
+    while(true) {const {done,value}=await reader.read();if(done) break;bytes+=value.byteLength;
+      if(bytes>1024*1024) {await reader.cancel();throw new Error('Verification response exceeded limit.');}chunks.push(value);}
+  } finally {reader.releaseLock();}
+  const buffer=new Uint8Array(bytes);let offset=0;for(const chunk of chunks){buffer.set(chunk,offset);offset+=chunk.byteLength;}
+  const payload=JSON.parse(new TextDecoder().decode(buffer));
+  if(payload.error) throw Object.assign(new Error(String(payload.error.message || 'RPC verification failed.')),{code:payload.error.code});
+  if(payload.jsonrpc!=='2.0' || payload.id!==1 || !Object.hasOwn(payload,'result')) throw new Error('Invalid verification response.');
+  return payload.result;
+}});
 async function collectProjectEvidence(env) {
-  const providerFailures=[];
-  const lastRequest=new Map();
-  const rpc=async(chainId,method,params)=>{
-    const config=CHAIN_CONFIG[chainId]; if (!config) throw new Error('chain_not_supported');
-    // The free public providers have burst limits. Pace the collector instead
-    // of making every project compete for the same egress allowance at once.
-    const pause=Math.max(0,150-(Date.now()-(lastRequest.get(chainId) || 0)));
-    if(pause) await new Promise(resolve=>setTimeout(resolve,pause));
-    lastRequest.set(chainId,Date.now());
-    // Robinhood's public node serves logs but not finalized historical state.
-    // dRPC serves the exact pinned state, but restricts broad log ranges.
-    // Keep the requested block unchanged, never silently fall back to latest.
-    const stateRead=['eth_getCode','eth_getStorageAt','eth_call'].includes(method);
-    const projectConfig=chainId===4663
-      ? {...config,upstream:stateRead?'https://robinhood.drpc.org':'https://rpc.mainnet.chain.robinhood.com',fallbackUpstreams:[]}
-      :chainId===8453
-        ? {...config,upstream:stateRead?'https://base.gateway.tenderly.co':'https://base-rpc.publicnode.com',
-          fallbackUpstreams:stateRead?['https://base-mainnet.g.alchemy.com/public']:[]}:config;
-    const result=await callChainUpstream(projectConfig,{jsonrpc:'2.0',id:1,method,params},UPSTREAM_TIMEOUT_MS,(error,provider)=>{
-      if(['eth_getLogs','eth_getCode'].includes(method) && providerFailures.length<8)
-        providerFailures.push({chainId,method,provider,reason:String(error.message || 'request_failed').replace(/[\r\n\t]/g,' ').slice(0,160)});
-    });
-    if(result?.error || result?.result===undefined) {
-      const detail=String(result?.error?.message || 'missing result').replace(/[\r\n\t]/g,' ').slice(0,160);
-      if(method==='eth_getLogs' && /HTTP error 429|rate.?limit|too many requests/i.test(detail))
-        throw new Error('event_rate_limited');
-      throw new Error(`project_rpc_failed:${method}:${detail}`);
-    }
-    return result.result;
-  };
-  return {...await runProjectScan(env,{registry:canonicalProjectRegistry(ASSETS),rpc}),providerFailures};
+  const pool=createProjectRpcPool({health:projectRpcHealth,maxRequests:240,deadlineAt:Date.now()+42000});
+  const result=await runProjectScan(env,{registry:canonicalProjectRegistry(ASSETS),rpc:pool.rpc});
+  // Diagnostics remain operator-only; never publish private collector state in
+  // account responses, the browser bundle, or project-submission receipts.
+  return {...result,transport:pool.diagnostics()};
 }
 
 export default {
@@ -1928,7 +1930,7 @@ export default {
       if(env.TELEGRAM_BOT_TOKEN) await deliverProjectEvents(env,{send:(chatId,text,options)=>new TelegramClient(env.TELEGRAM_BOT_TOKEN).sendMessage(chatId,text,options)});
       return result;
     };
-    const scan = Promise.allSettled([runAlertScan(env, { resolveHookMarkets, inspectHook }), projects()]);
+    const scan = Promise.allSettled([runAlertScan(env, { resolveHookMarkets, inspectHook }), projects(), pruneAccountEphemera(env)]);
     ctx.waitUntil(scan);
     return scan;
   },
@@ -1949,6 +1951,12 @@ export default {
         status: 204,
         headers: makeCORSHeaders(),
       });
+    }
+
+    // Authentication and personal data never share public CORS or edge caches.
+    if (url.pathname.startsWith('/api/account/')) {
+      const response=await handleAccountsApi(request,env,{verifySmartWalletSignature});
+      if(response) return response;
     }
 
     if (url.pathname.startsWith('/api/project')) {
@@ -2306,6 +2314,7 @@ export default {
         resolveHookMarkets,
         resolveAlertIdentity:resolveIndexedAlertIdentity,
         projects:projectContext(ASSETS,env),
+        accounts:{consumeTelegramLink:identity=>consumeTelegramLink(env,identity)},
       });
       return new Response(JSON.stringify(result), {
         status: 200,

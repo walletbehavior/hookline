@@ -36,6 +36,11 @@ const botSrcDir = join(root, 'bot');
 const botOutDir = join(dist, 'bot');
 const projectSrcDir = join(root, 'projects');
 const projectOutDir = join(dist, 'projects');
+const accountSrcDir = join(root, 'accounts');
+const accountOutDir = join(dist, 'accounts');
+
+// The wallet SDK is isolated from the server's execution/x402 dependencies.
+execFileSync(process.execPath, [join(root,'scripts/build-wallet-client.mjs')], {cwd:root,stdio:'inherit'});
 
 // --- Read required inputs ---------------------------------------------------
 
@@ -43,13 +48,14 @@ const htmlPath = join(dist, 'index.html');
 const cssPath = join(dist, 'styles.css');
 const appPath = join(dist, 'app.js');
 const executionRailPath = join(dist, 'execution-rail.js');
+const accountsUiPath = join(dist, 'accounts-ui.js');
 const hooksPath = join(dist, 'hooks.json');
 const tokenHooksPath = join(dist, 'token-hooks.json');
 const runtimeFamiliesPath = join(dist, 'runtime-families.json');
 const projectsPath = join(root, 'data', 'project-seeds.json');
 
 const missing = [];
-for (const p of [htmlPath, cssPath, appPath, executionRailPath, hooksPath, tokenHooksPath, runtimeFamiliesPath, projectsPath]) {
+for (const p of [htmlPath, cssPath, appPath, executionRailPath, accountsUiPath, hooksPath, tokenHooksPath, runtimeFamiliesPath, projectsPath]) {
   try {
     readFileSync(p, 'utf8');
   } catch {
@@ -64,6 +70,8 @@ const html = readFileSync(htmlPath, 'utf8');
 const css = readFileSync(cssPath, 'utf8');
 const app = readFileSync(appPath, 'utf8');
 const executionRail = readFileSync(executionRailPath, 'utf8');
+const accountsUi = readFileSync(accountsUiPath, 'utf8');
+const privyWallet = readFileSync(join(dist,'privy-wallet.js'), 'utf8');
 const hooks = readFileSync(hooksPath, 'utf8');
 const tokenHooks = readFileSync(tokenHooksPath, 'utf8');
 const runtimeFamilies = readFileSync(runtimeFamiliesPath, 'utf8');
@@ -74,6 +82,8 @@ const assetVersion = createHash('sha256')
   .update(css)
   .update(app)
   .update(executionRail)
+  .update(accountsUi)
+  .update(privyWallet)
   .update(hooks)
   .update(tokenHooks)
   .update(runtimeFamilies)
@@ -103,6 +113,7 @@ for (const [name, content] of [
   ['styles.css', css],
   ['app.js', app],
   ['execution-rail.js', executionRail],
+  ['accounts-ui.js', accountsUi],
   ['hooks.json', hooks],
   ['token-hooks.json', tokenHooks],
   ['runtime-families.json', runtimeFamilies],
@@ -129,6 +140,8 @@ const assetsBlock =
   `  css: ${JSON.stringify(css)},\n` +
   `  app: ${JSON.stringify(app)},\n` +
   `  executionRail: ${JSON.stringify(executionRail)},\n` +
+  `  accountsUi: ${JSON.stringify(accountsUi)},\n` +
+  `  privyWallet: ${JSON.stringify(privyWallet)},\n` +
   `  hooks: ${JSON.stringify(hooks)},\n` +
   `  tokenHooks: ${JSON.stringify(tokenHooks)},\n` +
   `  runtimeFamilies: ${JSON.stringify(runtimeFamilies)},\n` +
@@ -152,6 +165,10 @@ for (const name of readdirSync(botSrcDir)) {
 mkdirSync(projectOutDir, { recursive: true });
 for (const name of readdirSync(projectSrcDir)) {
   if (name.endsWith('.js')) copyFileSync(join(projectSrcDir,name),join(projectOutDir,name));
+}
+mkdirSync(accountOutDir, { recursive: true });
+for (const name of readdirSync(accountSrcDir)) {
+  if (name.endsWith('.js') && !name.endsWith('.test.js')) copyFileSync(join(accountSrcDir,name),join(accountOutDir,name));
 }
 
 // --- Sanity check: the artifact must parse as valid ESM --------------------

@@ -56,6 +56,18 @@ test('empty alerts offer Add alert, Projects and Main menu without command typin
   assert.match(card().text,/Choose the hook’s chain/);
   assert(buttons().some(b=>b.text==='Base'&&b.callback_data===`tg:as:8453:${UNKNOWN}`));
 });
+test('account links use authenticated private Telegram identity and never create trading authority',async()=>{
+  const ctx=context();let identity;
+  ctx.services.accounts={consumeTelegramLink:async(value)=>{identity=value;return {linked:true,account:{address:HOOK}};}};
+  const update=command('/start account_'+'a'.repeat(43));update.message.chat.type='private';
+  await handleUpdate(update,ctx);
+  assert.equal(identity.userId,'71');assert.equal(identity.chatId,71);assert.equal(identity.fromId,71);assert.equal(identity.chatType,'private');
+  assert.match(card().text,/identities, not wallet permissions/);assert(card().text.includes(HOOK));
+  identity=null;update.message.chat.type='group';await handleUpdate(update,ctx);assert.equal(identity,null);
+  update.message.chat.type='private';update.message.chat.id=72;await handleUpdate(update,ctx);assert.equal(identity,null);
+  update.message.chat.id=71;ctx.services.accounts.consumeTelegramLink=async()=>{throw new Error('token expired');};
+  await handleUpdate(update,ctx);assert.match(card().text,/could not be used/);assert.doesNotMatch(card().text,/a{43}/);
+});
 test('project, hook and token alert cards use sourced names, explicit states and address-secondary layouts',async()=>{
   const ctx=context(),store=makeD1AlertStore(ctx.env);
   await store.createOrEnableAlert({userId:71,chatId:71,chainId:8453,address:HOOK});

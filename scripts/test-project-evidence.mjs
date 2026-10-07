@@ -2,12 +2,13 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
 import { createHash } from 'node:crypto';
-import { encodeFunctionData, parseAbiItem, toEventSelector } from 'viem';
+import { decodeEventLog, encodeFunctionData, parseAbiItem, toEventSelector } from 'viem';
+import { READERS } from '../projects/reader-definitions.js';
 import { projectId, publicUrl, createProjectRegistry, mergeProjectOverrides } from '../projects/registry.js';
 import {
   SCAN_LIMIT, LOG_BLOCK_LIMIT, RETENTION_DAYS, digest, observeDeployment, observationChanges,
   latestProjectObservations, listProjectEvents, runProjectScan, followProject, projectFollows,
-  deliverProjectEvents, projectMonitoring,
+  deliverProjectEvents, projectMonitoring, verifyEventReceiptProof,
 } from '../projects/evidence.js';
 
 // Real SQLite checks SQL predicates, RETURNING, transactions, and uniqueness.
@@ -392,6 +393,16 @@ test('project notifications escape markup in project names and field labels',asy
   assert.ok(sent[0].includes('&lt;a href="https://evil.invalid"&gt;Name&lt;/a&gt;'));
   assert.ok(sent[0].includes('Fee &amp; &lt;b&gt;owner&lt;/b&gt;'));assert.ok(!sent[0].includes('<a href='));
 });
+test('routine accruals stay in activity without becoming payment notifications',async()=>{
+  const e=env();await followProject(e,{projectId:'alpha',userId:'123',chatId:'123',now:NOW-5000});
+  const accrual=await addEvent(e,{id:'accrual',at:NOW-1000});accrual.classification='accrued';
+  await e.DB.prepare('UPDATE project_events SET payload_json=? WHERE id=?').bind(JSON.stringify(accrual),accrual.id).run();
+  const burn=await addEvent(e,{id:'burn',at:NOW-500});Object.assign(burn,{kind:'contract_event',classification:'executed',after:{amount:'10'},amountField:'amount',unit:'raw-token-units'});
+  await e.DB.prepare('UPDATE project_events SET payload_json=? WHERE id=?').bind(JSON.stringify(burn),burn.id).run();
+  const sent=[];assert.equal((await deliverProjectEvents(e,{send:async(chat,text)=>sent.push(text),now:NOW})).sent,1);
+  assert.match(sent[0],/Amount recorded: 10 raw token units/);assert.doesNotMatch(sent[0],/Payment recorded/);
+  assert.equal((await listProjectEvents(e)).length,2);
+});
 test('newly collected receipts notify only people following before the actual chain event',async()=>{
   const e=env();const rpc=new RPC();const originalBlock=rpc.block.bind(rpc);
   rpc.block=function(number=this.tip) {return {...originalBlock(number),timestamp:hex(Math.floor(NOW/1000)+(number-2000)*12)};};
@@ -411,6 +422,111 @@ test('parallel delivery workers claim each event once and batches stay bounded',
   const result=await Promise.all([deliverProjectEvents(e,{send:async()=>{count++;},now:NOW}),deliverProjectEvents(e,{send:async()=>{count++;},now:NOW})]);assert.equal(count,1);assert.equal(result.reduce((n,r)=>n+r.sent,0),1);
   for(let i=0;i<30;i++) await addEvent(e,{id:`batch-${i}`,at:NOW-500+i});
   assert.equal((await deliverProjectEvents(e,{send:async()=>{},now:NOW})).sent,25);assert.equal((await deliverProjectEvents(e,{send:async()=>{},now:NOW})).sent,5);assert.deepEqual(await deliverProjectEvents({},{send:async()=>{},now:NOW}),{sent:0});
+});
+
+test('a finalized RPC outage never silently switches to a newer twelve-block head',async()=>{
+  const e=env();const rpc=new RPC();const original=rpc.rpc;
+  rpc.rpc=async(chainId,method,params)=>{
+    if(method==='eth_getBlockByNumber' && params[0]==='finalized') {rpc.calls.push({chainId,method,params});throw Object.assign(new Error('rpc_rate_limited'),{code:'rpc_rate_limited'});}
+    return original(chainId,method,params);
+  };
+  const result=await runProjectScan(e,{registry:registry(),rpc:rpc.rpc,now:NOW});
+  assert.equal(result.failed,1);assert.equal((await latestProjectObservations(e,'alpha')).length,0);
+  assert.ok(!rpc.calls.some(call=>call.method==='eth_blockNumber'||call.method==='eth_getCode'));
+});
+test('transport pin and learned log width are passed through without skipping the original baseline window',async()=>{
+  const e=env();const rpc=new RPC();let pinned;
+  rpc.rpc.pinBlock=(chainId,block)=>{pinned={chainId,block};};rpc.rpc.suggestedLogRange=()=>100;rpc.rpc.upstreamRequests=()=>77;
+  const result=await runProjectScan(e,{registry:registry(),rpc:rpc.rpc,now:NOW});
+  assert.equal(pinned.chainId,8453);assert.equal(pinned.block.hash,rpc.block().hash);assert.equal(result.upstreamRpcCalls,77);
+  const requests=rpc.calls.filter(call=>call.method==='eth_getLogs');assert.equal(requests.length,4);
+  assert.equal(Number(BigInt(requests[0].params[0].fromBlock)),1521);assert.equal((await state(e)).log_cursor,1920);assert.equal((await state(e)).log_status,'behind');
+});
+test('typed legitimate range errors split while transient provider errors stop at the existing cursor',async()=>{
+  const e=env();const rpc=new RPC();rpc.getLogs=filter=>{
+    const width=Number(BigInt(filter.toBlock)-BigInt(filter.fromBlock)+1n);
+    if(width>100) throw Object.assign(new Error('rpc_log_range_limited'),{code:'rpc_log_range_limited',suggestedRange:100});
+    return [];
+  };
+  await runProjectScan(e,{registry:registry(),rpc:rpc.rpc,now:NOW});assert.equal((await state(e)).log_cursor,1920);
+  rpc.calls=[];rpc.getLogs=()=>{throw Object.assign(new Error('rpc_provider_unavailable'),{code:'rpc_provider_unavailable'});};
+  await runProjectScan(e,{registry:registry(),rpc:rpc.rpc,now:NOW+1000});
+  assert.equal(rpc.calls.filter(call=>call.method==='eth_getLogs').length,1);assert.equal((await state(e)).log_cursor,1920);assert.equal((await state(e)).log_failure,'event_provider_unavailable');
+});
+
+const clausFixture=JSON.parse(readFileSync(new URL('../projects/sources/claus-verified-2026-10-07.json',import.meta.url),'utf8'));
+const clausBurnDefinition=READERS.claus.events.find(definition=>definition.key==='buybackBurnRecorded');
+const clausDep=()=>deployment(clausFixture.hook,1);
+function clausRpc({receipts=1}={}) {
+  const fixture=clausFixture.burnReceiptFixture;const rpc=new RPC({tip:Number(BigInt(fixture.blockNumber)),chainId:1});
+  rpc.implementation=word(clausFixture.implementation);rpc.headers.set(rpc.tip,fixture.blockHash);
+  for(const read of clausFixture.reads) rpc.values.set(read.selector,word(read.observedValue.startsWith('0x')?read.observedValue:BigInt(read.observedValue)));
+  const receiptMap=new Map();rpc.logs=[];
+  for(let i=0;i<receipts;i++) {
+    const receipt=clone(fixture),tx=receipts===1?fixture.transactionHash:hash(50000+i);
+    receipt.transactionHash=tx;receipt.logs.forEach(log=>{log.transactionHash=tx;log.logIndex=hex(Number(BigInt(log.logIndex))+i*10);});
+    receiptMap.set(tx,receipt);rpc.logs.push(receipt.logs[0]);
+  }
+  const original=rpc.rpc;
+  rpc.rpc=async(chainId,method,params)=>{
+    if(method==='eth_getTransactionReceipt') {rpc.calls.push({chainId,method,params});return receiptMap.get(params[0]) || null;}
+    return original(chainId,method,params);
+  };
+  return rpc;
+}
+test('CLAUS supports twelve exact source reads and strict uint24 without applying a stale implementation ABI',async()=>{
+  const rpc=clausRpc();const p=project('claus',[clausDep()]);
+  const result=await observeDeployment(p,clausDep(),{rpc:rpc.rpc,block:rpc.block(),now:NOW});
+  assert.equal(Object.keys(result.fields).length,16);assert.equal(result.fields.configuredBurnAllocation,'1500');assert.equal(result.fieldMeta.configuredBurnAllocation.unit,'ppm');assert.equal(result.fieldMeta.configuredBurnAllocation.denominator,1000000);
+  assert.equal(result.fields.fomoFundsAccrued,'0');assert.equal(result.fields.nftRewardsContract,clausFixture.nft);
+  rpc.values.set(selector('BURN_FEE_PIPS()'),word(0x1000000));
+  const overflow=await observeDeployment(p,clausDep(),{rpc:rpc.rpc,block:rpc.block(),now:NOW});assert.equal(overflow.fields.configuredBurnAllocation,null);
+  rpc.calls=[];rpc.implementation=word(B);
+  const upgraded=await observeDeployment(p,clausDep(),{rpc:rpc.rpc,block:rpc.block(),now:NOW});
+  assert.equal(upgraded.fields.configuredBurnAllocation,null);assert.equal(upgraded.probes.configuredBurnAllocation.reason,'reader_implementation_mismatch');
+  assert.equal(rpc.calls.filter(call=>call.method==='eth_call').length,1,'Unknown implementation must only receive the generic owner probe, not twelve stale ABI calls');
+});
+test('actual CLAUS burn fixture confirms the exact hook-to-zero Transfer, not an equal-amount FOMO transfer',()=>{
+  const receipt=clone(clausFixture.burnReceiptFixture),eventLog=receipt.logs[0];
+  const args=decodeEventLog({abi:[parseAbiItem(clausBurnDefinition.signature)],data:eventLog.data,topics:eventLog.topics,strict:true}).args;
+  const proof=verifyEventReceiptProof({definition:clausBurnDefinition,eventLog,receipt,args});
+  assert.equal(proof.status,'transfer_confirmed');assert.equal(proof.amount,receipt.expected.burnedTokens);assert.equal(proof.transferLogIndex,Number(BigInt(receipt.expected.matchingTransferLogIndex)));
+  assert.equal(proof.token,clausFixture.token);assert.equal(proof.to,ZERO);
+  const fomoOnly={...receipt,logs:[receipt.logs[0],receipt.logs[2]]};
+  assert.equal(verifyEventReceiptProof({definition:clausBurnDefinition,eventLog,receipt:fomoOnly,args}).status,'contract_reported');
+  for(const changed of [{status:'0x0'},{blockHash:hash(99)},{transactionHash:hash(77)},{logs:receipt.logs.slice(1)}]) {
+    assert.equal(verifyEventReceiptProof({definition:clausBurnDefinition,eventLog,receipt:{...receipt,...changed},args}).status,'contract_reported');
+  }
+  for(const changed of [{address:A},{data:word(1)},{removed:true},{blockHash:hash(5)},{topics:[receipt.logs[1].topics[0],word(B),word(ZERO)]}]) {
+    const bad={...receipt,logs:[receipt.logs[0],{...receipt.logs[1],...changed}]};
+    assert.equal(verifyEventReceiptProof({definition:clausBurnDefinition,eventLog,receipt:bad,args}).status,'contract_reported');
+  }
+});
+test('receipt reconciliation is bounded to four per scan and preserves mixed event field units',async()=>{
+  const e=env(),rpc=clausRpc({receipts:5});
+  const result=await runProjectScan(e,{registry:registry([project('claus',[clausDep()])]),rpc:rpc.rpc,now:NOW});
+  assert.equal(result.checked,1);assert.equal(result.logFailed,0);assert.equal(result.receiptProofsAttempted,4);
+  assert.equal(rpc.calls.filter(call=>call.method==='eth_getTransactionReceipt').length,4);
+  const events=await listProjectEvents(e,'claus');assert.equal(events.length,5);
+  assert.equal(events.filter(event=>event.evidence.receiptProof.status==='transfer_confirmed').length,4);
+  assert.equal(events.filter(event=>event.evidence.receiptProof.reason==='receipt_budget_reached').length,1);
+  assert.equal(events[0].unit,'raw-token-units');assert.equal(events[0].fieldUnits.spentEth.unit,'wei');assert.equal(events[0].fieldUnits.burnedTokens.asset,clausFixture.token);
+  const slotReads=rpc.calls.filter(call=>call.method==='eth_getStorageAt');assert.ok(slotReads.some(call=>call.params[2]===hex(rpc.tip-1)),'Historical ABI uses both block boundary implementations');
+});
+test('historical implementation mismatch retains a raw uninterpreted record without stale fee or burn claims',async()=>{
+  const e=env(),rpc=clausRpc(),base=rpc.rpc;const eventBlock=rpc.tip;rpc.tip+=10;
+  rpc.rpc=async(chainId,method,params)=>method==='eth_getStorageAt' && params[2]===hex(eventBlock)?word(B):base(chainId,method,params);
+  const result=await runProjectScan(e,{registry:registry([project('claus',[clausDep()])]),rpc:rpc.rpc,now:NOW});
+  assert.equal(result.logFailed,0);const event=(await listProjectEvents(e,'claus'))[0];
+  assert.equal(event.kind,'uninterpreted_contract_event');assert.equal(event.after,null);assert.equal(event.amountField,null);assert.equal(event.classification,'uninterpreted');
+  assert.equal(event.evidence.interpretation,'implementation_unverified');assert.equal(event.evidence.receiptProof,undefined);assert.ok(event.evidence.raw.data);
+  assert.equal(rpc.calls.filter(call=>call.method==='eth_getTransactionReceipt').length,0);
+});
+test('same-block upgrades prevent attaching implementation-specific outcome interpretations',async()=>{
+  const e=env(),rpc=clausRpc();rpc.logs.push(upgraded(rpc,rpc.tip,{address:clausFixture.hook,implementation:clausFixture.implementation,logIndex:1001}));
+  await runProjectScan(e,{registry:registry([project('claus',[clausDep()])]),rpc:rpc.rpc,now:NOW});
+  const events=await listProjectEvents(e,'claus');assert.equal(events.length,2);assert.ok(events.some(event=>event.kind==='implementation_upgrade'));
+  assert.ok(events.some(event=>event.kind==='uninterpreted_contract_event'));assert.equal(rpc.calls.filter(call=>call.method==='eth_getTransactionReceipt').length,0);
 });
 
 let passed=0;const failures=[];

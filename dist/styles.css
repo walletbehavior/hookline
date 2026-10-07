@@ -1541,3 +1541,27 @@ progress::-moz-progress-bar { background: var(--cyan); }
   .project-dialog-head h2 { font-size: 1.7rem; }
   .activity-toolbar { align-items: flex-start; flex-direction: column; gap: 10px; }
 }
+/* Account data is separate from wallet signing and from chain evidence. */
+.account-dialog { width:min(620px,calc(100vw - 28px)); max-height:calc(100dvh - 32px); overflow:auto; padding:24px; color:var(--text,#ded9ce); background:var(--panel,#191916); border:1px solid #45433c; border-radius:12px; }
+.account-dialog::backdrop { background:rgba(0,0,0,.65); backdrop-filter:blur(4px); }
+.account-dialog header { display:flex; align-items:flex-start; justify-content:space-between; gap:20px; }
+.account-dialog h2 { margin:0; font-size:26px; }
+.account-dialog h3 { margin:0 0 10px; font-size:16px; }
+.account-dialog p { font-size:13px; line-height:1.55; }
+.account-dialog button, .account-actions a { padding:9px 12px; border:1px solid #48443c; border-radius:6px; background:#24231f; color:inherit; font:inherit; font-size:12px; text-align:left; cursor:pointer; }
+.account-dialog button:disabled { opacity:.4; cursor:not-allowed; }
+.account-dialog button:hover:not(:disabled), .account-actions a:hover { border-color:#be9675; }
+.account-dialog button:focus-visible, .account-dialog a:focus-visible { outline:2px solid #be9675; outline-offset:3px; }
+.account-dialog #account-close { font-size:24px; line-height:1; padding:5px 10px; }
+.account-identity { font-family:monospace; overflow-wrap:anywhere; color:#c6b49b; }
+.account-section { border-top:1px solid #37352e; margin-top:22px; padding-top:18px; }
+.account-section small { display:block; color:#a6a296; line-height:1.5; font-size:11px; margin-top:10px; }
+.account-actions { display:flex; flex-wrap:wrap; gap:8px; }
+#account-status { min-height:2.5em; color:#c4b59d; }
+#account-status.error { color:#e3a194; }
+.account-device-controls { margin-top:22px; padding-top:16px; border-top:1px solid #37352e; font-size:12px; }
+@media(max-width:640px) { .account-dialog { padding:18px; } .top-meta { gap:6px; flex-wrap:wrap; } #top-account,#top-wallet { font-size:10px; padding:7px 8px; } }
+.wallet-setup-overlay{position:fixed;inset:0;z-index:10000;display:grid;place-items:center;background:rgba(0,0,0,.72);padding:1.25rem;overflow:auto}
+.wallet-setup-panel{width:min(100%,30rem);max-height:calc(100dvh - 2.5rem);overflow-y:auto;box-sizing:border-box;background:var(--panel,#191a18);color:var(--text,#e9e6df);border:1px solid var(--border,#393a35);border-radius:12px;padding:1.5rem;box-shadow:0 24px 80px #0008;font-size:1rem;line-height:1.5}
+.wallet-setup-panel header{display:flex;align-items:flex-start;gap:1rem;justify-content:space-between}.wallet-setup-panel h2{font-size:1.4rem;line-height:1.25;margin:.3rem 0 1rem}.wallet-setup-panel p{margin:0 0 1rem}.wallet-setup-panel .panel-kicker{font-size:.75rem;letter-spacing:.1em;color:var(--muted,#a9a59c);margin:0}.wallet-setup-panel button{font:inherit;font-size:.875rem;border:1px solid var(--border,#45453e);border-radius:6px;background:var(--panel-2,#252720);color:inherit;padding:.6rem .8rem;cursor:pointer;min-height:42px;margin:0 .35rem .65rem 0}.wallet-setup-panel button:disabled{opacity:.5;cursor:wait}.wallet-setup-panel button:focus-visible{outline:2px solid #bd8662;outline-offset:3px}.wallet-setup-panel .btn-primary{background:#bd8662;color:#171915;border-color:#bd8662}.wallet-setup-panel .note{font-size:.8rem;color:var(--muted,#aaa79e);line-height:1.45}.wallet-setup-card{border-top:1px solid var(--border,#393a35);padding-top:1rem;margin-bottom:1rem}.wallet-setup-card strong{font-size:.875rem}.wallet-setup-card code{display:block;overflow-wrap:anywhere;font-size:.8rem;margin:.5rem 0}.wallet-setup-panel [role=status]{font-size:.875rem;margin:0}.wallet-setup-panel .account-actions{gap:.25rem;flex-wrap:wrap}
+@media(max-width:520px){.wallet-setup-overlay{padding:.75rem;align-items:end}.wallet-setup-panel{padding:1.2rem;max-height:calc(100dvh - 1.5rem)}.wallet-setup-panel h2{font-size:1.25rem}}

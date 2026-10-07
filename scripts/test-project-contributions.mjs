@@ -37,7 +37,7 @@ function dnsFetch(record,{name='_hookline.alpha-hooks.org.',status=0,type=16,thr
     assert.equal(new URL(url).origin,'https://cloudflare-dns.com');
     assert.equal(new URL(url).pathname,'/dns-query');
     assert.equal(new URL(url).searchParams.get('type'),'TXT');
-    assert.equal(options.redirect,'error');
+    assert.equal(options.redirect,'manual');
     assert.ok(options.signal);
     if (throwError) throw new Error('offline');
     return new Response(JSON.stringify({Status:status,Answer:[{name,type,data:JSON.stringify(record)}]}),{headers:{'content-type':'application/dns-json'}});
@@ -148,6 +148,7 @@ test('DNS missing/wrong nonce/unrelated answer never verifies ownership',async()
 test('DNS unavailable, oversized, expired, and renewed challenges fail closed',async()=>{
   const e=env(); const result=await submitContribution(e,claimInput,opts()); const auth=opts({receiptToken:result.receiptToken});
   await rejectsCode(()=>verifyClaim(e,result.id,{...auth,fetcher:dnsFetch('',{throwError:true})}),'dns_unavailable');
+  await rejectsCode(()=>verifyClaim(e,result.id,{...auth,fetcher:async()=>new Response('',{status:302,headers:{location:'https://untrusted.example'}})}),'dns_unavailable');
   await rejectsCode(()=>verifyClaim(e,result.id,{...auth,fetcher:async()=>new Response(' '.repeat(20_000))}),'dns_unavailable');
   await rejectsCode(()=>verifyClaim(e,result.id,{...auth,now:NOW+31*60_000,fetcher:()=>{throw new Error('must not fetch');}}),'challenge_expired');
   const newer=await issueClaimChallenge(e,result.id,auth);
