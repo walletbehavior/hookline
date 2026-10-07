@@ -24,6 +24,8 @@ globalThis.caches = {
 };
 const expectedOwner = `0x${'ab'.repeat(20)}`;
 const testX402PayTo = `0x${'ef'.repeat(20)}`;
+const ponsAddress = '0xE5e702641Ea86F4ae6cC3cDaeD2B886f976Be044';
+const tokenPoolId = `4663_0x${'79'.repeat(32)}`;
 let failedUpstream = null;
 
 function upstreamChainId(url) {
@@ -45,6 +47,28 @@ globalThis.fetch = async (url, init = {}) => {
       status: 200,
       headers: { 'Content-Type': 'application/json' },
     });
+  }
+
+  if (urlString === 'https://www.v4.xyz/api/pools' || urlString.startsWith('https://www.v4.xyz/api/search?')) {
+    marketUpstreamCalls.push(urlString);
+    return new Response(JSON.stringify({
+      Pool: urlString.endsWith('/api/pools') ? [{
+        chainId: '4663', hooks: ponsAddress, id: tokenPoolId,
+        name: 'AI / USDG - 0%', txCount: '9001', totalValueLockedUSD: '2200000', untrackedVolumeUSD: '310000',
+      }] : undefined,
+      pools: urlString.includes('/api/search?') ? [{
+        chainId: '4663', hooks: ponsAddress, id: tokenPoolId,
+        name: 'AI / USDG - 0%', txCount: '9001', totalValueLockedUSD: '2200000',
+      }] : undefined,
+    }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+  }
+
+  if (urlString === `https://www.v4.xyz/api/pool/${encodeURIComponent(tokenPoolId)}`) {
+    marketUpstreamCalls.push(urlString);
+    return new Response(JSON.stringify({ Pool: [{
+      chainId: '4663', hooks: ponsAddress, id: tokenPoolId,
+      name: 'AI / USDG - 0%', txCount: '9001', totalValueLockedUSD: '2200000',
+    }] }), { status: 200, headers: { 'Content-Type': 'application/json' } });
   }
 
   if (urlString.startsWith('https://www.v4.xyz/api/pools-by-hook?')) {
@@ -86,6 +110,16 @@ globalThis.fetch = async (url, init = {}) => {
         },
       }],
     }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+  }
+
+  if (urlString.startsWith('https://api.dexscreener.com/latest/dex/search/')) {
+    marketUpstreamCalls.push(urlString);
+    return new Response(JSON.stringify({ pairs: [{
+      chainId: 'robinhood', pairAddress: `0x${'79'.repeat(32)}`, labels: ['v4'],
+      baseToken: { address: `0x${'12'.repeat(20)}`, name: 'Artificial Inu', symbol: 'AI' },
+      quoteToken: { address: `0x${'13'.repeat(20)}`, name: 'Global Dollar', symbol: 'USDG' },
+      liquidity: { usd: 2200000 }, volume: { h24: 310000 }, txns: { h24: { buys: 50, sells: 40 } },
+    }] }), { status: 200, headers: { 'Content-Type': 'application/json' } });
   }
 
   if (urlString.startsWith('https://api.dexscreener.com/latest/dex/pairs/robinhood/')) {
@@ -208,6 +242,8 @@ try {
   assert.match(appSource, /hookline:watchlists:v3/);
   assert.match(appSource, /Promise\.all\(\[worker\(\), worker\(\)\]\)/);
   assert.match(appSource, /fetch\('\/metrics'/);
+  assert.match(appSource, /hookline:market-cache:v1/);
+  assert.match(appSource, /api\/token-hooks/);
   assert.doesNotMatch(appSource, /FEE_WALLET|strip-copy-fee/);
   assert.doesNotMatch(appSource, /\.innerHTML\s*=/);
 
@@ -251,10 +287,23 @@ try {
   assert.equal(robinhoodMarkets.markets[0].volume24h, 88000);
   assert.equal(robinhoodMarkets.markets[0].marketCap, 5100000);
 
-  const ponsAddress = '0xE5e702641Ea86F4ae6cC3cDaeD2B886f976Be044';
   await request(`/api/hook-markets?chainId=4663&address=${ponsAddress.toLowerCase()}`);
   const ponsV4Call = marketUpstreamCalls.find((value) => value.includes(`hookAddress=${encodeURIComponent(ponsAddress)}`));
   assert.ok(ponsV4Call, 'lowercase board addresses must resolve to the indexed checksum address');
+
+  const tokenHooksResponse = await request('/api/token-hooks?q=AI');
+  assert.equal(tokenHooksResponse.status, 200);
+  assert.equal(tokenHooksResponse.headers.get('x-hookline-cache'), 'MISS');
+  const tokenHooks = await tokenHooksResponse.json();
+  assert.equal(tokenHooks.relationships.length, 1);
+  assert.equal(tokenHooks.relationships[0].hookName, 'PonsV2MemeHook');
+  assert.equal(tokenHooks.relationships[0].pairLabel, 'AI / USDG');
+
+  const addressTokenHooksResponse = await request(`/api/token-hooks?q=0x${'12'.repeat(20)}`);
+  assert.equal(addressTokenHooksResponse.status, 200);
+  const addressTokenHooks = await addressTokenHooksResponse.json();
+  assert.equal(addressTokenHooks.source, 'DexScreener + v4.xyz');
+  assert.equal(addressTokenHooks.relationships[0].baseToken.symbol, 'AI');
 
   const healthResponse = await request('/health');
   assert.equal(healthResponse.status, 200);
@@ -290,6 +339,7 @@ try {
   assert.equal(docs.routes.paidRpc, '/rpc/paid');
   assert.equal(docs.routes.hookBoard, '/data/hooks.json');
   assert.match(docs.routes.hookMarkets, /^\/api\/hook-markets/);
+  assert.match(docs.routes.tokenHooks, /^\/api\/token-hooks/);
   assert.equal(docs.paidAccess.amountAtomic, '10000');
   assert.equal(docs.paidAccess.network, 'eip155:8453');
   assert.equal('payTo' in docs.paidAccess, false);

@@ -86,7 +86,7 @@
         <div class="hook-board-grid">
           <div class="hook-table-wrap">
             <table class="hook-table" aria-label="Indexed hooks">
-              <thead><tr><th>#</th><th>Hook / project</th><th>Chain</th><th>Capability profile</th><th class="number">Pools</th><th class="number">Swaps</th><th>Coverage</th></tr></thead>
+              <thead><tr><th>#</th><th><div class="identity-mode" aria-label="Board identity mode"><button id="board-mode-hook" type="button" aria-pressed="true">HOOK</button><span>/</span><button id="board-mode-token" type="button" aria-pressed="false">TOKEN</button></div></th><th>Chain</th><th>Capability profile</th><th id="board-pools-heading" class="number">Pools</th><th id="board-swaps-heading" class="number">Swaps</th><th>Coverage</th></tr></thead>
               <tbody id="hook-board-body"></tbody>
             </table>
             <div id="board-empty" class="board-empty" hidden>No hooks match these filters.</div>

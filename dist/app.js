@@ -57,6 +57,11 @@
     boardSelectedId: null,
     boardVisible: BOARD_PAGE_SIZE,
     boardProjectsOnly: false,
+    boardMode: 'hook',
+    tokenRelationships: [],
+    tokenLoading: false,
+    tokenRequest: 0,
+    tokenSearchTimer: null,
     boardEvidence: new Map(),
     boardLoading: new Set(),
   };
@@ -1066,20 +1071,104 @@
     const chain = $('board-chain').value;
     const profile = $('board-profile').value;
     const sort = $('board-sort').value;
-    const result = state.board.items.filter((item) => {
+    const source = state.boardMode === 'token'
+      ? state.tokenRelationships.map((relationship) => {
+          const item = state.board.items.find((candidate) => candidate.id === relationship.hookId);
+          return item ? { ...item, tokenContext: relationship } : null;
+        }).filter(Boolean)
+      : state.board.items;
+    const result = source.filter((item) => {
       if (chain !== 'all' && String(item.chainId) !== chain) return false;
       if (profile !== 'all' && !item.permissions.profiles.includes(profile)) return false;
       if (state.boardProjectsOnly && !item.project && !item.verifiedContract) return false;
-      if (!query) return true;
+      if (state.boardMode === 'token' || !query) return true;
       const fields = [boardItemName(item), item.chainName, item.address, item.project?.type, item.project?.stage, item.verifiedContract?.fullyQualifiedName, ...boardProfileLabels(item)];
       return fields.some((value) => String(value || '').toLowerCase().includes(query));
     });
     result.sort((a, b) => {
+      if (state.boardMode === 'token') {
+        if (sort === 'token') return String(a.tokenContext?.pairLabel || '').localeCompare(String(b.tokenContext?.pairLabel || ''));
+        if (sort === 'activity') return (b.tokenContext?.transactions ?? -1) - (a.tokenContext?.transactions ?? -1) || (b.tokenContext?.liquidityUsd ?? -1) - (a.tokenContext?.liquidityUsd ?? -1);
+        return (b.tokenContext?.liquidityUsd ?? -1) - (a.tokenContext?.liquidityUsd ?? -1) || (b.tokenContext?.transactions ?? -1) - (a.tokenContext?.transactions ?? -1);
+      }
       if (sort === 'name') return boardItemName(a).localeCompare(boardItemName(b));
       if (sort === 'pools') return (b.numberOfPools ?? -1) - (a.numberOfPools ?? -1) || (b.numberOfSwaps ?? -1) - (a.numberOfSwaps ?? -1);
       return (b.numberOfSwaps ?? -1) - (a.numberOfSwaps ?? -1) || (b.numberOfPools ?? -1) - (a.numberOfPools ?? -1);
     });
     return result;
+  }
+
+  function replaceSortOptions(options) {
+    const select = $('board-sort');
+    select.replaceChildren();
+    options.forEach(([value, label]) => {
+      const option = document.createElement('option');
+      option.value = value;
+      option.textContent = label;
+      select.append(option);
+    });
+  }
+
+  async function loadTokenRelationships(query) {
+    const trimmed = String(query || '').trim();
+    if (trimmed.length === 1) {
+      state.tokenRelationships = [];
+      state.tokenLoading = false;
+      renderBoard();
+      return;
+    }
+    const requestId = ++state.tokenRequest;
+    state.tokenLoading = true;
+    renderBoard();
+    try {
+      const params = new URLSearchParams();
+      if (trimmed) params.set('q', trimmed);
+      const response = await fetch(`/api/token-hooks${params.size ? `?${params}` : ''}`, {
+        headers: { Accept: 'application/json' },
+        cache: 'no-store',
+      });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok || !Array.isArray(payload?.relationships)) throw new Error('Token lookup failed.');
+      if (requestId !== state.tokenRequest) return;
+      state.tokenRelationships = payload.relationships.filter((entry) => (
+        entry && typeof entry.hookId === 'string' && typeof entry.poolId === 'string'
+      ));
+    } catch (error) {
+      if (requestId !== state.tokenRequest) return;
+      state.tokenRelationships = [];
+      toast(error.message, 'alert');
+    } finally {
+      if (requestId === state.tokenRequest) {
+        state.tokenLoading = false;
+        state.boardVisible = BOARD_PAGE_SIZE;
+        renderBoard();
+      }
+    }
+  }
+
+  function setBoardMode(mode) {
+    if (!['hook', 'token'].includes(mode) || state.boardMode === mode) return;
+    state.boardMode = mode;
+    state.boardVisible = BOARD_PAGE_SIZE;
+    $('board-mode-hook').setAttribute('aria-pressed', String(mode === 'hook'));
+    $('board-mode-token').setAttribute('aria-pressed', String(mode === 'token'));
+    const search = $('board-search');
+    search.value = '';
+    if (mode === 'token') {
+      search.placeholder = 'Search token symbol, name, or address…';
+      search.setAttribute('aria-label', 'Search tokens and reveal their hooks');
+      $('board-pools-heading').textContent = 'Pools';
+      $('board-swaps-heading').textContent = 'Transactions';
+      replaceSortOptions([['liquidity', 'Most liquidity'], ['activity', 'Most transactions'], ['token', 'Token name']]);
+      void loadTokenRelationships('');
+    } else {
+      search.placeholder = 'Search name, address, chain, permission…';
+      search.setAttribute('aria-label', 'Search hook board');
+      $('board-pools-heading').textContent = 'Pools';
+      $('board-swaps-heading').textContent = 'Swaps';
+      replaceSortOptions([['swaps', 'Most swaps'], ['pools', 'Most pools'], ['name', 'Project name']]);
+      renderBoard();
+    }
   }
 
   function makeCapabilityChips(item) {
@@ -1124,15 +1213,23 @@
     if (!state.board) return;
     const filtered = filteredBoardItems();
     const visible = filtered.slice(0, state.boardVisible);
-    $('board-result-count').textContent = `${formatNumber(filtered.length)} results · ${formatNumber(state.board.hooks.length)} hooks · ${formatNumber(state.board.coverage?.verifiedIdentityCount || 0)} verified titles · ${formatNumber(state.board.projects.length)} project records`;
+    $('board-result-count').textContent = state.boardMode === 'token'
+      ? state.tokenLoading
+        ? 'Resolving token → hook relationships…'
+        : `${formatNumber(filtered.length)} token pools · select one to reveal its hook and sibling markets`
+      : `${formatNumber(filtered.length)} results · ${formatNumber(state.board.hooks.length)} hooks · ${formatNumber(state.board.coverage?.verifiedIdentityCount || 0)} verified titles · ${formatNumber(state.board.projects.length)} project records`;
     visible.forEach((item, index) => {
+      const token = item.tokenContext;
       const row = document.createElement('tr');
       row.dataset.id = item.id;
       row.tabIndex = 0;
       row.classList.toggle('selected', item.id === state.boardSelectedId);
-      row.setAttribute('aria-label', `Open ${boardItemName(item)} profile`);
-      const identity = makeElement('div', 'hook-identity');
-      identity.append(makeElement('strong', '', boardItemName(item)), makeElement('code', '', item.address ? shorten(item.address, 10, 8) : 'project record · no indexed address'));
+      row.setAttribute('aria-label', token ? `Open ${token.pairLabel} through ${boardItemName(item)}` : `Open ${boardItemName(item)} profile`);
+      const identity = makeElement('div', token ? 'hook-identity token' : 'hook-identity');
+      identity.append(
+        makeElement('strong', '', token?.pairLabel || boardItemName(item)),
+        makeElement('code', '', token ? `→ ${boardItemName(item)} · ${shorten(item.address, 8, 6)}` : item.address ? shorten(item.address, 10, 8) : 'project record · no indexed address'),
+      );
       const identityCell = document.createElement('td');
       identityCell.append(identity);
       const chainCell = makeElement('td', 'chain-cell');
@@ -1146,8 +1243,8 @@
       coverageCell.append(coverage);
       row.append(
         makeElement('td', 'hook-rank', index + 1), identityCell, chainCell, capabilities,
-        makeElement('td', 'number', item.numberOfPools == null ? '—' : compactNumber(item.numberOfPools)),
-        makeElement('td', 'number', item.numberOfSwaps == null ? '—' : compactNumber(item.numberOfSwaps)), coverageCell,
+        makeElement('td', 'number', token ? '1' : item.numberOfPools == null ? '—' : compactNumber(item.numberOfPools)),
+        makeElement('td', 'number', token ? compactNumber(Number(token.transactions) || 0) : item.numberOfSwaps == null ? '—' : compactNumber(item.numberOfSwaps)), coverageCell,
       );
       const select = () => {
         state.boardSelectedId = item.id;
@@ -1160,7 +1257,10 @@
       row.addEventListener('keydown', (event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); select(); } });
       body.append(row);
     });
-    $('board-empty').hidden = filtered.length !== 0;
+    $('board-empty').hidden = filtered.length !== 0 || state.tokenLoading;
+    $('board-empty').textContent = state.boardMode === 'token'
+      ? $('board-search').value.trim().length === 1 ? 'Type at least 2 characters.' : 'No indexed hook pools match this token.'
+      : 'No hooks match these filters.';
     $('board-more').hidden = filtered.length <= state.boardVisible;
     $('board-more').textContent = `Load ${Math.min(BOARD_PAGE_SIZE, filtered.length - state.boardVisible)} more rows`;
   }
@@ -1349,7 +1449,10 @@
       address: item.indexedAddress || item.address,
       v: MARKET_RESOLVER_VERSION,
     });
-    const response = await fetch(`/api/hook-markets?${params}`, { headers: { Accept: 'application/json' } });
+    const response = await fetch(`/api/hook-markets?${params}`, {
+      headers: { Accept: 'application/json' },
+      cache: force ? 'no-store' : 'default',
+    });
     const payload = await response.json().catch(() => null);
     if (!response.ok || !payload || !Array.isArray(payload.markets)) throw new Error('Market lookup failed.');
     let markets = payload.markets;
@@ -1487,6 +1590,7 @@
       verifiedContract: item.verifiedContract,
       numberOfPools: item.numberOfPools,
       numberOfSwaps: item.numberOfSwaps,
+      tokenRelationship: item.tokenContext || null,
       permissionMask: item.address ? decodePermissions(item.address).value : null,
       enabledPermissions: item.permissions.enabled,
       liveInspection: item.liveInspection,
@@ -1496,6 +1600,7 @@
       exportedAt: new Date().toISOString(),
       indexGeneratedAt: state.board.generatedAt ? new Date(state.board.generatedAt).toISOString() : null,
       filters: {
+        mode: state.boardMode,
         query: $('board-search').value.trim(), chain: $('board-chain').value,
         capability: $('board-profile').value, sort: $('board-sort').value,
         namedOnly: state.boardProjectsOnly,
@@ -1721,10 +1826,21 @@
   }
 
   function setupEvents() {
-    ['board-search', 'board-chain', 'board-profile', 'board-sort'].forEach((id) => {
-      const eventName = id === 'board-search' ? 'input' : 'change';
-      $(id).addEventListener(eventName, () => { state.boardVisible = BOARD_PAGE_SIZE; renderBoard(); });
+    $('board-search').addEventListener('input', (event) => {
+      state.boardVisible = BOARD_PAGE_SIZE;
+      if (state.boardMode === 'hook') {
+        renderBoard();
+        return;
+      }
+      clearTimeout(state.tokenSearchTimer);
+      const query = event.currentTarget.value;
+      state.tokenSearchTimer = setTimeout(() => { void loadTokenRelationships(query); }, 320);
     });
+    ['board-chain', 'board-profile', 'board-sort'].forEach((id) => {
+      $(id).addEventListener('change', () => { state.boardVisible = BOARD_PAGE_SIZE; renderBoard(); });
+    });
+    $('board-mode-hook').addEventListener('click', () => setBoardMode('hook'));
+    $('board-mode-token').addEventListener('click', () => setBoardMode('token'));
     $('board-projects-only').addEventListener('click', (event) => {
       state.boardProjectsOnly = !state.boardProjectsOnly;
       state.boardVisible = BOARD_PAGE_SIZE;

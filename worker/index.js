@@ -80,7 +80,11 @@ const X402_USDC_ASSET = '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913';
 const X402_AMOUNT_ATOMIC = '10000';
 const EVM_ADDRESS_RE = /^0x[0-9a-fA-F]{40}$/;
 const V4_POOLS_BY_HOOK_URL = 'https://www.v4.xyz/api/pools-by-hook';
+const V4_POOLS_URL = 'https://www.v4.xyz/api/pools';
+const V4_SEARCH_URL = 'https://www.v4.xyz/api/search';
+const V4_POOL_URL = 'https://www.v4.xyz/api/pool';
 const DEXSCREENER_PAIRS_URL = 'https://api.dexscreener.com/latest/dex/pairs';
+const DEXSCREENER_SEARCH_URL = 'https://api.dexscreener.com/latest/dex/search';
 const MARKET_UPSTREAM_TIMEOUT_MS = 7000;
 const MARKET_UPSTREAM_MAX_BYTES = 2 * 1024 * 1024;
 const MARKET_RESULT_LIMIT = 8;
@@ -103,25 +107,41 @@ const DEXSCREENER_CHAIN_SLUGS = Object.freeze({
   57073: 'ink',
   81457: 'blast',
 });
+const DEXSCREENER_SLUG_CHAINS = Object.freeze(
+  Object.fromEntries(Object.entries(DEXSCREENER_CHAIN_SLUGS).map(([chainId, slug]) => [slug, Number(chainId)]))
+);
 
 let canonicalHookAddresses;
+let indexedHooks;
 
-function canonicalIndexedHookAddress(chainId, address) {
+function ensureHookIndexes() {
   if (!canonicalHookAddresses) {
     canonicalHookAddresses = new Map();
+    indexedHooks = new Map();
     try {
       const snapshot = JSON.parse(ASSETS.hooks);
       const hooks = Array.isArray(snapshot?.hooks) ? snapshot.hooks : [];
       hooks.forEach((hook) => {
         if (Number.isSafeInteger(Number(hook?.chainId)) && EVM_ADDRESS_RE.test(String(hook?.address || ''))) {
-          canonicalHookAddresses.set(`${Number(hook.chainId)}:${String(hook.address).toLowerCase()}`, String(hook.address));
+          const key = `${Number(hook.chainId)}:${String(hook.address).toLowerCase()}`;
+          canonicalHookAddresses.set(key, String(hook.address));
+          indexedHooks.set(key, hook);
         }
       });
     } catch {
       // The address supplied by the caller remains a valid fallback.
     }
   }
+}
+
+function canonicalIndexedHookAddress(chainId, address) {
+  ensureHookIndexes();
   return canonicalHookAddresses.get(`${chainId}:${address.toLowerCase()}`) || address;
+}
+
+function indexedHook(chainId, address) {
+  ensureHookIndexes();
+  return indexedHooks.get(`${chainId}:${address.toLowerCase()}`) || null;
 }
 
 // ---------------------------------------------------------------------------
@@ -1067,6 +1087,117 @@ async function resolveHookMarkets(chainId, address) {
   };
 }
 
+function hookDisplayName(hook, address) {
+  return String(hook?.project?.name || hook?.verifiedContract?.name || `Hook ${address.slice(0, 8)}…${address.slice(-6)}`).slice(0, 120);
+}
+
+function nonzeroHookAddress(value) {
+  return EVM_ADDRESS_RE.test(String(value || '')) && !/^0x0{40}$/i.test(String(value));
+}
+
+function marketValue(pool, key, fallbackKey) {
+  const primary = finiteMarketNumber(pool?.[key]);
+  const fallback = finiteMarketNumber(pool?.[fallbackKey]);
+  if (primary == null) return fallback;
+  if (fallback == null) return primary;
+  return Math.max(primary, fallback);
+}
+
+function tokenRelationship(pool, dexPair) {
+  const chainId = Number(pool?.chainId);
+  const hookAddress = String(pool?.hooks || '');
+  const hook = Number.isSafeInteger(chainId) && nonzeroHookAddress(hookAddress)
+    ? indexedHook(chainId, hookAddress)
+    : null;
+  if (!hook || typeof pool?.id !== 'string') return null;
+
+  const poolName = String(pool.name || '').slice(0, 140);
+  const pairLabel = poolName.split(' - ')[0].trim() || 'Token pair';
+  const baseToken = tokenShape(dexPair?.baseToken);
+  const quoteToken = tokenShape(dexPair?.quoteToken);
+  return {
+    poolId: pool.id,
+    poolName,
+    pairLabel,
+    chainId,
+    chainName: String(hook.chainName || CHAIN_CONFIG[chainId]?.name || `Chain ${chainId}`).slice(0, 80),
+    hookId: hook.id,
+    hookAddress: hook.address,
+    hookName: hookDisplayName(hook, hook.address),
+    hookNamed: Boolean(hook.project?.name || hook.verifiedContract?.name),
+    baseToken,
+    quoteToken,
+    transactions: finiteMarketNumber(pool.txCount)
+      ?? finiteMarketNumber(dexPair?.txns?.h24?.buys) + finiteMarketNumber(dexPair?.txns?.h24?.sells),
+    liquidityUsd: finiteMarketNumber(dexPair?.liquidity?.usd) ?? finiteMarketNumber(pool.totalValueLockedUSD),
+    volumeUsd: finiteMarketNumber(dexPair?.volume?.h24) ?? marketValue(pool, 'volumeUSD', 'untrackedVolumeUSD'),
+  };
+}
+
+async function poolsFromDexSearch(query) {
+  const payload = await fetchBoundedJson(`${DEXSCREENER_SEARCH_URL}/?q=${encodeURIComponent(query)}`);
+  const pairs = Array.isArray(payload?.pairs) ? payload.pairs : [];
+  const candidates = pairs
+    .filter((pair) => {
+      const chainId = DEXSCREENER_SLUG_CHAINS[String(pair?.chainId || '').toLowerCase()];
+      return Number.isSafeInteger(chainId)
+        && /^0x[0-9a-fA-F]{64}$/.test(String(pair?.pairAddress || ''))
+        && Array.isArray(pair?.labels)
+        && pair.labels.some((label) => String(label).toLowerCase() === 'v4');
+    })
+    .sort((left, right) => (finiteMarketNumber(right?.liquidity?.usd) || 0) - (finiteMarketNumber(left?.liquidity?.usd) || 0));
+
+  const unique = [];
+  const seen = new Set();
+  for (const pair of candidates) {
+    const chainId = DEXSCREENER_SLUG_CHAINS[String(pair.chainId).toLowerCase()];
+    const poolId = `${chainId}_${String(pair.pairAddress).toLowerCase()}`;
+    if (seen.has(poolId)) continue;
+    seen.add(poolId);
+    unique.push({ pair, poolId });
+    if (unique.length >= 8) break;
+  }
+
+  const details = await Promise.allSettled(unique.map(async ({ pair, poolId }) => {
+    const poolPayload = await fetchBoundedJson(`${V4_POOL_URL}/${encodeURIComponent(poolId)}`);
+    const pool = Array.isArray(poolPayload?.Pool) ? poolPayload.Pool[0] : null;
+    return pool ? { pool, pair } : null;
+  }));
+  return details.flatMap((result) => result.status === 'fulfilled' && result.value ? [result.value] : []);
+}
+
+async function resolveTokenHooks(query) {
+  let resolved = [];
+  if (query && EVM_ADDRESS_RE.test(query)) {
+    resolved = await poolsFromDexSearch(query);
+  } else {
+    try {
+      const target = query ? `${V4_SEARCH_URL}?q=${encodeURIComponent(query)}` : V4_POOLS_URL;
+      const payload = await fetchBoundedJson(target);
+      const pools = Array.isArray(payload?.pools) ? payload.pools : Array.isArray(payload?.Pool) ? payload.Pool : [];
+      resolved = pools.map((pool) => ({ pool, pair: null }));
+    } catch (error) {
+      if (!query) throw error;
+      resolved = await poolsFromDexSearch(query);
+    }
+  }
+
+  const relationships = resolved
+    .map(({ pool, pair }) => tokenRelationship(pool, pair))
+    .filter(Boolean)
+    .sort((left, right) => (
+      (right.liquidityUsd || 0) - (left.liquidityUsd || 0)
+      || (right.transactions || 0) - (left.transactions || 0)
+    ))
+    .slice(0, 50);
+  return {
+    query: query || null,
+    observedAt: new Date().toISOString(),
+    source: query && EVM_ADDRESS_RE.test(query) ? 'DexScreener + v4.xyz' : 'v4.xyz',
+    relationships,
+  };
+}
+
 // Health and documentation endpoints.
 // ---------------------------------------------------------------------------
 
@@ -1107,6 +1238,7 @@ function jsonDocsBody(request) {
       health: '/health',
       hookBoard: '/data/hooks.json',
       hookMarkets: '/api/hook-markets?chainId={chainId}&address={hookAddress}',
+      tokenHooks: '/api/token-hooks?q={tokenNameSymbolOrAddress}',
       documentation: '/rpc',
       chainProxies: chainRoutes,
     },
@@ -1361,6 +1493,56 @@ export default {
         return response;
       } catch {
         return new Response(JSON.stringify({ error: 'market data unavailable', markets: [] }), {
+          status: 502,
+          headers: baseJsonHeaders({ 'Cache-Control': 'no-store' }),
+        });
+      }
+    }
+
+    // GET /api/token-hooks — reverse the graph from a token or top pool into
+    // its visible hook, then let the hook profile expose the sibling markets.
+    if (method === 'GET' && url.pathname === '/api/token-hooks') {
+      const query = String(url.searchParams.get('q') || '').trim().slice(0, 80);
+      if (query.length === 1) {
+        return new Response(JSON.stringify({ error: 'token query must be empty or at least 2 characters' }), {
+          status: 400,
+          headers: baseJsonHeaders({ 'Cache-Control': 'no-store' }),
+        });
+      }
+
+      const cacheUrl = new URL('/api/token-hooks', url.origin);
+      if (query) cacheUrl.searchParams.set('q', query.toLowerCase());
+      const cacheRequest = new Request(cacheUrl.toString(), { method: 'GET' });
+      const edgeCache = globalThis.caches?.default;
+      if (edgeCache) {
+        const cachedResponse = await edgeCache.match(cacheRequest);
+        if (cachedResponse) {
+          const headers = new Headers(cachedResponse.headers);
+          headers.set('X-Hookline-Cache', 'HIT');
+          return new Response(cachedResponse.body, {
+            status: cachedResponse.status,
+            statusText: cachedResponse.statusText,
+            headers,
+          });
+        }
+      }
+
+      try {
+        const response = new Response(JSON.stringify(await resolveTokenHooks(query)), {
+          headers: baseJsonHeaders({
+            'Cache-Control': `public, max-age=120, s-maxage=${MARKET_EDGE_CACHE_SECONDS}, stale-while-revalidate=86400`,
+            'Access-Control-Expose-Headers': 'X-Hookline-Cache',
+            'X-Hookline-Cache': 'MISS',
+          }),
+        });
+        if (edgeCache) {
+          const cacheWrite = edgeCache.put(cacheRequest, response.clone());
+          if (ctx && typeof ctx.waitUntil === 'function') ctx.waitUntil(cacheWrite);
+          else await cacheWrite;
+        }
+        return response;
+      } catch {
+        return new Response(JSON.stringify({ error: 'token relationship data unavailable', relationships: [] }), {
           status: 502,
           headers: baseJsonHeaders({ 'Cache-Control': 'no-store' }),
         });
