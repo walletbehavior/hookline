@@ -94,6 +94,7 @@ const DEXSCREENER_CHAIN_SLUGS = Object.freeze({
   146: 'sonic',
   480: 'worldchain',
   1868: 'soneium',
+  4663: 'robinhood',
   8453: 'base',
   42161: 'arbitrum',
   42220: 'celo',

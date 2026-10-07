@@ -32,7 +32,7 @@
   });
   const DEXSCREENER_CHAIN_SLUGS = Object.freeze({
     1: 'ethereum', 10: 'optimism', 56: 'bsc', 130: 'unichain', 137: 'polygon', 143: 'monad',
-    146: 'sonic', 480: 'worldchain', 1868: 'soneium', 8453: 'base', 42161: 'arbitrum',
+    146: 'sonic', 480: 'worldchain', 1868: 'soneium', 4663: 'robinhood', 8453: 'base', 42161: 'arbitrum',
     42220: 'celo', 43114: 'avalanche', 57073: 'ink', 81457: 'blast',
   });
   const MARKET_RESOLVER_VERSION = '3';

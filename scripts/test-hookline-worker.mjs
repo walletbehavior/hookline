@@ -34,12 +34,14 @@ globalThis.fetch = async (url, init = {}) => {
   }
 
   if (urlString.startsWith('https://www.v4.xyz/api/pools-by-hook?')) {
+    const chainId = new URL(urlString).searchParams.get('chainId');
+    const robinhood = chainId === '4663';
     return new Response(JSON.stringify({
       Pool: [{
-        chainId: '8453',
+        chainId,
         hooks: `0x${'ab'.repeat(20)}`,
-        id: `8453_0x${'12'.repeat(32)}`,
-        name: 'WETH / TEST - 0.3%',
+        id: `${chainId}_0x${(robinhood ? '78' : '12').repeat(32)}`,
+        name: robinhood ? 'ETH / HOOD - 0%' : 'WETH / TEST - 0.3%',
         txCount: '42',
         volumeUSD: '12000',
         totalValueLockedUSD: '5000',
@@ -66,6 +68,25 @@ globalThis.fetch = async (url, init = {}) => {
           websites: [{ url: 'https://example.com', label: 'Website' }],
           socials: [{ url: 'https://x.com/example', type: 'twitter' }],
         },
+      }],
+    }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+  }
+
+  if (urlString.startsWith('https://api.dexscreener.com/latest/dex/pairs/robinhood/')) {
+    return new Response(JSON.stringify({
+      pairs: [{
+        chainId: 'robinhood',
+        dexId: 'uniswap',
+        labels: ['v4'],
+        url: `https://dexscreener.com/robinhood/0x${'78'.repeat(32)}`,
+        pairAddress: `0x${'78'.repeat(32)}`,
+        baseToken: { address: `0x${'9a'.repeat(20)}`, name: 'Hood Token', symbol: 'HOOD' },
+        quoteToken: { address: `0x${'00'.repeat(20)}`, name: 'Ether', symbol: 'ETH' },
+        priceUsd: '0.051',
+        priceChange: { h24: -3.2 },
+        volume: { h24: 88000 },
+        liquidity: { usd: 190000 },
+        marketCap: 5100000,
       }],
     }), { status: 200, headers: { 'Content-Type': 'application/json' } });
   }
@@ -196,6 +217,15 @@ try {
   assert.equal(markets.markets[0].baseToken.symbol, 'TEST');
   assert.equal(markets.markets[0].marketCap, 420000);
   assert.match(markets.markets[0].chartUrl, /^https:\/\/dexscreener\.com\//);
+
+  const robinhoodMarketsResponse = await request(`/api/hook-markets?chainId=4663&address=0x${'ab'.repeat(20)}`);
+  assert.equal(robinhoodMarketsResponse.status, 200);
+  const robinhoodMarkets = await robinhoodMarketsResponse.json();
+  assert.equal(robinhoodMarkets.markets[0].baseToken.symbol, 'HOOD');
+  assert.equal(robinhoodMarkets.markets[0].priceUsd, 0.051);
+  assert.equal(robinhoodMarkets.markets[0].priceChange24h, -3.2);
+  assert.equal(robinhoodMarkets.markets[0].volume24h, 88000);
+  assert.equal(robinhoodMarkets.markets[0].marketCap, 5100000);
 
   const healthResponse = await request('/health');
   assert.equal(healthResponse.status, 200);
