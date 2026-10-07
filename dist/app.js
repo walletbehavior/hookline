@@ -63,6 +63,7 @@
     refreshing: false,
     board: null,
     boardItems: [],
+    runtimeFamilies: null,
     boardSelectedId: null,
     boardVisible: BOARD_PAGE_SIZE,
     boardProjectsOnly: false,
@@ -233,6 +234,7 @@
 
   function matchPermissionPattern(item, pattern) {
     if (pattern === 'all') return true;
+    if (pattern === 'runtime-family') return Number(item.runtime?.deploymentCount) > 1;
     if (!item.address) return false;
     const enabled = new Set(decodePermissions(item.address).flags.filter((flag) => flag.enabled).map((flag) => flag.name));
     if (pattern === 'swap-intercept') return enabled.has('beforeSwap');
@@ -1508,6 +1510,48 @@
     };
   }
 
+  function normalizeRuntimeFamilies(raw) {
+    if (!raw || raw.schemaVersion !== 1 || !Array.isArray(raw.deployments) || !Array.isArray(raw.families)) return null;
+    const deployments = raw.deployments.filter((row) => (
+      row && typeof row.id === 'string' && /^[0-9]+_0x[0-9a-fA-F]{40}$/.test(row.id)
+      && typeof row.fingerprint === 'string' && /^[0-9a-f]{64}$/i.test(row.fingerprint)
+    )).map((row) => ({
+      id: row.id.toLowerCase(),
+      chainId: Number(row.chainId),
+      address: cleanString(row.address, 42).toLowerCase(),
+      fingerprint: row.fingerprint.toLowerCase(),
+      codeByteLength: Math.max(0, Number(row.codeByteLength) || 0),
+    }));
+    const families = raw.families.filter((family) => (
+      family && typeof family.runtimeFingerprint === 'string' && /^[0-9a-f]{64}$/i.test(family.runtimeFingerprint)
+    )).map((family) => ({
+      fingerprint: family.runtimeFingerprint.toLowerCase(),
+      codeByteLength: Math.max(0, Number(family.codeByteLength) || 0),
+      deploymentCount: Math.max(1, Number(family.deploymentCount) || 1),
+      chainIds: Array.isArray(family.chainIds) ? family.chainIds.map(Number).filter(Number.isSafeInteger) : [],
+      deployments: Array.isArray(family.deployments) ? family.deployments.map((id) => String(id).toLowerCase()).filter((id) => /^[0-9]+_0x[0-9a-f]{40}$/.test(id)) : [],
+      representativeName: cleanString(family.representativeName, 160) || null,
+    }));
+    const generatedAt = Date.parse(raw.generatedAt);
+    return {
+      generatedAt: Number.isFinite(generatedAt) ? generatedAt : null,
+      coverage: raw.coverage && typeof raw.coverage === 'object' ? raw.coverage : {},
+      deployments,
+      families,
+      deploymentById: new Map(deployments.map((row) => [row.id, row])),
+      familyByFingerprint: new Map(families.map((family) => [family.fingerprint, family])),
+    };
+  }
+
+  function attachRuntimeFamilies(board, runtime) {
+    if (!board || !runtime) return;
+    board.hooks.forEach((item) => {
+      const deployment = runtime.deploymentById.get(item.id);
+      const family = deployment && runtime.familyByFingerprint.get(deployment.fingerprint);
+      item.runtime = deployment && family ? { ...deployment, ...family } : null;
+    });
+  }
+
   function boardItemName(item) {
     return item.project?.name || item.verifiedContract?.name || 'Unlabeled hook';
   }
@@ -1547,7 +1591,7 @@
       if (!matchPermissionPattern(item, profile)) return false;
       if (state.boardProjectsOnly && !item.project && !item.verifiedContract) return false;
       if (state.boardMode === 'token' || !query) return true;
-      const fields = [boardItemName(item), capabilitySentence(item), item.chainName, item.address, item.project?.type, item.project?.stage, item.verifiedContract?.fullyQualifiedName, ...boardProfileLabels(item)];
+      const fields = [boardItemName(item), capabilitySentence(item), item.chainName, item.address, item.project?.type, item.project?.stage, item.verifiedContract?.fullyQualifiedName, item.runtime?.fingerprint, ...boardProfileLabels(item)];
       return fields.some((value) => String(value || '').toLowerCase().includes(query));
     });
     result.sort((a, b) => {
@@ -1558,6 +1602,7 @@
         return (b.tokenContext?.liquidityUsd ?? -1) - (a.tokenContext?.liquidityUsd ?? -1) || (b.tokenContext?.transactions ?? -1) - (a.tokenContext?.transactions ?? -1);
       }
       if (sort === 'name') return boardItemName(a).localeCompare(boardItemName(b));
+      if (sort === 'family') return (b.runtime?.deploymentCount ?? 0) - (a.runtime?.deploymentCount ?? 0) || boardVelocity(b) - boardVelocity(a);
       if (sort === 'pools') return (b.numberOfPools ?? -1) - (a.numberOfPools ?? -1) || (b.numberOfSwaps ?? -1) - (a.numberOfSwaps ?? -1);
       if (sort === 'velocity') return boardVelocity(b) - boardVelocity(a);
       return (b.numberOfSwaps ?? -1) - (a.numberOfSwaps ?? -1) || (b.numberOfPools ?? -1) - (a.numberOfPools ?? -1);
@@ -1634,7 +1679,7 @@
       search.setAttribute('aria-label', 'Search hook board');
       $('board-pools-heading').textContent = 'Pools';
       $('board-swaps-heading').textContent = 'Swaps';
-      replaceSortOptions([['velocity', 'Velocity'], ['swaps', 'Most swaps'], ['pools', 'Most pools'], ['name', 'Project name']]);
+      replaceSortOptions([['velocity', 'Velocity'], ['swaps', 'Most swaps'], ['pools', 'Most pools'], ['family', 'Largest runtime family'], ['name', 'Project name']]);
       renderBoard();
     }
   }
@@ -1685,7 +1730,7 @@
       ? state.tokenLoading
         ? 'Resolving token, hook relationships…'
         : `${formatNumber(filtered.length)} token pools · select one to reveal its hook and sibling markets`
-      : `${formatNumber(filtered.length)} results · ${formatNumber(state.board.hooks.length)} hooks · ${formatNumber(state.board.coverage?.verifiedIdentityCount || 0)} verified titles · ${formatNumber(state.board.projects.length)} project records`;
+      : `${formatNumber(filtered.length)} results · ${formatNumber(state.board.hooks.length)} hooks · ${formatNumber(state.runtimeFamilies?.coverage?.repeatedFamilies || 0)} repeated runtimes · ${formatNumber(state.board.coverage?.verifiedIdentityCount || 0)} verified titles · ${formatNumber(state.board.projects.length)} project records`;
     visible.forEach((item, index) => {
       const token = item.tokenContext;
       const row = document.createElement('tr');
@@ -1698,6 +1743,13 @@
         makeElement('strong', '', token?.pairLabel || boardItemName(item)),
         makeElement('code', '', token ? `${boardItemName(item)}, ${shorten(item.address, 8, 6)}` : item.address ? shorten(item.address, 10, 8) : 'project record · no indexed address'),
       );
+      if (!token && item.runtime?.deploymentCount > 1) {
+        identity.append(makeElement(
+          'span',
+          'runtime-family-chip repeated',
+          `family ${item.runtime.deploymentCount} · ${item.runtime.chainIds.length} chain${item.runtime.chainIds.length === 1 ? '' : 's'}`,
+        ));
+      }
       const identityCell = document.createElement('td');
       identityCell.append(identity);
       const chainCell = makeElement('td', 'chain-cell');
@@ -1792,6 +1844,7 @@
     }
     $('hook-profile-callback-count').textContent = item.address ? `${item.permissions.enabled.length} / 14 bits` : '';
     renderBoardMarkets(item);
+    renderRuntimeFamily(item);
     renderBoardLiveEvidence(item);
     $('hook-profile-project').hidden = !project;
     if (project) {
@@ -1882,6 +1935,36 @@
     });
   }
 
+  function renderRuntimeFamily(item) {
+    const section = $('hook-profile-runtime');
+    const status = $('hook-profile-runtime-status');
+    const hash = $('hook-profile-runtime-hash');
+    const summary = $('hook-profile-runtime-summary');
+    const members = $('hook-profile-runtime-members');
+    members.replaceChildren();
+    const runtime = item.runtime;
+    section.hidden = !runtime;
+    if (!runtime) return;
+    const chainCount = runtime.chainIds.length;
+    status.textContent = `${runtime.deploymentCount} deployment${runtime.deploymentCount === 1 ? '' : 's'} · ${chainCount} chain${chainCount === 1 ? '' : 's'}`;
+    hash.textContent = runtime.fingerprint;
+    hash.title = runtime.fingerprint;
+    summary.textContent = runtime.deploymentCount > 1
+      ? `Identical deployed bytecode appears at ${runtime.deploymentCount} indexed addresses.`
+      : 'No other indexed deployment shares this runtime bytecode.';
+    runtime.deployments
+      .filter((id) => id !== item.id)
+      .map((id) => state.board?.items.find((candidate) => candidate.id === id))
+      .filter(Boolean)
+      .slice(0, 6)
+      .forEach((sibling) => {
+        const link = makeElement('a', '', `${boardItemName(sibling)}, ${sibling.chainName}`);
+        link.href = `#/board/${sibling.chainId}/${sibling.address}`;
+        members.append(link);
+      });
+    members.hidden = members.childElementCount === 0;
+  }
+
   function renderBoardLiveEvidence(item) {
     const grid = $('hook-profile-live-grid');
     const status = $('hook-profile-live-status');
@@ -1909,12 +1992,13 @@
       return;
     }
     const { evidence, observation } = cached.result;
+    const liveFingerprint = fingerprintOf(evidence);
     const values = [
       ['Bytecode', `${formatNumber(evidence.codeByteLength)} bytes`],
       ['owner()', evidence.owner ? shorten(evidence.owner, 9, 7) : evidence.ownerProbeStatus === 'reverted' ? 'reverted' : 'not returned'],
       ['Block', observation.block == null ? '—' : formatNumber(observation.block)],
       ['RPC', formatLatency(evidence.latencyMs)],
-      ['Runtime hash', fingerprintOf(evidence) || '—'],
+      ['Runtime hash', liveFingerprint || '—'],
     ];
     values.forEach(([label, value]) => {
       const row = makeElement('div', 'profile-live-row');
@@ -1924,6 +2008,11 @@
       grid.append(row);
     });
     status.textContent = new Date(observation.observedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    if (item.runtime?.fingerprint && liveFingerprint && item.runtime.fingerprint !== liveFingerprint) {
+      status.textContent = 'runtime changed';
+      note.textContent = 'Live bytecode no longer matches the indexed runtime family.';
+      note.hidden = false;
+    }
   }
 
   async function readHookMarkets(item, force) {
@@ -2082,6 +2171,12 @@
       tokenRelationship: item.tokenContext || null,
       permissionMask: item.address ? decodePermissions(item.address).value : null,
       enabledPermissions: item.permissions.enabled,
+      runtime: item.runtime ? {
+        fingerprint: item.runtime.fingerprint,
+        codeByteLength: item.runtime.codeByteLength,
+        deploymentCount: item.runtime.deploymentCount,
+        chainIds: item.runtime.chainIds,
+      } : null,
       liveInspection: item.liveInspection,
     }));
     const payload = {
@@ -2110,12 +2205,18 @@
 
   async function loadBoard() {
     try {
-      const response = await fetch('/data/hooks.json', { headers: { Accept: 'application/json' } });
+      const [response, runtimeResponse] = await Promise.all([
+        fetch('/data/hooks.json', { headers: { Accept: 'application/json' } }),
+        fetch('/data/runtime-families.json', { headers: { Accept: 'application/json' } }).catch(() => null),
+      ]);
       if (!response.ok) throw new Error('Hook index request failed.');
       const snapshot = normalizeBoardSnapshot(await response.json());
       if (!snapshot) throw new Error('Hook index response was incomplete.');
+      const runtime = runtimeResponse?.ok ? normalizeRuntimeFamilies(await runtimeResponse.json()) : null;
+      attachRuntimeFamilies(snapshot, runtime);
       state.board = snapshot;
       state.boardItems = snapshot.items;
+      state.runtimeFamilies = runtime;
       syncBoardSelectionFromHash();
       populateBoardChains();
       renderBoardStats();

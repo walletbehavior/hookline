@@ -43,7 +43,8 @@ import { runAlertScan } from '../bot/alert-runner.js';
 // ---------------------------------------------------------------------------
 // Static assets (public bundle) — injected by scripts/build-hookline-worker.mjs
 // via JSON.stringify over dist/index.html, dist/styles.css, dist/app.js,
-// dist/execution-rail.js, dist/hooks.json and dist/token-hooks.json.
+// dist/execution-rail.js, dist/hooks.json, dist/token-hooks.json and
+// dist/runtime-families.json.
 // The build script replaces the marker below verbatim with the embedded assets.
 // ---------------------------------------------------------------------------
 /* @ASSETS-INJECT */
@@ -209,6 +210,7 @@ const STATIC_ROUTES = Object.freeze({
   '/execution-rail.js': { type: 'application/javascript; charset=utf-8', key: 'executionRail' },
   '/data/hooks.json': { type: 'application/json; charset=utf-8', key: 'hooks' },
   '/data/token-hooks.json': { type: 'application/json; charset=utf-8', key: 'tokenHooks' },
+  '/data/runtime-families.json': { type: 'application/json; charset=utf-8', key: 'runtimeFamilies' },
 });
 
 const HOOKLINE_METHODS = new Set([
@@ -1312,6 +1314,7 @@ function jsonDocsBody(request) {
       metrics: '/metrics',
       health: '/health',
       hookBoard: '/data/hooks.json',
+      runtimeFamilies: '/data/runtime-families.json',
       hookMarkets: '/api/v3/hook-markets?chainId={chainId}&address={hookAddress}',
       tokenHooks: '/api/token-hooks?q={tokenNameSymbolOrAddress}',
       documentation: '/rpc',

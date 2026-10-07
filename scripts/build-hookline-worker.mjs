@@ -3,8 +3,8 @@
 // Builds the Cloudflare Worker-compatible ESM artifact for Hookline:
 //
 //   1. Reads the existing static bundle: dist/index.html, dist/styles.css,
-//      dist/app.js, dist/execution-rail.js, dist/hooks.json and
-//      dist/token-hooks.json.
+//      dist/app.js, dist/execution-rail.js, dist/hooks.json,
+//      dist/token-hooks.json and dist/runtime-families.json.
 //   2. Validates the assets (must not contain inline <script> bodies or
 //      server-side template syntax).
 //   3. Reads worker/index.js (the maintainable runtime source).
@@ -43,9 +43,10 @@ const appPath = join(dist, 'app.js');
 const executionRailPath = join(dist, 'execution-rail.js');
 const hooksPath = join(dist, 'hooks.json');
 const tokenHooksPath = join(dist, 'token-hooks.json');
+const runtimeFamiliesPath = join(dist, 'runtime-families.json');
 
 const missing = [];
-for (const p of [htmlPath, cssPath, appPath, executionRailPath, hooksPath, tokenHooksPath]) {
+for (const p of [htmlPath, cssPath, appPath, executionRailPath, hooksPath, tokenHooksPath, runtimeFamiliesPath]) {
   try {
     readFileSync(p, 'utf8');
   } catch {
@@ -62,6 +63,7 @@ const app = readFileSync(appPath, 'utf8');
 const executionRail = readFileSync(executionRailPath, 'utf8');
 const hooks = readFileSync(hooksPath, 'utf8');
 const tokenHooks = readFileSync(tokenHooksPath, 'utf8');
+const runtimeFamilies = readFileSync(runtimeFamiliesPath, 'utf8');
 const runtime = readFileSync(workerSrc, 'utf8');
 
 const assetVersion = createHash('sha256')
@@ -70,6 +72,7 @@ const assetVersion = createHash('sha256')
   .update(executionRail)
   .update(hooks)
   .update(tokenHooks)
+  .update(runtimeFamilies)
   .digest('hex')
   .slice(0, 12);
 const versionedHtml = html
@@ -97,6 +100,7 @@ for (const [name, content] of [
   ['execution-rail.js', executionRail],
   ['hooks.json', hooks],
   ['token-hooks.json', tokenHooks],
+  ['runtime-families.json', runtimeFamilies],
 ]) {
   const inlineScriptRe = /<\s*script\b(?![^>]*\bsrc\s*=)/;
   if (inlineScriptRe.test(content)) {
@@ -121,6 +125,7 @@ const assetsBlock =
   `  executionRail: ${JSON.stringify(executionRail)},\n` +
   `  hooks: ${JSON.stringify(hooks)},\n` +
   `  tokenHooks: ${JSON.stringify(tokenHooks)},\n` +
+  `  runtimeFamilies: ${JSON.stringify(runtimeFamilies)},\n` +
   `});\n`;
 
 const emitted = runtime.replace(/\/\* @ASSETS-INJECT \*\/\s*\n?/s, () => assetsBlock);
@@ -149,5 +154,5 @@ try {
 }
 
 console.log(`✓ Built Cloudflare Worker artifact: ${out}`);
-console.log(`  embedded static assets: index.html (${versionedHtml.length} bytes), styles.css (${css.length} bytes), app.js (${app.length} bytes), execution-rail.js (${executionRail.length} bytes), hooks.json (${hooks.length} bytes), token-hooks.json (${tokenHooks.length} bytes)`);
+console.log(`  embedded static assets: index.html (${versionedHtml.length} bytes), styles.css (${css.length} bytes), app.js (${app.length} bytes), execution-rail.js (${executionRail.length} bytes), hooks.json (${hooks.length} bytes), token-hooks.json (${tokenHooks.length} bytes), runtime-families.json (${runtimeFamilies.length} bytes)`);
 console.log(`  asset version: ${assetVersion}`);

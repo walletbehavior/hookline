@@ -33,7 +33,7 @@ Acceptance criteria:
 - Index swap outcomes and hook calls over explicit block ranges
 - Measure the pool-advertised fee separately from observable hook-adjusted token flow
 - Record swap refusals, hook gas, recipients, and return-delta involvement where the evidence supports it
-- Cluster deployments by runtime fingerprint and identify changed forks as separate families
+- Keep the shipped runtime-family map current and identify changed forks as separate families
 - Publish short tape rows with links to their source transactions, logs, traces, and derivation version
 - Alert on material fee deltas, refusal-rate changes, and new deployments of known runtime families
 

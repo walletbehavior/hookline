@@ -13,6 +13,7 @@
     "build:hookline": "node scripts/build-hookline-worker.mjs",
     "sync:hooks": "node scripts/sync-hook-board.mjs && node scripts/apply-hook-identities.mjs",
     "sync:tokens": "node scripts/sync-token-hook-index.mjs",
+    "sync:runtimes": "node scripts/sync-runtime-families.mjs",
     "dev:hookline": "npm run build:hookline && wrangler dev",
     "deploy:hookline": "npm run build:hookline && wrangler deploy",
     "test:hookline": "node scripts/test-hookline-worker.mjs",

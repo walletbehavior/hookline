@@ -68,11 +68,13 @@
             <option value="liquidity-gate">Liquidity gating</option>
             <option value="donate-handle">Donation handling</option>
             <option value="return-delta">Any return delta</option>
+            <option value="runtime-family">Repeated runtime</option>
           </select>
           <select id="board-sort" aria-label="Sort hook board">
             <option value="velocity">Velocity</option>
             <option value="swaps">Most swaps</option>
             <option value="pools">Most pools</option>
+            <option value="family">Largest runtime family</option>
             <option value="name">Project name</option>
           </select>
           <button id="board-projects-only" class="filter-toggle" type="button" aria-pressed="false">Named only</button>
@@ -117,6 +119,12 @@
               <section id="hook-profile-markets" class="profile-section profile-markets" hidden>
                 <div class="profile-section-heading"><h3>Related markets</h3><span id="hook-profile-market-status"></span></div>
                 <div id="hook-profile-market-list" class="profile-market-list"></div>
+              </section>
+              <section id="hook-profile-runtime" class="profile-section profile-runtime" hidden>
+                <div class="profile-section-heading"><h3>Runtime family</h3><span id="hook-profile-runtime-status"></span></div>
+                <code id="hook-profile-runtime-hash" class="runtime-fingerprint"></code>
+                <p id="hook-profile-runtime-summary" class="runtime-summary"></p>
+                <div id="hook-profile-runtime-members" class="runtime-members"></div>
               </section>
               <section id="hook-profile-project" class="profile-section" hidden>
                 <h3>Project</h3>

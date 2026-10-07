@@ -294,6 +294,7 @@ try {
   assert.match(rootHtml, /Swap delta changes/);
   assert.match(rootHtml, /HooklineTradeBot/);
   assert.match(rootHtml, /execution-dialog/);
+  assert.match(rootHtml, /Repeated runtime/);
   assert.match(rootHtml, />Velocity</);
   assert.match(rootHtml, /\/assets\/[a-f0-9]{12}\/app\.js/);
   assert.match(rootHtml, /\/assets\/[a-f0-9]{12}\/styles\.css/);
@@ -313,6 +314,7 @@ try {
   assert.match(appSource, /api\/token-hooks/);
   assert.match(appSource, /board-profile-open/);
   assert.match(appSource, /boardVelocity/);
+  assert.match(appSource, /normalizeRuntimeFamilies/);
   assert.match(appSource, /function capabilitySentence/);
   assert.match(appSource, /Unlabeled hook/);
   assert.match(appSource, /matchPermissionPattern/);
@@ -359,6 +361,14 @@ try {
   assert.equal(tokenIndex.schemaVersion, 1);
   assert.ok(tokenIndex.coverage.relationships >= 1000);
   assert.equal(tokenIndex.coverage.hooksFailed, 0);
+
+  const runtimeFamiliesResponse = await request('/data/runtime-families.json');
+  assert.equal(runtimeFamiliesResponse.status, 200);
+  const runtimeFamilies = await runtimeFamiliesResponse.json();
+  assert.equal(runtimeFamilies.schemaVersion, 1);
+  assert.equal(runtimeFamilies.coverage.deploymentsObserved, runtimeFamilies.coverage.hooksEligible);
+  assert.ok(runtimeFamilies.coverage.repeatedFamilies >= 20);
+  assert.ok(runtimeFamilies.families.some((family) => family.deploymentCount > 10));
 
   const defaultTokenHooksResponse = await request('/api/token-hooks');
   assert.equal(defaultTokenHooksResponse.status, 200);
@@ -492,6 +502,7 @@ try {
   assert.equal(docs.constraints.batchesSupported, false);
   assert.equal(docs.routes.paidRpc, '/rpc/paid');
   assert.equal(docs.routes.hookBoard, '/data/hooks.json');
+  assert.equal(docs.routes.runtimeFamilies, '/data/runtime-families.json');
   assert.match(docs.routes.hookMarkets, /^\/api\/v3\/hook-markets/);
   assert.match(docs.routes.tokenHooks, /^\/api\/token-hooks/);
   assert.equal(docs.paidAccess.amountAtomic, '10000');

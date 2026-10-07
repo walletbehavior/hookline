@@ -14,6 +14,7 @@ Hookline is a multichain evidence and analytics desk for programmable-liquidity 
 - Aggregate indexed pool and swap counts with snapshot timestamps
 - Shareable hook profile URLs, filtered JSON exports, and inline live inspection
 - Deployed-bytecode size and SHA-256 runtime fingerprints
+- Static runtime-family clustering across every live-inspection chain
 - Best-effort `owner()` probing with explicit probe status
 - Canonical Uniswap v4 low-14-bit permission decoding
 - Named local watchlists with bounded evidence history
@@ -74,6 +75,8 @@ chain ID + normalized contract address
 ```
 
 Every successful observation retains the chain, address, observed block, timestamp, runtime fingerprint, bytecode length, permission state, owner-probe result, and request latency. A failed refresh never overwrites the most recent successful evidence.
+
+`npm run sync:runtimes` refreshes the deployed-bytecode family snapshot. The generated file is shipped with the site, so family browsing does not add per-page RPC or Cloudflare storage cost.
 
 See [Product documentation](docs/PRODUCT.md), [API reference](docs/API.md), [Whitepaper](docs/WHITEPAPER.md), [Roadmap](docs/ROADMAP.md), and [FAQ](docs/FAQ.md).
 
