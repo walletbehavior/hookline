@@ -18,7 +18,7 @@ No. The sync collects activity leaders for every two-nibble hook-address prefix 
 
 ## Is Hookline already indexing pool volume and liquidity?
 
-The board exposes indexed pool and swap counts. It does not infer price, market capitalization, dollar volume, or liquidity from those counts. First-party event-backed discovery, time-series swap activity, liquidity changes, and historical analytics are planned work.
+Yes. Open a hook profile to resolve related markets. When DexScreener has the pool, Hookline shows price, market capitalization, liquidity, 24-hour volume, and change while keeping the indexed hook relationship visible.
 
 ## What do the 14 permission flags mean?
 
@@ -48,17 +48,13 @@ The evidence RPC does not submit transactions. The public proxy rejects transact
 
 The paid endpoint uses x402 to request 0.01 USDC on Base for a higher-capacity Hookline request. A valid unpaid request receives a standard HTTP 402 challenge with the payment terms.
 
-## What is HKLN?
+## What does the Telegram bot do?
 
-HKLN is Hookline's service-alignment asset on Base.
+Send it a token or hook address to navigate hook relationships, related tokens, markets, and trade previews. A website hook link opens the matching chain and profile directly. Alerts and user-owned wallet signing are the next production connections.
 
-Contract address:
+## What will Telegram trading cost?
 
-```text
-0x11672C8cD5CB3F17364339244826B110Bac0AC91
-```
-
-Current product access does not require holding HKLN. Future holder features are not active until they are implemented and documented.
+Hookline's planned execution fee is 1% of trade notional, with 0.3% of trade notional returned to the user as cashback. Execution remains inactive until user-owned wallet signing is connected.
 
 ## Does market capitalization create revenue for Hookline?
 

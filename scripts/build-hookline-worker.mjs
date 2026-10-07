@@ -19,7 +19,7 @@
 //
 // Usage: node scripts/build-hookline-worker.mjs
 
-import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
+import { readFileSync, writeFileSync, mkdirSync, copyFileSync, readdirSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
@@ -31,6 +31,8 @@ const dist = join(root, 'dist');
 const workerSrc = join(root, 'worker', 'index.js');
 const outDir = join(dist, 'server');
 const out = join(outDir, 'index.js');
+const botSrcDir = join(root, 'bot');
+const botOutDir = join(dist, 'bot');
 
 // --- Read required inputs ---------------------------------------------------
 
@@ -121,6 +123,14 @@ const emitted = runtime.replace(/\/\* @ASSETS-INJECT \*\/\s*\n?/s, () => assetsB
 
 mkdirSync(outDir, { recursive: true });
 writeFileSync(out, emitted, 'utf8');
+
+// The worker imports the portable Telegram runtime. Copy only browser/Worker
+// compatible modules; the Node server and tests stay outside the deployment.
+mkdirSync(botOutDir, { recursive: true });
+for (const name of readdirSync(botSrcDir)) {
+  if (!name.endsWith('.js') || name === 'server.js') continue;
+  copyFileSync(join(botSrcDir, name), join(botOutDir, name));
+}
 
 // --- Sanity check: the artifact must parse as valid ESM --------------------
 

@@ -226,8 +226,12 @@ try {
   assert.match(rootHtml, /Frequently asked questions/);
   assert.match(rootHtml, /github\.com\/walletbehavior\/hookline/);
   assert.match(rootHtml, /POST \/rpc\/paid/);
-  assert.match(rootHtml, /0x11672C8cD5CB3F17364339244826B110Bac0AC91/);
+  assert.doesNotMatch(rootHtml, /0x11672C8cD5CB3F17364339244826B110Bac0AC91/);
+  assert.doesNotMatch(rootHtml, /flaunch\.gg/);
   assert.match(rootHtml, /copy-icon-btn/);
+  assert.match(rootHtml, /hook-profile-backdrop/);
+  assert.match(rootHtml, /HooklineTradeBot/);
+  assert.match(rootHtml, />Velocity</);
   assert.match(rootHtml, /\/assets\/[a-f0-9]{12}\/app\.js/);
   assert.match(rootHtml, /\/assets\/[a-f0-9]{12}\/styles\.css/);
   assert.doesNotMatch(rootHtml, /capacity wallet/i);
@@ -244,8 +248,17 @@ try {
   assert.match(appSource, /fetch\('\/metrics'/);
   assert.match(appSource, /hookline:market-cache:v1/);
   assert.match(appSource, /api\/token-hooks/);
+  assert.match(appSource, /board-profile-open/);
+  assert.match(appSource, /boardVelocity/);
   assert.doesNotMatch(appSource, /FEE_WALLET|strip-copy-fee/);
   assert.doesNotMatch(appSource, /\.innerHTML\s*=/);
+
+  const versionedCssPath = rootHtml.match(/\/assets\/[a-f0-9]{12}\/styles\.css/)[0];
+  const cssResponse = await request(versionedCssPath);
+  assert.equal(cssResponse.status, 200);
+  const cssSource = await cssResponse.text();
+  assert.match(cssSource, /body\.board-profile-open \.hook-profile/);
+  assert.match(cssSource, /max-height: min\(88dvh, 820px\)/);
 
   const hookDataResponse = await request('/data/hooks.json');
   assert.equal(hookDataResponse.status, 200);
@@ -257,7 +270,7 @@ try {
   assert.ok(hookData.coverage.chainCount >= 10);
   assert.ok(hookData.hooks.some((hook) => hook.project?.name === 'CLAUS'));
   assert.ok(hookData.projects.some((project) => project.provenance === 'Hookline researched'));
-  assert.ok(hookData.coverage.verifiedIdentityCount >= 1);
+  assert.ok(hookData.coverage.verifiedIdentityCount >= 300);
   assert.equal(
     hookData.hooks.find((hook) => hook.id === '4663_0xe5e702641ea86f4ae6cc3cdaed2b886f976be044')?.verifiedContract?.name,
     'PonsV2MemeHook'

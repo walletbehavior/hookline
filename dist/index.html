@@ -27,9 +27,8 @@
       </nav>
       <div class="top-meta">
         <span id="top-live" class="live-indicator loading" role="status" aria-live="polite">PROBING</span>
+        <a class="social-link" href="https://t.me/HooklineTradeBot" target="_blank" rel="noopener noreferrer" aria-label="Hookline Telegram bot">TG</a>
         <a class="social-link" href="https://x.com/_hookline" target="_blank" rel="noopener noreferrer" aria-label="Hookline on X">X</a>
-        <a class="social-link" href="https://flaunch.gg/base/coins/0x11672C8cD5CB3F17364339244826B110Bac0AC91" target="_blank" rel="noopener noreferrer">HKLN</a>
-        <button id="top-copy-ca" class="copy-icon-btn" type="button" aria-label="Copy token contract address" title="Copy token contract address"><span class="copy-icon" aria-hidden="true"></span></button>
       </div>
     </div>
   </header>
@@ -71,6 +70,7 @@
             <option value="delta">Return deltas</option>
           </select>
           <select id="board-sort" aria-label="Sort hook board">
+            <option value="velocity">Velocity</option>
             <option value="swaps">Most swaps</option>
             <option value="pools">Most pools</option>
             <option value="name">Project name</option>
@@ -93,6 +93,7 @@
             <button id="board-more" class="board-more" type="button" hidden>Load more rows</button>
           </div>
 
+          <button id="hook-profile-backdrop" class="hook-profile-backdrop" type="button" aria-label="Close hook profile" tabindex="-1"></button>
           <aside id="hook-board-detail" class="hook-profile" aria-labelledby="hook-profile-title">
             <div class="hook-profile-empty">
               <span class="profile-glyph" aria-hidden="true">⌁</span>
@@ -133,8 +134,10 @@
               <div class="profile-actions">
                 <button id="hook-profile-inspect" class="btn btn-primary" type="button">Inspect live</button>
                 <button id="hook-profile-watch" class="btn btn-secondary" type="button">Add to watchlist</button>
+                <a id="hook-profile-telegram" class="btn btn-secondary" href="https://t.me/HooklineTradeBot" target="_blank" rel="noopener noreferrer">Open in Telegram</a>
+                <a id="hook-profile-alert" class="btn btn-ghost" href="https://t.me/HooklineTradeBot" target="_blank" rel="noopener noreferrer">Telegram alerts</a>
                 <button id="hook-profile-share" class="btn btn-ghost" type="button">Copy profile link</button>
-                <a id="hook-profile-explorer" class="btn btn-ghost" href="#" target="_blank" rel="noopener noreferrer">Explorer ↗</a>
+                <a id="hook-profile-explorer" class="btn btn-ghost" href="#" target="_blank" rel="noopener noreferrer">Explorer</a>
               </div>
               <p id="hook-profile-boundary" class="profile-boundary"></p>
             </div>
@@ -360,7 +363,7 @@
         <button type="button" data-doc-target="docs-whitepaper">Whitepaper</button>
         <button type="button" data-doc-target="docs-roadmap">Roadmap</button>
         <button type="button" data-doc-target="docs-faq">FAQ</button>
-        <a href="https://github.com/walletbehavior/hookline" target="_blank" rel="noopener noreferrer">GitHub ↗</a>
+        <a href="https://github.com/walletbehavior/hookline" target="_blank" rel="noopener noreferrer">GitHub</a>
       </nav>
 
       <article class="docs-body">
@@ -413,7 +416,7 @@
             </div>
           </div>
           <p>The free route is rate limited. <code>POST /rpc/paid</code> requests 0.01 USDC on Base through x402. The proxy rejects transaction submission, account access, administrative, debug, trace, and batch requests.</p>
-          <a class="doc-link" href="/rpc" target="_blank" rel="noopener noreferrer">Open machine-readable RPC reference ↗</a>
+          <a class="doc-link" href="/rpc" target="_blank" rel="noopener noreferrer">Open machine-readable RPC reference</a>
         </section>
 
         <section id="docs-whitepaper" class="doc-section">
@@ -422,10 +425,10 @@
           <p>Programmable-liquidity hooks create a discovery problem. Deployments, permissions, code versions, owners, pool relationships, activity, and project claims live across tools that do not treat the hook as a first-class research object.</p>
           <blockquote>Hookline’s job is to make it easy to answer what a hook is, where it is deployed, what it can do, what depends on it, what changed, and where the evidence came from.</blockquote>
           <div class="system-graph" aria-label="Hookline system-of-record graph">
-            <span>HOOK</span><i>↔</i><span>POOLS</span><i>↔</i><span>CHAINS</span><i>↔</i><span>DEPLOYERS</span><i>↔</i><span>CODE</span><i>↔</i><span>EVENTS</span>
+            <span>HOOKS</span><i>,</i><span>POOLS</span><i>,</i><span>CHAINS</span><i>,</i><span>DEPLOYERS</span><i>,</i><span>CODE</span><i>,</i><span>EVENTS</span>
           </div>
           <p>The board now supplies broad cross-chain discovery and aggregate activity. The next data layer indexes official PoolManager initialization, swap, liquidity, and donation events into a rebuildable first-party graph. Every metric keeps its chain, block range, generated time, and derivation version.</p>
-          <a class="doc-link" href="https://github.com/walletbehavior/hookline/blob/main/docs/WHITEPAPER.md" target="_blank" rel="noopener noreferrer">Read the complete whitepaper on GitHub ↗</a>
+          <a class="doc-link" href="https://github.com/walletbehavior/hookline/blob/main/docs/WHITEPAPER.md" target="_blank" rel="noopener noreferrer">Read the complete whitepaper on GitHub</a>
         </section>
 
         <section id="docs-roadmap" class="doc-section">
@@ -434,10 +437,10 @@
           <ol class="roadmap">
             <li class="current"><span>NOW</span><div><h3>Dependable evidence desk</h3><p>Live inspection, permission decoding, watchlists, comparisons, telemetry, free RPC, and x402 capacity.</p></div></li>
             <li><span>NEXT</span><div><h3>Hook registry and pool graph</h3><p>PoolManager event ingestion, canonical identities, raw-log retention, verified-source metadata, and searchable profiles.</p></div></li>
-            <li><span>THEN</span><div><h3>Activity and change intelligence</h3><p>Swap and liquidity history, code and owner change detection, dependency timelines, alerts, and reproducible exports.</p></div></li>
+            <li><span>NOW</span><div><h3>Activity and market intelligence</h3><p>Indexed velocity, related-token discovery, live contract evidence, and DexScreener market enrichment.</p></div></li>
             <li><span>LATER</span><div><h3>Professional and ecosystem layers</h3><p>Team workspaces, webhooks, longer retention, signed manifests, contributed research, and additional programmable-liquidity systems.</p></div></li>
           </ol>
-          <a class="doc-link" href="https://github.com/walletbehavior/hookline/blob/main/docs/ROADMAP.md" target="_blank" rel="noopener noreferrer">See roadmap acceptance criteria ↗</a>
+          <a class="doc-link" href="https://github.com/walletbehavior/hookline/blob/main/docs/ROADMAP.md" target="_blank" rel="noopener noreferrer">See roadmap acceptance criteria</a>
         </section>
 
         <section id="docs-faq" class="doc-section faq-section">
@@ -445,41 +448,31 @@
           <h2>Frequently asked questions</h2>
           <div class="faq-list">
             <details><summary>Where does Hookline data come from?</summary><p>The hook board uses a timestamped v4.xyz community-indexer snapshot for discovery and aggregate pool and swap counts. Names and descriptions are community-curated or project-submitted. Live contract evidence comes directly from configured Ethereum, Base, Arbitrum One, and Robinhood Chain RPC endpoints.</p></details>
-            <details><summary>Is Hookline already indexing volume and liquidity?</summary><p>The board exposes indexed pool and swap aggregates, not price, market cap, dollar volume, or liquidity claims. First-party event-backed pool discovery, time-series activity, and historical analytics are the next data layer.</p></details>
+            <details><summary>Is Hookline already indexing volume and liquidity?</summary><p>Yes. Open a hook profile to resolve related markets. When DexScreener has the pool, Hookline shows price, market cap, liquidity, 24-hour volume, and change alongside the indexed hook relationship.</p></details>
+            <details><summary>What does Velocity mean?</summary><p>Velocity ranks the current indexed activity density of each hook or token relationship. It is a discovery ranking, not a promise of future performance.</p></details>
+            <details><summary>What does the Telegram bot do?</summary><p>Send it a token or hook address to navigate hook relationships, related tokens, markets, and trade previews. Alerts and user-owned Privy signing are the next production connections.</p></details>
+            <details><summary>What will Telegram trading cost?</summary><p>Hookline’s planned execution fee is 1% of trade notional, with 0.3% of trade notional returned to the user as cashback. Execution remains inactive until user-owned wallet signing is connected.</p></details>
             <details><summary>What do the 14 permission flags prove?</summary><p>They identify which Uniswap v4 callback permissions are encoded in the hook address. They do not explain the complete runtime behavior and do not establish that a contract is safe.</p></details>
             <details><summary>Is this a smart-contract audit?</summary><p>No. Hookline is an evidence and monitoring product, not an audit, legal opinion, or trading recommendation.</p></details>
             <details><summary>Why can’t I compare live state across chains?</summary><p>An address is not a complete identity, and block heights on separate chains do not share state or time semantics. Hookline limits direct comparisons to one chain.</p></details>
             <details><summary>Are watchlists uploaded?</summary><p>Not currently. Lists and observations are stored in the browser and can be exported or imported as JSON.</p></details>
             <details><summary>Does the RPC submit transactions?</summary><p>No. Transaction submission and account-access methods are rejected by the public service.</p></details>
             <details><summary>What is the x402 route?</summary><p>It is a machine-payable capacity path. A valid unpaid request receives an HTTP 402 challenge for 0.01 USDC on Base.</p></details>
-            <details><summary>What is HKLN?</summary><p>HKLN is Hookline’s service-alignment asset on Base. Current product access does not require holding it. Future holder features are inactive until implemented and documented.</p></details>
             <details><summary>Does market cap generate Hookline revenue?</summary><p>No. Market cap itself does not create creator fees. Venue fees require trading activity, and product revenue requires useful paid services.</p></details>
             <details><summary>Is Hookline affiliated with Uniswap or Robinhood?</summary><p>No. Hookline is independent and is not endorsed by Uniswap Labs, Robinhood, Flaunch, PayAI, or its RPC providers.</p></details>
             <details><summary>How can I contribute?</summary><p>Use the public GitHub repository. Include chain, exact address, block range, expected result, and reproduction steps in evidence-related issues.</p></details>
           </div>
-          <a class="doc-link" href="https://github.com/walletbehavior/hookline/blob/main/docs/FAQ.md" target="_blank" rel="noopener noreferrer">Open the complete FAQ on GitHub ↗</a>
+          <a class="doc-link" href="https://github.com/walletbehavior/hookline/blob/main/docs/FAQ.md" target="_blank" rel="noopener noreferrer">Open the complete FAQ on GitHub</a>
         </section>
       </article>
     </section>
   </main>
 
-  <section class="token-strip" aria-label="HKLN service information">
-    <div class="token-inner">
-      <div class="token-intro"><span class="panel-kicker">SERVICE LAYER</span><strong>HKLN on Base</strong><p>Public service access, paid capacity infrastructure, and ecosystem alignment.</p></div>
-      <div class="token-col"><span>Contract</span><div class="contract-line"><code class="breakable">0x11672C8cD5CB3F17364339244826B110Bac0AC91</code><button id="strip-copy-ca" class="copy-icon-btn" type="button" aria-label="Copy token contract address" title="Copy token contract address"><span class="copy-icon" aria-hidden="true"></span></button></div></div>
-      <div class="token-links"><a href="https://basescan.org/token/0x11672C8cD5CB3F17364339244826B110Bac0AC91" target="_blank" rel="noopener noreferrer">BaseScan</a><a href="https://flaunch.gg/base/coins/0x11672C8cD5CB3F17364339244826B110Bac0AC91" target="_blank" rel="noopener noreferrer">Flaunch</a><a href="https://x.com/_hookline" target="_blank" rel="noopener noreferrer">X</a></div>
-    </div>
-  </section>
-
   <footer class="site-footer">
     <span>HOOKLINE / MULTICHAIN HOOKS ANALYTICS DESK</span>
     <span>Ethereum · Base · Arbitrum · Robinhood Chain</span>
     <span><a href="#/board">Board</a> · <a href="#/docs">Docs</a> · <a href="#/network">RPC and network</a> · <a href="https://github.com/walletbehavior/hookline" target="_blank" rel="noopener noreferrer">GitHub</a></span>
-    <p>
-      <code>0x11672C8cD5CB3F17364339244826B110Bac0AC91</code> ·
-      <a href="https://x.com/_hookline" target="_blank" rel="noopener noreferrer">X</a> ·
-      <a href="https://flaunch.gg/base/coins/0x11672C8cD5CB3F17364339244826B110Bac0AC91" target="_blank" rel="noopener noreferrer">Flaunch</a>
-    </p>
+    <p><a href="https://x.com/_hookline" target="_blank" rel="noopener noreferrer">X</a> · <a href="https://t.me/HooklineTradeBot" target="_blank" rel="noopener noreferrer">Telegram</a></p>
   </footer>
 
   <div id="hookline-toast" class="toast" role="status" aria-live="polite" aria-atomic="true"></div>

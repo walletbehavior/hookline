@@ -15,7 +15,6 @@
     'beforeDonate', 'afterDonate', 'beforeSwapReturnDelta', 'afterSwapReturnDelta',
     'afterAddLiquidityReturnDelta', 'afterRemoveLiquidityReturnDelta',
   ]);
-  const TOKEN_CA = '0x11672C8cD5CB3F17364339244826B110Bac0AC91';
   const WATCHLISTS_KEY = 'hookline:watchlists:v3';
   const WATCHLISTS_V2_KEY = 'hookline:watchlist:v2';
   const MAX_LISTS = 20;
@@ -1065,6 +1064,17 @@
     return item.permissions.profiles.length ? item.permissions.profiles : ['no callbacks'];
   }
 
+  function boardVelocity(item) {
+    if (item.tokenContext) {
+      const transactions = Math.max(0, Number(item.tokenContext.transactions) || 0);
+      const liquidity = Math.max(0, Number(item.tokenContext.liquidityUsd) || 0);
+      return Math.log1p(transactions) * (1 + Math.log10(1 + liquidity));
+    }
+    const swaps = Math.max(0, Number(item.numberOfSwaps) || 0);
+    const pools = Math.max(1, Number(item.numberOfPools) || 1);
+    return Math.log1p(swaps) * (1 + Math.log1p(pools)) / Math.sqrt(pools);
+  }
+
   function filteredBoardItems() {
     if (!state.board) return [];
     const query = $('board-search').value.trim().toLowerCase();
@@ -1089,10 +1099,12 @@
       if (state.boardMode === 'token') {
         if (sort === 'token') return String(a.tokenContext?.pairLabel || '').localeCompare(String(b.tokenContext?.pairLabel || ''));
         if (sort === 'activity') return (b.tokenContext?.transactions ?? -1) - (a.tokenContext?.transactions ?? -1) || (b.tokenContext?.liquidityUsd ?? -1) - (a.tokenContext?.liquidityUsd ?? -1);
+        if (sort === 'velocity') return boardVelocity(b) - boardVelocity(a);
         return (b.tokenContext?.liquidityUsd ?? -1) - (a.tokenContext?.liquidityUsd ?? -1) || (b.tokenContext?.transactions ?? -1) - (a.tokenContext?.transactions ?? -1);
       }
       if (sort === 'name') return boardItemName(a).localeCompare(boardItemName(b));
       if (sort === 'pools') return (b.numberOfPools ?? -1) - (a.numberOfPools ?? -1) || (b.numberOfSwaps ?? -1) - (a.numberOfSwaps ?? -1);
+      if (sort === 'velocity') return boardVelocity(b) - boardVelocity(a);
       return (b.numberOfSwaps ?? -1) - (a.numberOfSwaps ?? -1) || (b.numberOfPools ?? -1) - (a.numberOfPools ?? -1);
     });
     return result;
@@ -1160,14 +1172,14 @@
       search.setAttribute('aria-label', 'Search tokens and reveal their hooks');
       $('board-pools-heading').textContent = 'Pools';
       $('board-swaps-heading').textContent = 'Transactions';
-      replaceSortOptions([['liquidity', 'Most liquidity'], ['activity', 'Most transactions'], ['token', 'Token name']]);
+      replaceSortOptions([['velocity', 'Velocity'], ['liquidity', 'Most liquidity'], ['activity', 'Most transactions'], ['token', 'Token name']]);
       void loadTokenRelationships('');
     } else {
       search.placeholder = 'Search name, address, chain, permission…';
       search.setAttribute('aria-label', 'Search hook board');
       $('board-pools-heading').textContent = 'Pools';
       $('board-swaps-heading').textContent = 'Swaps';
-      replaceSortOptions([['swaps', 'Most swaps'], ['pools', 'Most pools'], ['name', 'Project name']]);
+      replaceSortOptions([['velocity', 'Velocity'], ['swaps', 'Most swaps'], ['pools', 'Most pools'], ['name', 'Project name']]);
       renderBoard();
     }
   }
@@ -1288,6 +1300,7 @@
 
   function renderBoardProfile() {
     const item = selectedBoardItem();
+    document.body.classList.toggle('board-profile-open', Boolean(item));
     const empty = $('hook-board-detail').querySelector('.hook-profile-empty');
     $('hook-profile-content').hidden = !item;
     empty.hidden = Boolean(item);
@@ -1331,8 +1344,8 @@
       setProfileRecord('hook-profile-dex', project.dex);
       const links = $('hook-profile-links');
       links.replaceChildren();
-      const website = project.website && safeProfileLink(project.website, 'Website ↗');
-      const x = project.x && safeProfileLink(project.x, 'X ↗');
+      const website = project.website && safeProfileLink(project.website, 'Website');
+      const x = project.x && safeProfileLink(project.x, 'X');
       if (website) links.append(website);
       if (x) links.append(x);
     }
@@ -1346,6 +1359,15 @@
     const explorerUrl = item.address ? explorerAddressUrl(item.chainId, item.address) : null;
     explorer.hidden = !explorerUrl;
     if (explorerUrl) explorer.href = explorerUrl;
+    const telegramStart = item.address
+      ? `hook_${item.chainId}_${item.address.slice(2)}`
+      : '';
+    $('hook-profile-telegram').href = telegramStart
+      ? `https://t.me/HooklineTradeBot?start=${telegramStart}`
+      : 'https://t.me/HooklineTradeBot';
+    $('hook-profile-alert').href = item.address
+      ? `https://t.me/HooklineTradeBot?start=alert_${item.chainId}_${item.address.slice(2)}`
+      : 'https://t.me/HooklineTradeBot';
     $('hook-profile-boundary').textContent = item.kind === 'project'
       ? 'Directory record · deployment not linked'
       : item.liveInspection ? 'Counts · v4.xyz snapshot   Contract · live RPC' : 'Counts · v4.xyz snapshot   Contract RPC · unavailable';
@@ -1387,9 +1409,9 @@
         stats.append(stat);
       });
       const links = makeElement('div', 'market-links');
-      const chart = safeProfileLink(market.chartUrl, 'Chart ↗');
-      const website = safeProfileLink(market.website, 'Website ↗');
-      const x = safeProfileLink(market.x, 'X ↗');
+      const chart = safeProfileLink(market.chartUrl, 'Chart');
+      const website = safeProfileLink(market.website, 'Website');
+      const x = safeProfileLink(market.x, 'X');
       if (chart) links.append(chart);
       if (website) links.append(website);
       if (x) links.append(x);
@@ -1856,6 +1878,10 @@
       renderBoard();
       renderBoardProfile();
     });
+    $('hook-profile-backdrop').addEventListener('click', () => $('hook-profile-close').click());
+    document.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape' && state.boardSelectedId) $('hook-profile-close').click();
+    });
     $('hook-profile-copy').addEventListener('click', (event) => {
       const item = selectedBoardItem();
       if (item?.address) copyText(item.address, event.currentTarget);
@@ -1897,8 +1923,6 @@
       finally { event.target.value = ''; }
     });
     $('refresh-telemetry-btn').addEventListener('click', () => loadTelemetry(true));
-    $('top-copy-ca').addEventListener('click', (event) => copyText(TOKEN_CA, event.currentTarget));
-    $('strip-copy-ca').addEventListener('click', (event) => copyText(TOKEN_CA, event.currentTarget));
     $$('[data-copy]').forEach((button) => button.addEventListener('click', (event) => copyText(button.dataset.copy, event.currentTarget)));
     window.addEventListener('hashchange', renderView);
   }

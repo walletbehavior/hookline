@@ -59,6 +59,18 @@ const HOOKLINE_RESEARCHED_PROJECTS = Object.freeze([
     x: null,
     provenance: 'Hookline researched',
   },
+  {
+    sourceId: 'hookline-engram',
+    hookId: '1_0x0ee851f1fe2f4bdba79fee78969e329c136ca0cc',
+    name: 'ENGRAM',
+    description: 'A Uniswap v4 launchpad where each token receives a hook-managed onchain model that adjusts LP fees from its own market activity, with public training rounds and creator fee sharing.',
+    type: 'Dynamic fee, launchpad, onchain model',
+    dex: 'Uniswap v4',
+    stage: 'Mainnet',
+    website: 'https://engramv4.xyz/',
+    x: 'https://x.com/engram_v4',
+    provenance: 'Hookline researched',
+  },
 ]);
 
 const sleep = (ms) => new Promise((resolvePromise) => setTimeout(resolvePromise, ms));

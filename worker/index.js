@@ -34,6 +34,7 @@ import {
 } from '@x402/core/server';
 import { ExactEvmScheme } from '@x402/evm/exact/server';
 import { facilitator as payAiFacilitator } from '@payai/facilitator';
+import { handleTelegramUpdate, verifyWebhookSecret } from '../bot/index.js';
 
 'use strict';
 
@@ -1028,6 +1029,7 @@ function marketProjectLink(info, type) {
 }
 
 async function resolveHookMarkets(chainId, address) {
+  const profile = indexedHook(chainId, address);
   const v4Url = new URL(V4_POOLS_BY_HOOK_URL);
   v4Url.searchParams.set('hookAddress', address);
   v4Url.searchParams.set('chainId', String(chainId));
@@ -1086,6 +1088,16 @@ async function resolveHookMarkets(chainId, address) {
   return {
     chainId,
     hook: address,
+    profile: profile ? {
+      id: profile.id,
+      chainId: profile.chainId,
+      chainName: profile.chainName,
+      address: profile.address,
+      numberOfPools: profile.numberOfPools,
+      numberOfSwaps: profile.numberOfSwaps,
+      project: profile.project || null,
+      verifiedContract: profile.verifiedContract || null,
+    } : null,
     observedAt: new Date().toISOString(),
     source: dexPairs.length ? 'v4.xyz + DexScreener' : 'v4.xyz',
     dexError,
@@ -1652,6 +1664,38 @@ export default {
         parsed.id,
         ctx
       );
+    }
+
+
+    // POST /telegram/webhook: Telegram Bot API webhook for Hookline messages and
+    // callback queries. Secret-verified with the X-Telegram-Bot-Api-Secret-Token
+    // header, then delegated to the bot module (bot/index.js). All public
+    // website and JSON-RPC routes above are untouched.
+    if (method === 'POST' && (url.pathname === '/telegram/webhook' || url.pathname === '/tg/webhook')) {
+      const verify = verifyWebhookSecret(request, env?.TELEGRAM_WEBHOOK_SECRET);
+      if (!verify.ok) {
+        return new Response(
+          JSON.stringify({ error: 'webhook secret invalid', reason: verify.reason }),
+          { status: 401, headers: baseJsonHeaders() }
+        );
+      }
+      let update;
+      try {
+        update = JSON.parse(await request.text());
+      } catch {
+        return new Response(
+          JSON.stringify({ error: 'invalid update payload' }),
+          { status: 400, headers: baseJsonHeaders() }
+        );
+      }
+      const result = await handleTelegramUpdate(update, env, {
+        resolveTokenHooks,
+        resolveHookMarkets,
+      });
+      return new Response(JSON.stringify(result), {
+        status: 200,
+        headers: baseJsonHeaders({ 'Cache-Control': 'no-store' }),
+      });
     }
 
     return sendNotFound();
