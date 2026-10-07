@@ -1,0 +1,29 @@
+name: Feature request
+description: Propose a focused improvement to Hookline
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What research, monitoring, or developer problem should Hookline solve?
+    validations:
+      required: true
+  - type: textarea
+    id: outcome
+    attributes:
+      label: Useful outcome
+      description: Describe what a successful result lets a user do.
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Required evidence
+      description: Which onchain, verified, derived, or submitted inputs would support the feature?
+  - type: input
+    id: chains
+    attributes:
+      label: Relevant chains or protocols
+

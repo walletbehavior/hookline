@@ -1,6 +1,6 @@
 # Hookline implementation
 
-Hookline is the intelligence layer for onchain hooks. The current release is a live multichain desk for contract inspection, permission decoding, evidence history, network telemetry, watchlists, and developer access.
+Hookline is the intelligence layer for onchain hooks. The current release is a live multichain desk for contract inspection, permission decoding, evidence history, network telemetry, watchlists, developer access, and a public Docs surface covering the product, data model, API, whitepaper, roadmap, and FAQ.
 
 ## Runtime
 
@@ -25,7 +25,7 @@ Production domains are `hookline.world`, `www.hookline.world`, and `hookline.rav
 
 Current evidence comes directly from configured public RPC upstreams:
 
-- Ethereum: `https://ethereum-rpc.publicnode.com`
+- Ethereum: `https://eth.drpc.org`
 - Base: `https://base-rpc.publicnode.com`
 - Arbitrum One: `https://arb1.arbitrum.io/rpc`
 - Robinhood Chain: `https://robinhood.drpc.org`

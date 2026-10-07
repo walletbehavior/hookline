@@ -10,14 +10,14 @@
     "ticker": "HKLN",
     "ticker_status": "final",
     "description": "Multichain intelligence for Uniswap v4 hooks. HKLN coordinates advanced access, monitoring priorities and contributor rewards as holder features roll out.",
-    "website": "https://hookline.ravenos.xyz",
+    "website": "https://hookline.world",
     "x_account": "https://x.com/_hookline",
     "image": "ipfs://QmdkPjFt4jjprX3LdrrdQcQ3n1CFTEDtQ9Fkf1PXqb3MaA"
   },
   "verified_public_endpoints": {
-    "site": "https://hookline.ravenos.xyz/",
-    "health": "https://hookline.ravenos.xyz/health",
-    "rpc_docs": "https://hookline.ravenos.xyz/rpc"
+    "site": "https://hookline.world/",
+    "health": "https://hookline.world/health",
+    "rpc_docs": "https://hookline.world/rpc"
   },
   "flaunch_web": {
     "launch_url": "https://flaunch.gg/base/coins/0x11672C8cD5CB3F17364339244826B110Bac0AC91",

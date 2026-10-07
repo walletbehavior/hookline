@@ -21,6 +21,7 @@
           <li><a href="#/observatory" data-view="observatory">Observe</a></li>
           <li><a href="#/watchlists" data-view="watchlists">Watchlists</a></li>
           <li><a href="#/network" data-view="network">Network</a></li>
+          <li><a href="#/docs" data-view="docs">Docs</a></li>
         </ul>
       </nav>
       <div class="top-meta">
@@ -231,6 +232,121 @@
         </section>
       </div>
     </section>
+
+    <section id="view-docs" class="view" aria-labelledby="docs-heading">
+      <div class="section-heading docs-heading">
+        <div><p class="eyebrow">PRODUCT AND PROTOCOL</p><h1 id="docs-heading">Hookline docs</h1></div>
+        <p>What works now, how the evidence is built, and the path from contract desk to hook infrastructure.</p>
+      </div>
+
+      <nav class="docs-nav" aria-label="Documentation sections">
+        <button type="button" data-doc-target="docs-product">Product</button>
+        <button type="button" data-doc-target="docs-data">Data</button>
+        <button type="button" data-doc-target="docs-api">API</button>
+        <button type="button" data-doc-target="docs-whitepaper">Whitepaper</button>
+        <button type="button" data-doc-target="docs-roadmap">Roadmap</button>
+        <button type="button" data-doc-target="docs-faq">FAQ</button>
+        <a href="https://github.com/walletbehavior/hookline" target="_blank" rel="noopener noreferrer">GitHub ↗</a>
+      </nav>
+
+      <article class="docs-body">
+        <section id="docs-product" class="doc-section doc-lead">
+          <span class="panel-kicker">01 / PRODUCT</span>
+          <h2>The intelligence layer for onchain hooks</h2>
+          <p class="doc-large">Hookline organizes live contract evidence around one chain-aware identity, then makes the record useful through watchlists, comparisons, monitoring, and developer access.</p>
+          <div class="doc-grid three">
+            <div class="doc-card"><strong>Observe</strong><p>Read deployed bytecode, fingerprint the runtime, probe conventional ownership, decode permissions, and retain the observed block.</p></div>
+            <div class="doc-card"><strong>Monitor</strong><p>Save named local watchlists, refresh evidence intentionally, preserve successful history, and surface failures without erasing prior state.</p></div>
+            <div class="doc-card"><strong>Build</strong><p>Consume the same evidence through constrained JSON-RPC and a machine-payable x402 capacity route.</p></div>
+          </div>
+          <p class="doc-boundary"><strong>Current boundary:</strong> Hookline provides point-in-time contract evidence. Pool discovery, activity analytics, alerts, and long-range history are planned work.</p>
+        </section>
+
+        <section id="docs-data" class="doc-section">
+          <span class="panel-kicker">02 / DATA MODEL</span>
+          <h2>Evidence before interpretation</h2>
+          <p>Contract identity is always <code>chain ID + normalized address</code>. Each successful observation retains chain, address, block, timestamp, bytecode size, runtime fingerprint, permission state, owner-probe result, and latency.</p>
+          <div class="evidence-classes">
+            <div><b>DIRECT</b><span>RPC bytecode, calls, blocks, logs, and transactions</span></div>
+            <div><b>DERIVED</b><span>permission flags, fingerprints, normalized identities, and event aggregates</span></div>
+            <div><b>VERIFIED</b><span>source verification and signed external metadata with attribution</span></div>
+            <div><b>SUBMITTED</b><span>project descriptions, links, and manifests labeled as project claims</span></div>
+          </div>
+          <p>A failed refresh remains a failure. It never becomes empty successful evidence and never overwrites the most recent valid observation.</p>
+        </section>
+
+        <section id="docs-api" class="doc-section">
+          <span class="panel-kicker">03 / API</span>
+          <h2>One evidence surface for people and agents</h2>
+          <div class="doc-grid two">
+            <div>
+              <h3>Hookline methods</h3>
+              <ul class="method-list">
+                <li><code>hookline_chains</code><span>supported networks and upstreams</span></li>
+                <li><code>hookline_decodePermissions</code><span>canonical low-14-bit permission state</span></li>
+                <li><code>hookline_chainStatus</code><span>identity, height, status, and latency</span></li>
+                <li><code>hookline_getHook</code><span>live evidence for one chain and address</span></li>
+              </ul>
+            </div>
+            <div class="code-slab">
+              <div class="code-slab-head"><span>POST /rpc</span><button class="btn btn-ghost btn-compact" type="button" data-copy="/rpc">Copy endpoint</button></div>
+              <pre><code>{
+  "jsonrpc": "2.0",
+  "method": "hookline_getHook",
+  "params": [8453, "0xb082…6888"],
+  "id": 1
+}</code></pre>
+            </div>
+          </div>
+          <p>The free route is rate limited. <code>POST /rpc/paid</code> requests 0.01 USDC on Base through x402. The proxy rejects transaction submission, account access, administrative, debug, trace, and batch requests.</p>
+          <a class="doc-link" href="/rpc" target="_blank" rel="noopener noreferrer">Open machine-readable RPC reference ↗</a>
+        </section>
+
+        <section id="docs-whitepaper" class="doc-section">
+          <span class="panel-kicker">04 / WHITEPAPER</span>
+          <h2>An evidence and coordination layer for hooks</h2>
+          <p>Programmable-liquidity hooks create a discovery problem. Deployments, permissions, code versions, owners, pool relationships, activity, and project claims live across tools that do not treat the hook as a first-class research object.</p>
+          <blockquote>Hookline’s job is to make it easy to answer what a hook is, where it is deployed, what it can do, what depends on it, what changed, and where the evidence came from.</blockquote>
+          <div class="system-graph" aria-label="Hookline system-of-record graph">
+            <span>HOOK</span><i>↔</i><span>POOLS</span><i>↔</i><span>CHAINS</span><i>↔</i><span>DEPLOYERS</span><i>↔</i><span>CODE</span><i>↔</i><span>EVENTS</span>
+          </div>
+          <p>The next layer indexes official PoolManager initialization, swap, liquidity, and donation events into a rebuildable graph. Every metric keeps its chain, block range, generated time, and derivation version.</p>
+          <a class="doc-link" href="https://github.com/walletbehavior/hookline/blob/main/docs/WHITEPAPER.md" target="_blank" rel="noopener noreferrer">Read the complete whitepaper on GitHub ↗</a>
+        </section>
+
+        <section id="docs-roadmap" class="doc-section">
+          <span class="panel-kicker">05 / ROADMAP</span>
+          <h2>Build usefulness before surface area</h2>
+          <ol class="roadmap">
+            <li class="current"><span>NOW</span><div><h3>Dependable evidence desk</h3><p>Live inspection, permission decoding, watchlists, comparisons, telemetry, free RPC, and x402 capacity.</p></div></li>
+            <li><span>NEXT</span><div><h3>Hook registry and pool graph</h3><p>PoolManager event ingestion, canonical identities, raw-log retention, verified-source metadata, and searchable profiles.</p></div></li>
+            <li><span>THEN</span><div><h3>Activity and change intelligence</h3><p>Swap and liquidity history, code and owner change detection, dependency timelines, alerts, and reproducible exports.</p></div></li>
+            <li><span>LATER</span><div><h3>Professional and ecosystem layers</h3><p>Team workspaces, webhooks, longer retention, signed manifests, contributed research, and additional programmable-liquidity systems.</p></div></li>
+          </ol>
+          <a class="doc-link" href="https://github.com/walletbehavior/hookline/blob/main/docs/ROADMAP.md" target="_blank" rel="noopener noreferrer">See roadmap acceptance criteria ↗</a>
+        </section>
+
+        <section id="docs-faq" class="doc-section faq-section">
+          <span class="panel-kicker">06 / FAQ</span>
+          <h2>Frequently asked questions</h2>
+          <div class="faq-list">
+            <details><summary>Where does Hookline data come from?</summary><p>Current evidence comes directly from configured Ethereum, Base, Arbitrum One, and Robinhood Chain RPC endpoints. Hookline reads bytecode and current blocks, performs a conventional owner probe, calculates deterministic fingerprints, and decodes permissions locally.</p></details>
+            <details><summary>Is Hookline already indexing volume and liquidity?</summary><p>No. The current release provides point-in-time contract evidence and network telemetry. Event-backed pool discovery, activity, and historical analytics are the next data layer.</p></details>
+            <details><summary>What do the 14 permission flags prove?</summary><p>They identify which Uniswap v4 callback permissions are encoded in the hook address. They do not explain the complete runtime behavior and do not establish that a contract is safe.</p></details>
+            <details><summary>Is this a smart-contract audit?</summary><p>No. Hookline is an evidence and monitoring product, not an audit, legal opinion, or trading recommendation.</p></details>
+            <details><summary>Why can’t I compare live state across chains?</summary><p>An address is not a complete identity, and block heights on separate chains do not share state or time semantics. Hookline limits direct comparisons to one chain.</p></details>
+            <details><summary>Are watchlists uploaded?</summary><p>Not currently. Lists and observations are stored in the browser and can be exported or imported as JSON.</p></details>
+            <details><summary>Does the RPC submit transactions?</summary><p>No. Transaction submission and account-access methods are rejected by the public service.</p></details>
+            <details><summary>What is the x402 route?</summary><p>It is a machine-payable capacity path. A valid unpaid request receives an HTTP 402 challenge for 0.01 USDC on Base.</p></details>
+            <details><summary>What is HKLN?</summary><p>HKLN is Hookline’s service-alignment asset on Base. Current product access does not require holding it. Future holder features are inactive until implemented and documented.</p></details>
+            <details><summary>Does market cap generate Hookline revenue?</summary><p>No. Market cap itself does not create creator fees. Venue fees require trading activity, and product revenue requires useful paid services.</p></details>
+            <details><summary>Is Hookline affiliated with Uniswap or Robinhood?</summary><p>No. Hookline is independent and is not endorsed by Uniswap Labs, Robinhood, Flaunch, PayAI, or its RPC providers.</p></details>
+            <details><summary>How can I contribute?</summary><p>Use the public GitHub repository. Include chain, exact address, block range, expected result, and reproduction steps in evidence-related issues.</p></details>
+          </div>
+          <a class="doc-link" href="https://github.com/walletbehavior/hookline/blob/main/docs/FAQ.md" target="_blank" rel="noopener noreferrer">Open the complete FAQ on GitHub ↗</a>
+        </section>
+      </article>
+    </section>
   </main>
 
   <section class="token-strip" aria-label="HKLN service information">
@@ -245,7 +361,7 @@
   <footer class="site-footer">
     <span>HOOKLINE / MULTICHAIN HOOKS ANALYTICS DESK</span>
     <span>Ethereum · Base · Arbitrum · Robinhood Chain</span>
-    <a href="#/network">RPC and network</a>
+    <span><a href="#/docs">Docs</a> · <a href="#/network">RPC and network</a> · <a href="https://github.com/walletbehavior/hookline" target="_blank" rel="noopener noreferrer">GitHub</a></span>
     <p>
       <code>0x11672C8cD5CB3F17364339244826B110Bac0AC91</code> ·
       <code>0x69e73F4B54ED92939D48B5472894179BF3292DD3</code> ·

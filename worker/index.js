@@ -53,7 +53,7 @@ const CHAIN_CONFIG = Object.freeze({
   1: {
     name: 'Ethereum',
     code: 'ETH',
-    upstream: 'https://ethereum-rpc.publicnode.com',
+    upstream: 'https://eth.drpc.org',
   },
   8453: {
     name: 'Base',

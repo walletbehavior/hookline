@@ -1,0 +1,38 @@
+name: Bug report
+description: Report a reproducible problem with Hookline
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: Thanks for helping make Hookline dependable. Do not include private keys, seed phrases, RPC credentials, or other secrets.
+  - type: textarea
+    id: summary
+    attributes:
+      label: What happened?
+      description: Describe the behavior and what you expected instead.
+    validations:
+      required: true
+  - type: input
+    id: route
+    attributes:
+      label: Page or API route
+      placeholder: https://hookline.world/#/observatory or POST /rpc
+  - type: input
+    id: identity
+    attributes:
+      label: Chain ID and contract address
+      description: Include this only when it is relevant and public.
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction steps
+      description: Give the shortest sequence that reproduces the problem.
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Supporting evidence
+      description: Include response bodies, block numbers, screenshots, or logs with secrets removed.
+

@@ -12,7 +12,7 @@ const expectedOwner = `0x${'ab'.repeat(20)}`;
 let failedUpstream = null;
 
 function upstreamChainId(url) {
-  if (url === 'https://ethereum-rpc.publicnode.com') return '0x1';
+  if (url === 'https://eth.drpc.org') return '0x1';
   if (url === 'https://base-rpc.publicnode.com') return '0x2105';
   if (url === 'https://arb1.arbitrum.io/rpc') return '0xa4b1';
   if (url === 'https://robinhood.drpc.org') return '0x1237';
@@ -110,6 +110,9 @@ try {
   assert.match(rootHtml, /HOOKS ANALYTICS DESK/);
   assert.match(rootHtml, /Free RPC/);
   assert.match(rootHtml, /Watchlists/);
+  assert.match(rootHtml, /Hookline docs/);
+  assert.match(rootHtml, /Frequently asked questions/);
+  assert.match(rootHtml, /github\.com\/walletbehavior\/hookline/);
   assert.match(rootHtml, /POST \/rpc\/paid/);
   assert.match(rootHtml, /0x11672C8cD5CB3F17364339244826B110Bac0AC91/);
   assert.doesNotMatch(rootHtml, /read[- ]only/i);

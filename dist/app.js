@@ -24,7 +24,7 @@
   const MAX_OBSERVATIONS = 100;
   const MAX_IMPORT_BYTES = 1024 * 1024;
   const CURRENT_WINDOW_MS = 15 * 60 * 1000;
-  const VIEWS = new Set(['observatory', 'watchlists', 'network']);
+  const VIEWS = new Set(['observatory', 'watchlists', 'network', 'docs']);
 
   const $ = (id) => document.getElementById(id);
   const $$ = (selector) => Array.from(document.querySelectorAll(selector));
@@ -1049,6 +1049,14 @@
   }
 
   function setupEvents() {
+    $$('[data-doc-target]').forEach((button) => {
+      button.addEventListener('click', () => {
+        const section = document.getElementById(button.dataset.docTarget);
+        if (!section) return;
+        const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+        section.scrollIntoView({ behavior: reducedMotion ? 'auto' : 'smooth', block: 'start' });
+      });
+    });
     $('inspect-form').addEventListener('submit', handleInspect);
     $('save-inspect-btn').addEventListener('click', saveInspected);
     $('new-list-btn').addEventListener('click', createList);
