@@ -294,7 +294,7 @@ test('confirms, enables, lists and disables a hook alert', async () => {
   assert.equal(alerts.rows[0].enabled, 0);
 });
 
-test('alert runner seeds silently, then delivers a deduplicated liquidity event', async () => {
+test('alert runner seeds silently, then delivers liquidity and runtime events', async () => {
   const alert = {
     id: 1,
     telegram_user_id: '7',
@@ -313,19 +313,30 @@ test('alert runner seeds silently, then delivers a deduplicated liquidity event'
     async recordDelivery(_id, key) { deliveries.add(key); },
   };
   let liquidityUsd = 100;
+  let runtimeFingerprint = 'a'.repeat(64);
   const resolveHookMarkets = async () => ({
     markets: [{ pairAddress: `0x${'ab'.repeat(32)}`, liquidityUsd }],
   });
+  const inspectHook = async () => ({
+    runtimeFingerprint: { algorithm: 'SHA-256', fingerprint: runtimeFingerprint },
+    codeByteLength: 512,
+  });
   const sendMessage = async (chatId, text) => sent.push({ chatId, text });
 
-  const seeded = await runAlertScan({}, { store, resolveHookMarkets, sendMessage, now: 1 });
+  const seeded = await runAlertScan({}, { store, resolveHookMarkets, inspectHook, sendMessage, now: 1 });
   assert.equal(seeded.seeded, 1);
   assert.equal(sent.length, 0);
 
   liquidityUsd = 112;
-  const delivered = await runAlertScan({}, { store, resolveHookMarkets, sendMessage, now: 2 });
+  const delivered = await runAlertScan({}, { store, resolveHookMarkets, inspectHook, sendMessage, now: 2 });
   assert.equal(delivered.delivered, 1);
   assert.match(sent[0].text, /rose 12\.0%/);
+  assert.match(sent[0].text, /Indexed liquidity/);
+
+  runtimeFingerprint = 'b'.repeat(64);
+  const runtimeChanged = await runAlertScan({}, { store, resolveHookMarkets, inspectHook, sendMessage, now: 3 });
+  assert.equal(runtimeChanged.delivered, 1);
+  assert.match(sent[1].text, /Runtime bytecode changed/);
   assert.equal(alertEvents(
     { poolIds: ['a'], aggregateLiquidityUsd: 100 },
     { poolIds: ['a', 'b'], aggregateLiquidityUsd: 100 },

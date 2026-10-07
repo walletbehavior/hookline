@@ -50,7 +50,7 @@ The paid endpoint uses x402 to request 0.01 USDC on Base for a higher-capacity H
 
 ## What does the Telegram bot do?
 
-Send it a token or hook address to navigate hook relationships, related tokens, markets, and trade previews. A website hook link opens the matching chain and profile directly. From a hook profile, enable a persistent alert for new pools or an aggregate liquidity move of 10% or more. Checks run every 10 minutes. User-owned wallet signing is not connected yet.
+Send it a token or hook address to navigate hook relationships, related tokens, markets, and trade previews. A website hook link opens the matching chain and profile directly. From a hook profile, enable a persistent alert for direct runtime changes, new indexed pool relationships, or indexed liquidity movement of 10% or more. Checks run every 10 minutes. User-owned wallet signing is not connected yet.
 
 ## What will Telegram trading cost?
 

@@ -1610,7 +1610,12 @@ export default {
   // binding is absent so a misconfigured deployment never starts scanning
   // alerts while the rest of the site and RPC keep working.
   async scheduled(_controller, env, ctx) {
-    const scan = runAlertScan(env, { resolveHookMarkets });
+    const inspectHook = async (chainId, address) => {
+      const result = await hookline_getHook_handler([chainId, address], 1, ctx);
+      if (result?.type) throw new Error(result.message || 'hook inspection failed');
+      return result;
+    };
+    const scan = runAlertScan(env, { resolveHookMarkets, inspectHook });
     ctx.waitUntil(scan);
     return scan;
   },

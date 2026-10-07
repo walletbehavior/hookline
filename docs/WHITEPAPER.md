@@ -104,7 +104,7 @@ Runtime fingerprints group identical deployments into behavior families. A newly
 
 ### Monitoring and alerts
 
-Hook profiles can already create bounded Telegram alerts for new pools and material liquidity changes. The monitoring layer expands next into code, ownership, permission, dependency, activity, and upstream-health changes.
+Hook profiles can already create bounded Telegram alerts for direct runtime changes, new indexed pool relationships, and material indexed-liquidity movement. The monitoring layer expands next into ownership, permission, dependency, activity, and upstream-health changes.
 
 ### Developer infrastructure
 

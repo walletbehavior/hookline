@@ -20,11 +20,11 @@ Hookline is a multichain evidence and analytics desk for programmable-liquidity 
 - Named local watchlists with bounded evidence history
 - Same-chain contract and permission comparisons
 - Live upstream health, block height, and latency telemetry
-- Persistent Telegram alerts for new hook pools and 10% liquidity moves
+- Persistent Telegram alerts for runtime changes, new indexed pool relationships, and 10% indexed liquidity moves
 - Free, allowlisted JSON-RPC access
 - x402-protected capacity at 0.01 USDC per request on Base
 
-The board's discovery and aggregate counts come from a timestamped v4.xyz community-indexer snapshot. Project descriptions are community-curated, project-submitted, or Hookline-researched and labeled in the interface. Direct live evidence still comes from Hookline's configured RPC endpoints. Telegram alerts monitor resolved markets on a bounded 10-minute schedule. First-party event indexing and long-range history remain roadmap work.
+The board's discovery and aggregate counts come from a timestamped v4.xyz community-indexer snapshot. Project descriptions are community-curated, project-submitted, or Hookline-researched and labeled in the interface. Direct live evidence still comes from Hookline's configured RPC endpoints. Telegram alerts monitor direct runtime evidence and resolved market-index movement on a bounded 10-minute schedule. First-party event indexing and long-range history remain roadmap work.
 
 ## Quick start
 

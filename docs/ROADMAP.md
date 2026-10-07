@@ -12,7 +12,7 @@ Status: operating in production.
 - Permission decoding and runtime fingerprints
 - Owner-probe status
 - Named local watchlists and evidence history
-- Telegram alerts for new hook pools and 10% aggregate liquidity changes
+- Telegram alerts for direct runtime changes, new indexed pool relationships, and 10% indexed liquidity changes
 - Same-chain comparisons
 - Chain telemetry
 - Free JSON-RPC and x402 paid capacity
