@@ -40,6 +40,12 @@ The network view reports current upstream health, block height, and latency. The
 
 The free route uses a best-effort request limit. The x402 route provides a machine-payable capacity path denominated in Base USDC.
 
+### Reviewed execution
+
+Supported market cards can request a short-lived 0x route bound to the connected wallet, chain, destination, calldata, value, and fee economics. Hookline shows a 1% gross fee, applies 0.3% cashback instantly, and collects a 0.7% effective fee. The user's browser wallet signs and submits; Hookline never receives wallet secrets and its backend never broadcasts.
+
+After confirmation, Hookline fetches the transaction and receipt directly from the configured chain RPC. A receipt is recorded only when the onchain sender, destination, calldata, value, chain, and successful status match the stored intent. Duplicate reconciliation is idempotent.
+
 ## Evidence classes
 
 Hookline keeps four evidence classes distinct:

@@ -26,6 +26,7 @@
         </ul>
       </nav>
       <div class="top-meta">
+        <button id="top-wallet" class="wallet-identity" type="button">Connect wallet</button>
         <span id="top-live" class="live-indicator loading" role="status" aria-live="polite">PROBING</span>
         <a class="social-link" href="https://t.me/HooklineTradeBot" target="_blank" rel="noopener noreferrer" aria-label="Hookline Telegram bot">TG</a>
         <a class="social-link" href="https://x.com/_hookline" target="_blank" rel="noopener noreferrer" aria-label="Hookline on X">X</a>
@@ -446,9 +447,9 @@
           <span class="panel-kicker">05 / ROADMAP</span>
           <h2>Build usefulness before surface area</h2>
           <ol class="roadmap">
-            <li class="current"><span>NOW</span><div><h3>Dependable evidence desk</h3><p>Live inspection, permission decoding, watchlists, comparisons, telemetry, free RPC, and x402 capacity.</p></div></li>
+            <li class="current"><span>NOW</span><div><h3>Evidence desk and reviewed execution</h3><p>Live inspection, permission decoding, alerts, watchlists, telemetry, fee-bound routes, browser-wallet signing, verified receipts, free RPC, and x402 capacity.</p></div></li>
             <li><span>NEXT</span><div><h3>Hook Tape and runtime families</h3><p>PoolManager event ingestion, fee and refusal evidence, recipient flows, block-range tape rows, and bytecode-family alerts.</p></div></li>
-            <li><span>AFTER</span><div><h3>Route checks and user-owned execution</h3><p>Pool quote, hook-adjusted result, complete fee stack, cashback, and explicit wallet signing from the site or Telegram.</p></div></li>
+            <li><span>AFTER</span><div><h3>Deeper route evidence</h3><p>Pool price versus hook-adjusted result, measurable fee deltas, refusal evidence, and recipient flows inside the existing user-wallet execution receipt.</p></div></li>
             <li><span>LATER</span><div><h3>Professional and ecosystem layers</h3><p>Team workspaces, webhooks, longer retention, signed manifests, contributed research, and additional programmable-liquidity systems.</p></div></li>
           </ol>
           <a class="doc-link" href="https://github.com/walletbehavior/hookline/blob/main/docs/ROADMAP.md" target="_blank" rel="noopener noreferrer">See roadmap acceptance criteria</a>
@@ -462,8 +463,9 @@
             <details><summary>Is Hookline already indexing volume and liquidity?</summary><p>Yes. Open a hook profile to resolve related markets. When DexScreener has the pool, Hookline shows price, market cap, liquidity, 24-hour volume, and change alongside the indexed hook relationship.</p></details>
             <details><summary>What does Velocity mean?</summary><p>Velocity ranks the current indexed activity density of each hook or token relationship. It is a discovery ranking, not a promise of future performance.</p></details>
             <details><summary>What is the Hook Tape?</summary><p>It is the planned block-range feed for what hooked pools advertised and what the available transaction evidence shows happened. Tape rows will separate pool fees from measurable hook deltas, report refused swaps and recipients only when supported, and link to the underlying evidence.</p></details>
-            <details><summary>What does the Telegram bot do?</summary><p>Send it a token or hook address to navigate hook relationships, related tokens, markets, and trade previews. A hook profile can enable a Telegram alert for direct runtime changes, new indexed pool relationships, or indexed liquidity movement of 10% or more. Checks run every 10 minutes. User-owned wallet signing is not connected yet.</p></details>
-            <details><summary>What does Hookline execution cost?</summary><p>The execution fee is 1% of trade notional. Confirmed fills earn 0.3% of trade notional as cashback once the settlement ledger is active. The public RPC never submits a transaction. A reviewed route opens in the user’s wallet, and that wallet submits only after approval.</p></details>
+            <details><summary>What does the Telegram bot do?</summary><p>Send it a token or hook address to navigate hook relationships, related tokens, markets, and trade previews. A hook profile can enable a Telegram alert for direct runtime changes, new indexed pool relationships, or indexed liquidity movement of 10% or more. Checks run every 10 minutes. Telegram does not sign; reviewed execution opens on the website for the user’s wallet.</p></details>
+            <details><summary>What does Hookline execution cost?</summary><p>Hookline shows a 1% gross execution fee and applies 0.3% cashback instantly in the route, leaving a 0.7% effective fee. There is no deferred cashback claim. The public RPC never submits a transaction. The user’s wallet signs and submits the exact reviewed route, then Hookline independently verifies the receipt.</p></details>
+            <details><summary>Do I need a Hookline account?</summary><p>No. Research stays anonymous. Telegram identifies alert subscriptions, and the connected wallet is the execution identity. Hookline never receives a private key, seed phrase, or signed transaction.</p></details>
             <details><summary>What do the 14 permission flags prove?</summary><p>They identify which Uniswap v4 callback permissions are encoded in the hook address. They do not explain the complete runtime behavior and do not establish that a contract is safe.</p></details>
             <details><summary>Is this a smart-contract audit?</summary><p>No. Hookline is an evidence and monitoring product, not an audit, legal opinion, or trading recommendation.</p></details>
             <details><summary>Why can’t I compare live state across chains?</summary><p>An address is not a complete identity, and block heights on separate chains do not share state or time semantics. Hookline limits direct comparisons to one chain.</p></details>
@@ -514,6 +516,10 @@
         <div><span>Minimum received</span><strong id="execution-minimum">—</strong></div>
         <div><span>Hookline fee</span><strong id="execution-fee">1.00%</strong></div>
         <div><span>Cashback</span><strong id="execution-cashback">0.30%</strong></div>
+      </section>
+      <section id="execution-receipt" class="execution-receipt" hidden aria-label="Confirmed execution receipt">
+        <div><span>CONFIRMED RECEIPT</span><strong id="execution-receipt-hash"></strong></div>
+        <p id="execution-receipt-economics"></p>
       </section>
       <p id="execution-message" class="execution-message" role="status" aria-live="polite"></p>
       <div class="execution-actions">

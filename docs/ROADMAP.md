@@ -2,7 +2,7 @@
 
 The roadmap separates shipped work from planned work. Sequence can change as chain support, upstream reliability, and user demand become clearer.
 
-## Now: dependable evidence desk
+## Now: dependable evidence desk and reviewed execution
 
 Status: operating in production.
 
@@ -16,13 +16,18 @@ Status: operating in production.
 - Same-chain comparisons
 - Chain telemetry
 - Free JSON-RPC and x402 paid capacity
+- Fee-bound 0x routes on supported EVM markets
+- User-wallet signing and submission with exact intent binding
+- 1% gross fee, 0.3% instant cashback, and 0.7% effective collection
+- Independently reconciled, idempotent execution receipts
 - Public product, API, architecture, and data-provenance documentation
 
 Acceptance criteria:
 
 - Every successful observation carries chain, address, block, timestamp, and source scope.
 - Failed refreshes preserve prior successful evidence.
-- Transaction submission remains unavailable.
+- Hookline's backend never signs or broadcasts; only the user's connected wallet can submit the reviewed transaction.
+- A receipt is stored only after the onchain transaction matches the short-lived intent's wallet, chain, destination, calldata, and value.
 - Public claims contain no fabricated usage or market data.
 
 ## Next: Hook Tape and runtime families
@@ -47,10 +52,10 @@ Acceptance criteria:
 - The index can rebuild its derived state from retained source data.
 - Project-submitted profiles are visibly separate from chain observations.
 
-## After that: route checks and change intelligence
+## After that: deeper route checks and change intelligence
 
 - Compare pool price with the hook-adjusted execution result before user signing
-- Show hook fees and Hookline execution fees in one preview
+- Add measured hook fees beside the already-live Hookline fee and instant rebate
 - Detect runtime, owner, permission, and dependency changes
 - Add saved-search, runtime-family, and watchlist alerts
 - Provide activity, change, and dependency timelines

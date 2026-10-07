@@ -82,6 +82,8 @@
       side: 'buy',
       account: null,
       quote: null,
+      receipt: null,
+      submittedHash: null,
       capability: null,
       busy: false,
       tokenCache: new Map(),
@@ -409,11 +411,14 @@
 
   function resetExecutionQuote() {
     state.execution.quote = null;
+    state.execution.receipt = null;
+    state.execution.submittedHash = null;
     $('execution-quote').hidden = true;
+    $('execution-receipt').hidden = true;
     $('execution-output').textContent = '—';
     $('execution-minimum').textContent = '—';
-    $('execution-fee').textContent = '1.00%';
-    $('execution-cashback').textContent = '0.30% after confirmation';
+    $('execution-fee').textContent = '1.00% gross';
+    $('execution-cashback').textContent = '0.30% instant · 0.70% net';
     const submit = $('execution-submit');
     submit.disabled = !state.execution.account || !$('execution-amount').value.trim() || state.execution.busy;
     submit.textContent = state.execution.account ? 'Get quote' : 'Connect wallet';
@@ -430,19 +435,23 @@
 
   function renderExecutionQuote(pair, quote) {
     const binding = quote.exact_binding || {};
+    const intent = quote.execution_intent || null;
+    const economics = intent?.fee || {};
     $('execution-output').textContent = `${formatBaseUnits(binding.buy_amount_base_units, pair.output.decimals, 8)} ${pair.output.symbol}`;
     $('execution-minimum').textContent = `${formatBaseUnits(binding.minimum_buy_amount_base_units, pair.output.decimals, 8)} ${pair.output.symbol}`;
-    $('execution-fee').textContent = `${(Number(quote.fee?.fee_bps || 0) / 100).toFixed(2)}% · ${formatBaseUnits(quote.fee?.amount, pair.input.decimals, 8)} ${pair.input.symbol}`;
-    $('execution-cashback').textContent = state.execution.capability?.cashback_settlement_enabled
-      ? `0.30% · after confirmation`
-      : 'Settlement not active';
+    $('execution-fee').textContent = `${(Number(economics.gross_fee_bps || 100) / 100).toFixed(2)}% gross · ${formatBaseUnits(economics.gross_amount, pair.input.decimals, 8)} ${pair.input.symbol}`;
+    $('execution-cashback').textContent = `${(Number(economics.cashback_bps || 30) / 100).toFixed(2)}% instant · ${(Number(economics.effective_fee_bps || 70) / 100).toFixed(2)}% net`;
     $('execution-quote').hidden = false;
     const submit = $('execution-submit');
-    const cashbackReady = state.execution.capability?.cashback_settlement_enabled === true;
-    if (!cashbackReady) {
+    const cashbackReady = state.execution.capability?.cashback_settlement_enabled === true
+      && state.execution.capability?.cashback_mode === 'instant_fee_rebate'
+      && Number(state.execution.capability?.effective_fee_bps) === 70
+      && economics.cashback_mode === 'instant_fee_rebate'
+      && Number(economics.effective_fee_bps) === 70;
+    if (!cashbackReady || !/^hxi_[0-9a-f]{32}$/.test(String(intent?.intent_id || ''))) {
       submit.disabled = true;
-      submit.textContent = 'Cashback rail required';
-      setExecutionMessage('This is a live route. Signing stays closed until the 0.30% cashback ledger can reconcile the fill.', '');
+      submit.textContent = 'Route unavailable';
+      setExecutionMessage('The instant cashback binding could not be verified. Nothing can be signed.', 'error');
       return;
     }
     const hardBlockers = Array.isArray(quote.blockers)
@@ -505,6 +514,24 @@
     });
   }
 
+  function renderWalletIdentity() {
+    const account = state.execution.account;
+    const top = $('top-wallet');
+    top.textContent = account ? shorten(account, 7, 5) : 'Connect wallet';
+    top.classList.toggle('connected', Boolean(account));
+    top.title = account ? 'Disconnect wallet from Hookline' : 'Connect an EVM wallet';
+    $('execution-wallet').textContent = account ? shorten(account, 7, 5) : 'Connect wallet';
+  }
+
+  function disconnectExecutionWallet() {
+    state.execution.account = null;
+    state.execution.quote = null;
+    state.execution.receipt = null;
+    renderWalletIdentity();
+    resetExecutionQuote();
+    toast('Wallet disconnected from Hookline.', 'info');
+  }
+
   async function connectExecutionWallet() {
     const provider = executionProvider();
     if (!provider || typeof provider.request !== 'function') throw new Error('Open Hookline in a browser with an EVM wallet.');
@@ -512,9 +539,33 @@
     const checked = validateAddress(accounts?.[0]);
     if (!checked.ok) throw new Error('The wallet did not return a valid account.');
     state.execution.account = checked.address;
-    $('execution-wallet').textContent = shorten(checked.address, 7, 5);
+    renderWalletIdentity();
     resetExecutionQuote();
     return { provider, account: checked.address };
+  }
+
+  async function restoreExecutionWallet() {
+    const provider = executionProvider();
+    if (!provider || typeof provider.request !== 'function') return;
+    try {
+      const accounts = await provider.request({ method: 'eth_accounts' });
+      const checked = validateAddress(accounts?.[0]);
+      state.execution.account = checked.ok ? checked.address : null;
+    } catch (_) {
+      state.execution.account = null;
+    }
+    renderWalletIdentity();
+    if (typeof provider.on === 'function') {
+      provider.on('accountsChanged', (accounts) => {
+        const checked = validateAddress(accounts?.[0]);
+        state.execution.account = checked.ok ? checked.address : null;
+        state.execution.quote = null;
+        state.execution.receipt = null;
+        renderWalletIdentity();
+        resetExecutionQuote();
+      });
+      provider.on('chainChanged', () => resetExecutionQuote());
+    }
   }
 
   async function ensureExecutionChain(provider, chainId) {
@@ -623,8 +674,14 @@
   async function submitExecutionTransaction(quote) {
     const provider = executionProvider();
     const transaction = quote.unsigned_transaction;
+    const intent = quote.execution_intent;
     if (!provider || !transaction || String(transaction.from).toLowerCase() !== state.execution.account) {
       throw new Error('Reviewed transaction is not bound to this wallet.');
+    }
+    if (!/^hxi_[0-9a-f]{32}$/.test(String(intent?.intent_id || ''))
+      || !Number.isFinite(Date.parse(String(intent?.expires_at || '')))
+      || Date.parse(intent.expires_at) <= Date.now()) {
+      throw new Error('This reviewed route expired. Request a fresh quote.');
     }
     const walletTransaction = {
       from: state.execution.account,
@@ -637,9 +694,24 @@
     if (transaction.max_fee_per_gas != null) walletTransaction.maxFeePerGas = decimalToHexQuantity(transaction.max_fee_per_gas);
     if (transaction.max_priority_fee_per_gas != null) walletTransaction.maxPriorityFeePerGas = decimalToHexQuantity(transaction.max_priority_fee_per_gas);
     const hash = await provider.request({ method: 'eth_sendTransaction', params: [walletTransaction] });
+    state.execution.submittedHash = hash;
     setExecutionMessage(`Submitted ${shorten(hash, 10, 8)}. Waiting for confirmation…`, '');
     await waitForWalletReceipt(provider, hash);
-    setExecutionMessage(`Confirmed ${shorten(hash, 10, 8)}.`, 'success');
+    setExecutionMessage(`Confirmed onchain. Verifying Hookline receipt…`, '');
+    const response = await fetch('/api/execution/receipt', {
+      method: 'POST',
+      headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+      body: JSON.stringify({ intent_id: intent.intent_id, transaction_hash: hash }),
+    });
+    const payload = await response.json().catch(() => null);
+    if (!response.ok || !payload?.receipt) {
+      throw new Error(String(payload?.error || 'Receipt verification failed.').replaceAll('_', ' '));
+    }
+    state.execution.receipt = payload.receipt;
+    $('execution-receipt-hash').textContent = shorten(hash, 10, 8);
+    $('execution-receipt-economics').textContent = `1.00% gross, 0.30% instant cashback, 0.70% effective fee. Block ${payload.receipt.block_number}.`;
+    $('execution-receipt').hidden = false;
+    setExecutionMessage(`Confirmed ${shorten(hash, 10, 8)}. Receipt evidence saved.`, 'success');
     $('execution-submit').disabled = true;
     $('execution-submit').textContent = 'Confirmed';
   }
@@ -647,7 +719,9 @@
   async function advanceExecution() {
     const quote = state.execution.quote;
     if (!quote) return requestExecutionQuote();
-    if (state.execution.capability?.cashback_settlement_enabled !== true) return;
+    if (state.execution.capability?.cashback_settlement_enabled !== true
+      || state.execution.capability?.cashback_mode !== 'instant_fee_rebate'
+      || Number(state.execution.capability?.effective_fee_bps) !== 70) return;
     const hardBlockers = Array.isArray(quote.blockers)
       ? quote.blockers.filter((blocker) => blocker !== 'allowance_required')
       : [];
@@ -669,8 +743,14 @@
       if (quote.allowance?.state === 'approval_required') approved = await approveExecutionToken(pair, quote);
       else await submitExecutionTransaction(quote);
     } catch (error) {
-      setExecutionMessage(error.message || 'Wallet action failed.', 'error');
-      $('execution-submit').disabled = false;
+      if (state.execution.submittedHash) {
+        setExecutionMessage(`Transaction ${shorten(state.execution.submittedHash, 10, 8)} was submitted. Receipt verification needs another check; do not resubmit.`, 'error');
+        $('execution-submit').disabled = true;
+        $('execution-submit').textContent = 'Submitted';
+      } else {
+        setExecutionMessage(error.message || 'Wallet action failed.', 'error');
+        $('execution-submit').disabled = false;
+      }
     } finally {
       state.execution.busy = false;
     }
@@ -2416,6 +2496,18 @@
   }
 
   function setupEvents() {
+    $('top-wallet').addEventListener('click', async () => {
+      if (state.execution.account) {
+        disconnectExecutionWallet();
+        return;
+      }
+      try {
+        await connectExecutionWallet();
+        toast('Wallet connected for reviewed execution.', 'info');
+      } catch (error) {
+        toast(error.message || 'Wallet connection failed.', 'alert');
+      }
+    });
     $('board-search').addEventListener('input', (event) => {
       state.boardVisible = BOARD_PAGE_SIZE;
       if (state.boardMode === 'hook') {
@@ -2522,6 +2614,7 @@
     renderView();
     loadBoard();
     setupWebMCP();
+    restoreExecutionWallet();
     loadHealth();
     loadTelemetry(false);
   }

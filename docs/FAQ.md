@@ -42,7 +42,7 @@ Not in the current release. Named watchlists and their observations are stored i
 
 ## Does Hookline submit transactions or connect my wallet?
 
-The evidence RPC does not submit transactions. The public proxy rejects transaction-submission and account-access methods. The main inspection workflow does not require a wallet.
+Research remains anonymous and does not require a wallet. On supported EVM markets, Hookline can prepare a short-lived, fee-bound route for a connected browser wallet. The wallet signs and submits the exact reviewed transaction. Hookline's backend never signs, broadcasts, or receives wallet secrets, and the public RPC continues to reject transaction-submission and account-access methods.
 
 ## What is the paid RPC?
 
@@ -50,11 +50,15 @@ The paid endpoint uses x402 to request 0.01 USDC on Base for a higher-capacity H
 
 ## What does the Telegram bot do?
 
-Send it a token or hook address to navigate hook relationships, related tokens, markets, and trade previews. A website hook link opens the matching chain and profile directly. From a hook profile, enable a persistent alert for direct runtime changes, new indexed pool relationships, or indexed liquidity movement of 10% or more. Checks run every 10 minutes. User-owned wallet signing is not connected yet.
+Send it a token or hook address to navigate hook relationships, related tokens, markets, and trade previews. A website hook link opens the matching chain and profile directly. From a hook profile, enable a persistent alert for direct runtime changes, new indexed pool relationships, or indexed liquidity movement of 10% or more. Checks run every 10 minutes. Telegram does not sign; reviewed execution opens on the website for the user's wallet.
 
-## What will Telegram trading cost?
+## What does Hookline execution cost?
 
-Hookline's planned execution fee is 1% of trade notional, with 0.3% of trade notional returned to the user as cashback. Execution remains inactive until user-owned wallet signing is connected.
+Hookline shows a 1% gross execution fee and applies 0.3% cashback instantly in the route, leaving a 0.7% effective fee. There is no deferred cashback claim. A short-lived intent binds the wallet, chain, destination, calldata, value, and economics before signing. After confirmation, Hookline independently verifies the transaction and stores a compact receipt without keys, signatures, or signed transaction material.
+
+## Do I need a Hookline account?
+
+No. Discovery, inspection, watchlists, and alerts do not require a Hookline login. Telegram supplies its own identity for alert subscriptions, and the connected wallet is the execution identity. A broader account system can be added later for cross-device synchronization without blocking current use.
 
 ## Does market capitalization create revenue for Hookline?
 

@@ -239,8 +239,9 @@ test('keeps fee disclosure in about instead of the start screen', async () => {
   const ctx = { env: { TELEGRAM_BOT_TOKEN: BOT_TOKEN }, services };
   await handleUpdate(command('/about'), ctx);
   const sent = MockTelegramClient.calls.find((item) => item.type === 'send');
-  assert.match(sent.text, /Execution fee: 1%/);
-  assert.match(sent.text, /User cashback: 0\.3%/);
+  assert.match(sent.text, /Gross execution fee: 1%/);
+  assert.match(sent.text, /Instant cashback: 0\.3%/);
+  assert.match(sent.text, /Effective fee: 0\.7%/);
 });
 
 test('navigates hook and buy preview callbacks by editing in place', async () => {
@@ -262,7 +263,9 @@ test('navigates hook and buy preview callbacks by editing in place', async () =>
   MockTelegramClient.calls = [];
   const preview = await handleUpdate(callback(`tg:bp:1:${TOKEN}:100`), ctx);
   assert.equal(preview.kind, 'preview');
-  assert.match(MockTelegramClient.calls.find((item) => item.type === 'edit').text, /Cashback \(0\.3%\)/);
+  const previewText = MockTelegramClient.calls.find((item) => item.type === 'edit').text;
+  assert.match(previewText, /Instant cashback \(0\.3%\)/);
+  assert.match(previewText, /Effective fee \(0\.7%\)/);
 });
 
 test('confirms, enables, lists and disables a hook alert', async () => {

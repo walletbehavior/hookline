@@ -212,7 +212,7 @@ async function helpCommand(client, parsed) {
     'Tap Hook to inspect the hook, Related tokens to see sibling assets, DexScreener for charts, or Buy preview for fee math.',
     '',
     'Data comes from Hookline\'s hook index, v4.xyz and DexScreener.',
-    'No transaction is submitted from the current bot. Use */about* for product and fee details.',
+    'Telegram does not sign. Reviewed execution opens on hookline.world, where your own wallet signs and submits.',
   ].join('\n');
   const reply = await client.reply(parsed.chatId, text, { parse_mode: 'Markdown' });
   return { handled: true, messageId: reply?.message_id };
@@ -225,10 +225,11 @@ async function aboutCommand(client, parsed) {
     'Hookline maps tokens, hooks, pools and sibling markets across chains.',
     '',
     '*Trading fees*',
-    'Execution fee: 1% of trade notional',
-    'User cashback: 0.3% of trade notional',
+    'Gross execution fee: 1% of trade notional',
+    'Instant cashback: 0.3% of trade notional',
+    'Effective fee: 0.7% of trade notional',
     '',
-    'Execution is not active until user-owned wallet signing is connected. Discovery, market links and previews are available now.',
+    'Reviewed routes open on hookline.world. Your connected wallet signs and submits; Hookline never receives wallet secrets.',
   ].join('\n');
   const reply = await client.reply(parsed.chatId, text, { parse_mode: 'Markdown' });
   return { handled: true, messageId: reply?.message_id };
@@ -324,7 +325,7 @@ async function alertsCommand(client, parsed, ctx, userId) {
 async function walletCommand(client, parsed) {
   const reply = await client.reply(
     parsed.chatId,
-    '*User-owned wallet*\n\nHookline will use Privy embedded wallets. You own the wallet and can export it. Hookline will only request narrowly scoped signing permission after explicit consent. Setup isn\'t active yet.',
+    '*User-owned wallet*\n\nOpen a reviewed route on hookline.world and connect your EVM wallet. Your wallet signs and submits. Telegram never receives a private key, seed phrase, or signing session.',
     { parse_mode: 'Markdown' }
   );
   return { handled: true, messageId: reply?.message_id };
@@ -342,7 +343,7 @@ async function positionsCommand(client, parsed) {
 async function settingsCommand(client, parsed) {
   const reply = await client.reply(
     parsed.chatId,
-    '*Settings*\n\nCurrent mode: discovery and trade preview\nExecution: off\nAlerts: live\nWallet: not connected\n\nFee details: /about',
+    '*Settings*\n\nCurrent mode: evidence, alerts and reviewed execution\nExecution: website wallet handoff\nAlerts: live\nWallet: connect on hookline.world\n\nFee details: /about',
     { parse_mode: 'Markdown' }
   );
   return { handled: true, messageId: reply?.message_id };

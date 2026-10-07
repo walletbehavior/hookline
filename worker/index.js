@@ -1580,6 +1580,224 @@ function publicExecutionQuote(quote) {
   };
 }
 
+const EXECUTION_GROSS_FEE_BPS = 100;
+const EXECUTION_CASHBACK_BPS = 30;
+const EXECUTION_EFFECTIVE_FEE_BPS = 70;
+const EXECUTION_INTENT_PREFIX = 'hxi_';
+const EXECUTION_INTENT_MAX_TTL_MS = 2 * 60 * 1000;
+const EXECUTION_TX_HASH_RE = /^0x[0-9a-f]{64}$/;
+const EXECUTION_DATA_RE = /^0x(?:[0-9a-f]{2})*$/;
+
+function executionAmount(value, field, { positive = false } = {}) {
+  const normalized = String(value ?? '').trim();
+  if (!/^(0|[1-9][0-9]*)$/.test(normalized) || (positive && normalized === '0')) {
+    throw Object.assign(new Error(`${field}_invalid`), { status: 503 });
+  }
+  return BigInt(normalized).toString();
+}
+
+function executionHexData(value, field) {
+  const normalized = String(value || '').trim().toLowerCase();
+  if (!EXECUTION_DATA_RE.test(normalized)) {
+    throw Object.assign(new Error(`${field}_invalid`), { status: 503 });
+  }
+  return normalized;
+}
+
+function executionAddress(value, field) {
+  const normalized = String(value || '').trim().toLowerCase();
+  if (!EVM_ADDRESS_RE.test(normalized) || /^0x0{40}$/.test(normalized)) {
+    throw Object.assign(new Error(`${field}_invalid`), { status: 503 });
+  }
+  return normalized;
+}
+
+function bpsAmount(amount, bps) {
+  return ((BigInt(executionAmount(amount, 'execution_notional', { positive: true })) * BigInt(bps)) / 10000n).toString();
+}
+
+async function createExecutionIntent(order, quote, db, now = Date.now()) {
+  if (!db?.prepare) throw Object.assign(new Error('execution_ledger_unavailable'), { status: 503 });
+  const transaction = quote?.unsigned_transaction;
+  const binding = quote?.exact_binding;
+  const fee = quote?.fee;
+  const expiresAt = Date.parse(String(quote?.expires_at || ''));
+  if (quote?.state !== 'awaiting_wallet_signature' || quote?.wallet_handoff_eligible !== true || !transaction || !binding) {
+    throw Object.assign(new Error('execution_quote_not_eligible'), { status: 503 });
+  }
+  if (!Number.isFinite(expiresAt) || expiresAt <= now || expiresAt - now > EXECUTION_INTENT_MAX_TTL_MS) {
+    throw Object.assign(new Error('execution_quote_expiry_invalid'), { status: 503 });
+  }
+  const taker = executionAddress(order.taker, 'execution_taker');
+  const transactionFrom = executionAddress(transaction.from, 'execution_transaction_from');
+  const transactionTo = executionAddress(transaction.to, 'execution_transaction_to');
+  if (transactionFrom !== taker || executionAddress(binding.taker, 'execution_binding_taker') !== taker) {
+    throw Object.assign(new Error('execution_wallet_binding_mismatch'), { status: 503 });
+  }
+  const transactionChainId = Number(transaction.chain_id ?? transaction.chainId ?? order.chain_id);
+  if (transactionChainId !== Number(order.chain_id) || Number(quote.chain_id) !== Number(order.chain_id)) {
+    throw Object.assign(new Error('execution_chain_binding_mismatch'), { status: 503 });
+  }
+  const data = executionHexData(transaction.data, 'execution_transaction_data');
+  const value = executionAmount(transaction.value ?? '0', 'execution_transaction_value');
+  const feeToken = executionAddress(fee?.token, 'execution_fee_token');
+  const effectiveFeeAmount = bpsAmount(order.sell_amount, EXECUTION_EFFECTIVE_FEE_BPS);
+  const grossFeeAmount = bpsAmount(order.sell_amount, EXECUTION_GROSS_FEE_BPS);
+  const cashbackAmount = bpsAmount(order.sell_amount, EXECUTION_CASHBACK_BPS);
+  if (fee?.enabled !== true
+    || Number(fee.fee_bps) !== EXECUTION_EFFECTIVE_FEE_BPS
+    || feeToken !== String(order.sell_token).toLowerCase()
+    || executionAmount(fee.amount, 'execution_fee_amount') !== effectiveFeeAmount) {
+    throw Object.assign(new Error('instant_cashback_quote_mismatch'), { status: 503 });
+  }
+  if (BigInt(grossFeeAmount) - BigInt(cashbackAmount) !== BigInt(effectiveFeeAmount)) {
+    throw Object.assign(new Error('instant_cashback_math_mismatch'), { status: 503 });
+  }
+  const intentId = `${EXECUTION_INTENT_PREFIX}${crypto.randomUUID().replaceAll('-', '')}`;
+  const dataHash = await sha256HexOfHex(data);
+  await db.prepare(`INSERT INTO execution_intents
+    (intent_id, chain_id, taker_address, transaction_to, transaction_data_hash, transaction_value,
+     expires_at, fee_token, gross_fee_amount, cashback_amount, effective_fee_amount,
+     gross_fee_bps, cashback_bps, effective_fee_bps, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+    .bind(intentId, Number(order.chain_id), taker, transactionTo, dataHash, value, expiresAt,
+      feeToken, grossFeeAmount, cashbackAmount, effectiveFeeAmount,
+      EXECUTION_GROSS_FEE_BPS, EXECUTION_CASHBACK_BPS, EXECUTION_EFFECTIVE_FEE_BPS, now)
+    .run();
+  return Object.freeze({
+    intent_id: intentId,
+    expires_at: new Date(expiresAt).toISOString(),
+    fee: Object.freeze({
+      gross_fee_bps: EXECUTION_GROSS_FEE_BPS,
+      cashback_bps: EXECUTION_CASHBACK_BPS,
+      effective_fee_bps: EXECUTION_EFFECTIVE_FEE_BPS,
+      cashback_mode: 'instant_fee_rebate',
+      token: feeToken,
+      gross_amount: grossFeeAmount,
+      cashback_amount: cashbackAmount,
+      effective_amount: effectiveFeeAmount,
+    }),
+  });
+}
+
+async function readExecutionReceiptRequest(request) {
+  if (!String(request.headers.get('content-type') || '').toLowerCase().startsWith('application/json')) {
+    throw Object.assign(new Error('content_type_invalid'), { status: 415 });
+  }
+  const raw = await request.text();
+  if (new TextEncoder().encode(raw).byteLength > 2048) {
+    throw Object.assign(new Error('request_too_large'), { status: 413 });
+  }
+  let body;
+  try { body = JSON.parse(raw); } catch { throw Object.assign(new Error('request_json_invalid'), { status: 400 }); }
+  if (!body || typeof body !== 'object' || Array.isArray(body)
+    || Object.keys(body).some((key) => !['intent_id', 'transaction_hash'].includes(key))) {
+    throw Object.assign(new Error('request_field_invalid'), { status: 400 });
+  }
+  const intentId = String(body.intent_id || '').trim();
+  const transactionHash = String(body.transaction_hash || '').trim().toLowerCase();
+  if (!/^hxi_[0-9a-f]{32}$/.test(intentId)) throw Object.assign(new Error('intent_id_invalid'), { status: 400 });
+  if (!EXECUTION_TX_HASH_RE.test(transactionHash)) throw Object.assign(new Error('transaction_hash_invalid'), { status: 400 });
+  return { intentId, transactionHash };
+}
+
+function rpcQuantityToDecimal(value, field) {
+  const normalized = String(value ?? '').trim().toLowerCase();
+  if (!/^0x(?:0|[1-9a-f][0-9a-f]*)$/.test(normalized)) {
+    throw Object.assign(new Error(`${field}_invalid`), { status: 503 });
+  }
+  return BigInt(normalized).toString();
+}
+
+function publicExecutionReceipt(row) {
+  return Object.freeze({
+    schema_version: 'hookline.execution_receipt.v1',
+    state: 'confirmed',
+    intent_id: row.intent_id,
+    transaction_hash: row.transaction_hash,
+    chain_id: Number(row.chain_id),
+    taker: row.taker_address,
+    block_number: row.block_number,
+    confirmed_at: new Date(Number(row.confirmed_at)).toISOString(),
+    fee: Object.freeze({
+      token: row.fee_token,
+      gross_fee_bps: EXECUTION_GROSS_FEE_BPS,
+      cashback_bps: EXECUTION_CASHBACK_BPS,
+      effective_fee_bps: EXECUTION_EFFECTIVE_FEE_BPS,
+      cashback_mode: 'instant_fee_rebate',
+      gross_amount: row.gross_fee_amount,
+      cashback_amount: row.cashback_amount,
+      effective_amount: row.effective_fee_amount,
+    }),
+  });
+}
+
+async function reconcileExecutionReceipt(input, env, now = Date.now()) {
+  if (!env?.DB?.prepare) throw Object.assign(new Error('execution_ledger_unavailable'), { status: 503 });
+  const intent = await env.DB.prepare('SELECT * FROM execution_intents WHERE intent_id = ? LIMIT 1')
+    .bind(input.intentId).first();
+  if (!intent) throw Object.assign(new Error('execution_intent_not_found'), { status: 404 });
+  if (intent.transaction_hash && intent.transaction_hash !== input.transactionHash) {
+    throw Object.assign(new Error('execution_intent_already_consumed'), { status: 409 });
+  }
+  const existing = await env.DB.prepare('SELECT * FROM execution_receipts WHERE intent_id = ? OR transaction_hash = ? LIMIT 1')
+    .bind(input.intentId, input.transactionHash).first();
+  if (existing) {
+    if (existing.intent_id !== input.intentId || existing.transaction_hash !== input.transactionHash) {
+      throw Object.assign(new Error('execution_receipt_conflict'), { status: 409 });
+    }
+    return publicExecutionReceipt(existing);
+  }
+  const config = CHAIN_CONFIG[Number(intent.chain_id)];
+  if (!config || !EXECUTION_CHAIN_SET.has(Number(intent.chain_id))) {
+    throw Object.assign(new Error('execution_chain_not_supported'), { status: 400 });
+  }
+  const [transactionResult, receiptResult] = await Promise.all([
+    callChainUpstream(config, { jsonrpc: '2.0', id: 1, method: 'eth_getTransactionByHash', params: [input.transactionHash] }, UPSTREAM_TIMEOUT_MS),
+    callChainUpstream(config, { jsonrpc: '2.0', id: 2, method: 'eth_getTransactionReceipt', params: [input.transactionHash] }, UPSTREAM_TIMEOUT_MS),
+  ]);
+  const transaction = transactionResult?.result;
+  const receipt = receiptResult?.result;
+  if (transactionResult?.error || receiptResult?.error) throw Object.assign(new Error('execution_receipt_rpc_failed'), { status: 503 });
+  if (!transaction || !receipt) throw Object.assign(new Error('execution_receipt_pending'), { status: 409 });
+  if (String(receipt.status).toLowerCase() !== '0x1') throw Object.assign(new Error('execution_transaction_failed'), { status: 409 });
+  if (String(transaction.hash || '').toLowerCase() !== input.transactionHash
+    || String(receipt.transactionHash || '').toLowerCase() !== input.transactionHash
+    || executionAddress(transaction.from, 'execution_receipt_from') !== intent.taker_address
+    || executionAddress(transaction.to, 'execution_receipt_to') !== intent.transaction_to
+    || executionAddress(receipt.from, 'execution_receipt_log_from') !== intent.taker_address
+    || executionAddress(receipt.to, 'execution_receipt_log_to') !== intent.transaction_to
+    || (transaction.blockNumber && rpcQuantityToDecimal(transaction.blockNumber, 'execution_transaction_block')
+      !== rpcQuantityToDecimal(receipt.blockNumber, 'execution_receipt_block'))
+    || (transaction.chainId && Number(BigInt(transaction.chainId)) !== Number(intent.chain_id))
+    || rpcQuantityToDecimal(transaction.value, 'execution_receipt_value') !== intent.transaction_value
+    || await sha256HexOfHex(executionHexData(transaction.input ?? transaction.data, 'execution_receipt_data')) !== intent.transaction_data_hash) {
+    throw Object.assign(new Error('execution_receipt_binding_mismatch'), { status: 409 });
+  }
+  const blockNumber = rpcQuantityToDecimal(receipt.blockNumber, 'execution_receipt_block');
+  const changed = await env.DB.prepare(`UPDATE execution_intents
+    SET consumed_at = ?, transaction_hash = ?
+    WHERE intent_id = ? AND (transaction_hash IS NULL OR transaction_hash = ?)`)
+    .bind(now, input.transactionHash, input.intentId, input.transactionHash).run();
+  if (Number(changed?.meta?.changes ?? changed?.changes ?? 0) < 1) {
+    throw Object.assign(new Error('execution_intent_already_consumed'), { status: 409 });
+  }
+  await env.DB.prepare(`INSERT INTO execution_receipts
+    (transaction_hash, intent_id, chain_id, taker_address, block_number, fee_token,
+     gross_fee_amount, cashback_amount, effective_fee_amount, confirmed_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(transaction_hash) DO NOTHING`)
+    .bind(input.transactionHash, input.intentId, Number(intent.chain_id), intent.taker_address,
+      blockNumber, intent.fee_token, intent.gross_fee_amount, intent.cashback_amount,
+      intent.effective_fee_amount, now).run();
+  const stored = await env.DB.prepare('SELECT * FROM execution_receipts WHERE transaction_hash = ? LIMIT 1')
+    .bind(input.transactionHash).first();
+  if (!stored || stored.intent_id !== input.intentId) {
+    throw Object.assign(new Error('execution_receipt_conflict'), { status: 409 });
+  }
+  return publicExecutionReceipt(stored);
+}
+
 async function readExecutionTokenMetadata(chainId, address, env) {
   if (address === EXECUTION_NATIVE_TOKEN) {
     const symbols = { 1: 'ETH', 56: 'BNB', 4663: 'ETH', 8453: 'ETH' };
@@ -1809,11 +2027,30 @@ export default {
       try {
         const order = await readExecutionOrder(request);
         const quote = await env.RAVENOS_EXECUTION.quote(order);
-        return executionJson({ ok: true, quote: publicExecutionQuote(quote) });
+        const publicQuote = publicExecutionQuote(quote);
+        const intent = await createExecutionIntent(order, publicQuote, env.DB);
+        return executionJson({ ok: true, quote: { ...publicQuote, execution_intent: intent } });
       } catch (error) {
         const status = Number(error?.status);
         const safeStatus = Number.isSafeInteger(status) && status >= 400 && status <= 499 ? status : 503;
         const code = String(error?.code || error?.message || 'quote_service_unavailable').replace(/[^a-z0-9_:.-]/gi, '_').slice(0, 100);
+        return executionJson({ ok: false, error: code }, safeStatus);
+      }
+    }
+
+    if (method === 'POST' && url.pathname === '/api/execution/receipt') {
+      const rl = checkRateLimit(`receipt:${getConnectingIp(request)}`);
+      if (rl.tooMany) {
+        return executionJson({ ok: false, error: 'rate_limited', retry_after: rl.retryAfter }, 429);
+      }
+      try {
+        const input = await readExecutionReceiptRequest(request);
+        const receipt = await reconcileExecutionReceipt(input, env);
+        return executionJson({ ok: true, receipt });
+      } catch (error) {
+        const status = Number(error?.status);
+        const safeStatus = Number.isSafeInteger(status) && status >= 400 && status <= 499 ? status : 503;
+        const code = String(error?.code || error?.message || 'execution_receipt_unavailable').replace(/[^a-z0-9_:.-]/gi, '_').slice(0, 100);
         return executionJson({ ok: false, error: code }, safeStatus);
       }
     }

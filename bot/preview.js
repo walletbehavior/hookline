@@ -2,8 +2,8 @@
 // bot/preview.js: deterministic trade preview
 //
 // The bot never executes a trade by default. buildSimulatedPreview produces a
-// deterministic preview of what a trade WOULD cost: 1% Raven execution fee and
-// 0.3% user cashback computed from RavenOS constants (bot/fees.js), plus an
+// deterministic preview of what a trade would cost: 1% Hookline gross fee and
+// 0.3% instant cashback computed from shared constants (bot/fees.js), plus an
 // estimated minimum received value after slippage.
 //
 // Live execution is ONLY enabled when bot/exec-config.js reports ready:
@@ -52,8 +52,9 @@ export function renderTradePreview(chainId, side, notionalUsd, inputToken, readi
     priceLine,
     `Slippage: ${quote.slippageBps} bps`,
     ``,
-    `Fee (1%): $${quote.feeUsdc.toFixed(4)}`,
-    `Cashback (0.3%): $${quote.cashbackUsdc.toFixed(6)}`,
+    `Gross fee (1%): $${quote.feeUsdc.toFixed(4)}`,
+    `Instant cashback (0.3%): $${quote.cashbackUsdc.toFixed(6)}`,
+    `Effective fee (0.7%): $${(quote.feeUsdc - quote.cashbackUsdc).toFixed(6)}`,
     `Min received: $${quote.minReceivedUsd.toFixed(4)}`,
     ``,
   ];

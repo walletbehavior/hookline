@@ -29,6 +29,12 @@ const engramAddress = '0x0ee851f1fe2f4bdba79fee78969e329c136ca0cc';
 const tokenPoolId = `4663_0x${'79'.repeat(32)}`;
 let failedUpstream = null;
 const executionCalls = [];
+const executionTaker = `0x${'78'.repeat(20)}`;
+const executionTransactionTo = `0x${'ab'.repeat(20)}`;
+const executionTransactionData = '0x12345678';
+const executionTransactionHash = `0x${'cd'.repeat(32)}`;
+let executionQuoteExpiryOffsetMs = 60_000;
+let executionReceiptMode = 'valid';
 const executionBinding = {
   async capability(chainId) {
     executionCalls.push({ method: 'capability', chainId });
@@ -37,9 +43,12 @@ const executionBinding = {
       state: 'quote_review_available',
       quote_review_enabled: true,
       fee_collection_enabled: true,
-      fee_bps: 100,
+      fee_bps: 70,
+      gross_fee_bps: 100,
       cashback_bps: 30,
-      cashback_settlement_enabled: false,
+      effective_fee_bps: 70,
+      cashback_mode: 'instant_fee_rebate',
+      cashback_settlement_enabled: true,
       wallet_signature_required: true,
       signing_available: false,
       submission_available: false,
@@ -51,11 +60,12 @@ const executionBinding = {
   },
   async quote(order) {
     executionCalls.push({ method: 'quote', order });
+    const now = Date.now();
     return {
       state: 'awaiting_wallet_signature',
       chain_id: order.chain_id,
-      observed_at: '2026-10-07T18:00:00.000Z',
-      expires_at: '2026-10-07T18:00:30.000Z',
+      observed_at: new Date(now).toISOString(),
+      expires_at: new Date(now + executionQuoteExpiryOffsetMs).toISOString(),
       exact_binding: {
         taker: order.taker,
         recipient: order.taker,
@@ -65,15 +75,70 @@ const executionBinding = {
         buy_amount_base_units: '500000000000000000',
         minimum_buy_amount_base_units: '490000000000000000',
       },
-      fee: { enabled: true, state: 'enabled', amount: '10000000000000000', token: order.sell_token, fee_bps: 100, recipient: `0x${'fe'.repeat(20)}`, amount_verification: 'independently_computed_from_sell_amount' },
-      allowance: { state: 'sufficient', spender: `0x${'ab'.repeat(20)}`, required_amount_base_units: order.sell_amount },
+      fee: { enabled: true, state: 'enabled', amount: '7000000000000000', token: order.sell_token, fee_bps: 70, recipient: `0x${'fe'.repeat(20)}`, amount_verification: 'independently_computed_from_sell_amount' },
+      allowance: { state: 'sufficient', spender: executionTransactionTo, required_amount_base_units: order.sell_amount },
       provider_issues: { balance: null, simulation_incomplete: false, invalid_sources: [] },
       blockers: [],
       total_network_fee_native_base_units: '1000',
       token_taxes: null,
       route: { fills: [], tokens: [] },
-      unsigned_transaction: { chain_id: order.chain_id, from: order.taker, to: `0x${'ab'.repeat(20)}`, data: '0x12345678', value: '0', gas: '210000', gas_price: '1000000000', unsigned: true },
+      unsigned_transaction: { chain_id: order.chain_id, from: order.taker, to: executionTransactionTo, data: executionTransactionData, value: '0', gas: '210000', gas_price: '1000000000', unsigned: true },
       wallet_handoff_eligible: true,
+    };
+  },
+};
+
+const executionRows = { intents: [], receipts: [] };
+const executionDb = {
+  prepare(sql) {
+    const statement = String(sql).replace(/\s+/g, ' ').trim();
+    let args = [];
+    return {
+      bind(...values) { args = values; return this; },
+      async run() {
+        if (statement.startsWith('INSERT INTO execution_intents')) {
+          const [intent_id, chain_id, taker_address, transaction_to, transaction_data_hash,
+            transaction_value, expires_at, fee_token, gross_fee_amount, cashback_amount,
+            effective_fee_amount, gross_fee_bps, cashback_bps, effective_fee_bps, created_at] = args;
+          executionRows.intents.push({ intent_id, chain_id, taker_address, transaction_to,
+            transaction_data_hash, transaction_value, expires_at, fee_token, gross_fee_amount,
+            cashback_amount, effective_fee_amount, gross_fee_bps, cashback_bps,
+            effective_fee_bps, created_at, consumed_at: null, transaction_hash: null });
+          return { meta: { changes: 1 } };
+        }
+        if (statement.startsWith('UPDATE execution_intents')) {
+          const [consumed_at, transaction_hash, intent_id, allowedHash] = args;
+          const row = executionRows.intents.find((item) => item.intent_id === intent_id
+            && (item.transaction_hash === null || item.transaction_hash === allowedHash));
+          if (!row) return { meta: { changes: 0 } };
+          row.consumed_at = consumed_at;
+          row.transaction_hash = transaction_hash;
+          return { meta: { changes: 1 } };
+        }
+        if (statement.startsWith('INSERT INTO execution_receipts')) {
+          const [transaction_hash, intent_id, chain_id, taker_address, block_number, fee_token,
+            gross_fee_amount, cashback_amount, effective_fee_amount, confirmed_at] = args;
+          if (!executionRows.receipts.some((item) => item.transaction_hash === transaction_hash)) {
+            executionRows.receipts.push({ transaction_hash, intent_id, chain_id, taker_address,
+              block_number, fee_token, gross_fee_amount, cashback_amount, effective_fee_amount,
+              confirmed_at });
+          }
+          return { meta: { changes: 1 } };
+        }
+        throw new Error(`unexpected D1 run: ${statement}`);
+      },
+      async first() {
+        if (statement.startsWith('SELECT * FROM execution_intents WHERE intent_id')) {
+          return executionRows.intents.find((item) => item.intent_id === args[0]) || null;
+        }
+        if (statement.startsWith('SELECT * FROM execution_receipts WHERE intent_id')) {
+          return executionRows.receipts.find((item) => item.intent_id === args[0] || item.transaction_hash === args[1]) || null;
+        }
+        if (statement.startsWith('SELECT * FROM execution_receipts WHERE transaction_hash')) {
+          return executionRows.receipts.find((item) => item.transaction_hash === args[0]) || null;
+        }
+        throw new Error(`unexpected D1 first: ${statement}`);
+      },
     };
   },
 };
@@ -223,6 +288,24 @@ globalThis.fetch = async (url, init = {}) => {
         ? '0x12'
         : `0x${'0'.repeat(24)}${expectedOwner.slice(2)}`;
       break;
+    case 'eth_getTransactionByHash':
+      result = {
+        hash: payload.params[0],
+        from: executionReceiptMode === 'mismatch' ? `0x${'99'.repeat(20)}` : executionTaker,
+        to: executionTransactionTo,
+        input: executionTransactionData,
+        value: '0x0',
+      };
+      break;
+    case 'eth_getTransactionReceipt':
+      result = {
+        transactionHash: payload.params[0],
+        from: executionTaker,
+        to: executionTransactionTo,
+        blockNumber: '0x101',
+        status: executionReceiptMode === 'failed' ? '0x0' : '0x1',
+      };
+      break;
     case 'web3_clientVersion':
       result = 'hookline-test-client/1.0';
       break;
@@ -244,7 +327,7 @@ let nextIp = 1;
 async function request(path, options = {}, envOverrides = {}) {
   return worker.fetch(
     new Request(`https://hookline.example${path}`, options),
-    { X402_PAY_TO: testX402PayTo, RAVENOS_EXECUTION: executionBinding, ...envOverrides },
+    { X402_PAY_TO: testX402PayTo, RAVENOS_EXECUTION: executionBinding, DB: executionDb, ...envOverrides },
     { waitUntil() {}, passThroughOnException() {} }
   );
 }
@@ -429,8 +512,12 @@ try {
   assert.equal(executionStatusResponse.status, 200);
   const executionStatus = await executionStatusResponse.json();
   assert.equal(executionStatus.ok, true);
-  assert.equal(executionStatus.chains[0].fee_bps, 100);
-  assert.equal(executionStatus.chains[0].cashback_settlement_enabled, false);
+  assert.equal(executionStatus.chains[0].fee_bps, 70);
+  assert.equal(executionStatus.chains[0].gross_fee_bps, 100);
+  assert.equal(executionStatus.chains[0].cashback_bps, 30);
+  assert.equal(executionStatus.chains[0].effective_fee_bps, 70);
+  assert.equal(executionStatus.chains[0].cashback_mode, 'instant_fee_rebate');
+  assert.equal(executionStatus.chains[0].cashback_settlement_enabled, true);
   assert.equal(executionStatus.custody, false);
 
   const executionTokenAddress = `0x${'34'.repeat(20)}`;
@@ -444,7 +531,7 @@ try {
     sell_token: `0x${'34'.repeat(20)}`,
     buy_token: `0x${'56'.repeat(20)}`,
     sell_amount: '1000000000000000000',
-    taker: `0x${'78'.repeat(20)}`,
+    taker: executionTaker,
     slippage_bps: 50,
   };
   const executionQuoteResponse = await request('/api/execution/quote', {
@@ -455,10 +542,74 @@ try {
   assert.equal(executionQuoteResponse.status, 200);
   const executionQuote = await executionQuoteResponse.json();
   assert.equal(executionQuote.quote.schema_version, 'hookline.execution_quote.v1');
-  assert.equal(executionQuote.quote.fee.fee_bps, 100);
+  assert.equal(executionQuote.quote.fee.fee_bps, 70);
   assert.equal('recipient' in executionQuote.quote.fee, false);
   assert.equal(executionQuote.quote.wallet_handoff_eligible, true);
+  assert.match(executionQuote.quote.execution_intent.intent_id, /^hxi_[0-9a-f]{32}$/);
+  assert.equal(executionQuote.quote.execution_intent.fee.gross_fee_bps, 100);
+  assert.equal(executionQuote.quote.execution_intent.fee.cashback_bps, 30);
+  assert.equal(executionQuote.quote.execution_intent.fee.effective_fee_bps, 70);
+  assert.equal(executionQuote.quote.execution_intent.fee.gross_amount, '10000000000000000');
+  assert.equal(executionQuote.quote.execution_intent.fee.cashback_amount, '3000000000000000');
+  assert.equal(executionQuote.quote.execution_intent.fee.effective_amount, '7000000000000000');
+  assert.equal(JSON.stringify(executionRows.intents).includes(executionTransactionData), false);
+  assert.doesNotMatch(JSON.stringify(executionRows.intents), /private.?key|seed.?phrase|signed.?transaction/i);
   assert.deepEqual(executionCalls.find((call) => call.method === 'quote').order, executionOrder);
+
+  const executionReceiptResponse = await request('/api/execution/receipt', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      intent_id: executionQuote.quote.execution_intent.intent_id,
+      transaction_hash: executionTransactionHash,
+    }),
+  });
+  assert.equal(executionReceiptResponse.status, 200);
+  const executionReceipt = await executionReceiptResponse.json();
+  assert.equal(executionReceipt.receipt.state, 'confirmed');
+  assert.equal(executionReceipt.receipt.fee.cashback_mode, 'instant_fee_rebate');
+  assert.equal(executionReceipt.receipt.fee.effective_fee_bps, 70);
+  assert.equal(executionReceipt.receipt.block_number, '257');
+
+  const idempotentReceiptResponse = await request('/api/execution/receipt', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      intent_id: executionQuote.quote.execution_intent.intent_id,
+      transaction_hash: executionTransactionHash,
+    }),
+  });
+  assert.equal(idempotentReceiptResponse.status, 200);
+  assert.equal(executionRows.receipts.length, 1);
+
+  const mismatchedQuoteResponse = await request('/api/execution/quote', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(executionOrder),
+  });
+  const mismatchedQuote = await mismatchedQuoteResponse.json();
+  executionReceiptMode = 'mismatch';
+  const mismatchedReceiptResponse = await request('/api/execution/receipt', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      intent_id: mismatchedQuote.quote.execution_intent.intent_id,
+      transaction_hash: `0x${'ef'.repeat(32)}`,
+    }),
+  });
+  assert.equal(mismatchedReceiptResponse.status, 409);
+  assert.equal((await mismatchedReceiptResponse.json()).error, 'execution_receipt_binding_mismatch');
+  executionReceiptMode = 'valid';
+
+  executionQuoteExpiryOffsetMs = -1;
+  const expiredQuoteResponse = await request('/api/execution/quote', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(executionOrder),
+  });
+  assert.equal(expiredQuoteResponse.status, 503);
+  assert.equal((await expiredQuoteResponse.json()).error, 'execution_quote_expiry_invalid');
+  executionQuoteExpiryOffsetMs = 60_000;
 
   const rejectedExecutionField = await request('/api/execution/quote', {
     method: 'POST',

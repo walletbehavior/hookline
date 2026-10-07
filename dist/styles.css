@@ -961,9 +961,17 @@ progress::-moz-progress-bar { background: var(--cyan); }
 .execution-message { min-height: 18px; margin: 11px 0 0; color: #bfaa9b; }
 .execution-message.error { color: #c98d82; }
 .execution-message.success { color: #9db391; }
+.execution-receipt { margin-top: 11px; padding: 10px; border: 1px solid #4d5e45; background: #151b13; }
+.execution-receipt > div { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.execution-receipt span, .execution-receipt strong, .execution-receipt p { font-family: var(--font-mono); }
+.execution-receipt span { color: #9db391; font-size: .57rem; letter-spacing: .06em; }
+.execution-receipt strong { color: #d8e1d1; font-size: .62rem; }
+.execution-receipt p { margin: 7px 0 0; color: #899b82; font-size: .57rem; line-height: 1.45; }
 .execution-actions { display: grid; grid-template-columns: 1fr 1.4fr; gap: 7px; margin-top: 8px; }
 .execution-actions .btn { padding: 10px 8px; font-size: .65rem; }
 .execution-boundary { margin: 11px 0 0; color: #6f655c; }
+.wallet-identity { max-width: 132px; padding: 5px 8px; overflow: hidden; border: 1px solid #4a4038; background: transparent; color: #b4a89b; font-family: var(--font-mono); font-size: .57rem; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
+.wallet-identity.connected { border-color: #617057; color: #b8c9ae; }
 .board-provenance { display: grid; grid-template-columns: repeat(3, 1fr); margin-top: 12px; border: 1px solid var(--board-line); }
 .board-provenance div { display: grid; gap: 4px; padding: 10px 12px; border-right: 1px solid var(--board-line); }
 .board-provenance div:last-child { border-right: 0; }

@@ -21,6 +21,9 @@ Hookline is a multichain evidence and analytics desk for programmable-liquidity 
 - Same-chain contract and permission comparisons
 - Live upstream health, block height, and latency telemetry
 - Persistent Telegram alerts for runtime changes, new indexed pool relationships, and 10% indexed liquidity moves
+- Non-custodial reviewed EVM execution on supported markets with browser-wallet signing
+- 1% gross execution fee, 0.3% instant cashback, and 0.7% effective fee bound into the route
+- Independently reconciled execution receipts stored without keys, signatures, or signed transactions
 - Free, allowlisted JSON-RPC access
 - x402-protected capacity at 0.01 USDC per request on Base
 
@@ -87,6 +90,9 @@ See [Product documentation](docs/PRODUCT.md), [API reference](docs/API.md), [Whi
 | `GET /health` | Service status |
 | `GET /metrics` | Current chain health, height, and latency |
 | `GET /data/hooks.json` | Timestamped cross-chain hook-board snapshot |
+| `GET /api/execution/status` | Current reviewed-execution capability by chain |
+| `POST /api/execution/quote` | Short-lived, wallet-bound route and opaque intent |
+| `POST /api/execution/receipt` | Verify and reconcile a confirmed wallet transaction |
 | `GET /rpc` | Machine-readable RPC reference |
 | `POST /rpc` | Hookline methods |
 | `POST /rpc/{chainId}` | Allowlisted Ethereum JSON-RPC proxy |

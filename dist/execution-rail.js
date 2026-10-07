@@ -35,7 +35,7 @@ export const MAX_AMOUNT_BASE_UNITS = 10n ** 30n;
 const CHAIN_REGISTRY = Object.freeze({
   1: { chainId: 1, name: 'Ethereum', code: 'ETH', chainIdHex: '0x1' },
   56: { chainId: 56, name: 'BNB', code: 'BNB', chainIdHex: '0x38' },
-  4663: { chainId: 4663, name: 'Robinhood', code: 'RHB', chainIdHex: '0x1227' },
+  4663: { chainId: 4663, name: 'Robinhood', code: 'RHB', chainIdHex: '0x1237' },
   8453: { chainId: 8453, name: 'Base', code: 'BASE', chainIdHex: '0x2105' },
 });
 

@@ -106,6 +106,10 @@ Runtime fingerprints group identical deployments into behavior families. A newly
 
 Hook profiles can already create bounded Telegram alerts for direct runtime changes, new indexed pool relationships, and material indexed-liquidity movement. The monitoring layer expands next into ownership, permission, dependency, activity, and upstream-health changes.
 
+### Reviewed execution
+
+Where a supported market exposes an eligible route, Hookline binds an unsigned transaction to a short-lived intent and hands it to the user's wallet. A 1% gross fee includes 0.3% instant cashback, so the route collects 0.7% rather than creating a deferred reward promise. Hookline independently reconciles the confirmed transaction against the stored intent. Execution volume never determines which evidence or alerts exist.
+
 ### Developer infrastructure
 
 JSON-RPC, REST or GraphQL exports where useful, webhooks, manifests, and machine-payable queries. The exact interface should follow demonstrated use rather than multiplying protocols prematurely.
@@ -125,6 +129,7 @@ The public product should remain useful without a token or paid account. Sustain
 - higher API limits and service guarantees
 - x402 queries for autonomous agents
 - integration and adapter work
+- reviewed execution with a plainly disclosed 0.7% effective fee
 
 ## 7. Risks and limitations
 

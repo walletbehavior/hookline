@@ -76,3 +76,13 @@ Hookline uses JSON-RPC error envelopes. Important codes include:
 - `-32029`: public rate limit exceeded
 
 Upstream failures are returned as explicit errors and are not converted into successful evidence.
+
+## Reviewed execution routes
+
+`GET /api/execution/status` returns current per-chain quote, fee, instant-rebate, and wallet-handoff capability.
+
+`POST /api/execution/quote` accepts a chain, sell token, buy token, exact sell amount, taker, and slippage. An eligible response contains a public unsigned quote plus an opaque, short-lived execution intent. The fee recipient and provider credentials are never exposed.
+
+`POST /api/execution/receipt` accepts only the opaque intent ID and transaction hash. Hookline reads the transaction and receipt from the configured chain RPC and records a receipt only when the successful onchain transaction exactly matches the intent. The endpoint is idempotent.
+
+The execution API never accepts keys, seed phrases, signatures, or signed transactions, and it never broadcasts. Submission occurs only through the user's connected browser wallet.

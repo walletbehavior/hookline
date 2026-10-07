@@ -12,7 +12,8 @@
     {
       "binding": "DB",
       "database_name": "hookline-alerts",
-      "database_id": "426c029a-ec4e-46d5-956a-e5bd5e6e97ea"
+      "database_id": "426c029a-ec4e-46d5-956a-e5bd5e6e97ea",
+      "migrations_dir": "drizzle"
     }
   ],
   "services": [
