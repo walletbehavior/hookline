@@ -160,7 +160,7 @@ const MAX_RATE_LIMIT_MAP_SIZE = 10_000;
 const rateLimitMap = new Map(); // keys: CF-Connecting-IP values
 
 // The 14 canonical Uniswap v4 hook permission flags, in canonical high-bit
-// (bit 13) → low-bit (bit 0) order.
+// High-bit (bit 13), low-bit (bit 0) order.
 const PERMISSION_FLAGS = Object.freeze([
   'beforeInitialize',
   'afterInitialize',

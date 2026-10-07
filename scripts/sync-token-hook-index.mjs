@@ -130,4 +130,4 @@ for (const target of ['data/token-hook-index.json', 'dist/token-hooks.json']) {
   writeFileSync(output, `${JSON.stringify(snapshot)}\n`, 'utf8');
 }
 
-console.log(`wrote ${deduped.length} token→hook relationships across ${snapshot.coverage.hooksResolved} hooks`);
+console.log(`wrote ${deduped.length} token, hook relationships across ${snapshot.coverage.hooksResolved} hooks`);

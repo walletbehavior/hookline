@@ -1216,7 +1216,7 @@
     const visible = filtered.slice(0, state.boardVisible);
     $('board-result-count').textContent = state.boardMode === 'token'
       ? state.tokenLoading
-        ? 'Resolving token → hook relationships…'
+        ? 'Resolving token, hook relationships…'
         : `${formatNumber(filtered.length)} token pools · select one to reveal its hook and sibling markets`
       : `${formatNumber(filtered.length)} results · ${formatNumber(state.board.hooks.length)} hooks · ${formatNumber(state.board.coverage?.verifiedIdentityCount || 0)} verified titles · ${formatNumber(state.board.projects.length)} project records`;
     visible.forEach((item, index) => {
@@ -1229,7 +1229,7 @@
       const identity = makeElement('div', token ? 'hook-identity token' : 'hook-identity');
       identity.append(
         makeElement('strong', '', token?.pairLabel || boardItemName(item)),
-        makeElement('code', '', token ? `→ ${boardItemName(item)} · ${shorten(item.address, 8, 6)}` : item.address ? shorten(item.address, 10, 8) : 'project record · no indexed address'),
+        makeElement('code', '', token ? `${boardItemName(item)}, ${shorten(item.address, 8, 6)}` : item.address ? shorten(item.address, 10, 8) : 'project record · no indexed address'),
       );
       const identityCell = document.createElement('td');
       identityCell.append(identity);
