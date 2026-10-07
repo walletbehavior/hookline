@@ -36,6 +36,10 @@
     42220: 'celo', 43114: 'avalanche', 57073: 'ink', 81457: 'blast',
   });
   const MARKET_RESOLVER_VERSION = '3';
+  const MARKET_CACHE_KEY = 'hookline:market-cache:v1';
+  const MARKET_CACHE_FRESH_MS = 10 * 60 * 1000;
+  const MARKET_CACHE_STALE_MS = 24 * 60 * 60 * 1000;
+  const MARKET_CACHE_MAX_ENTRIES = 80;
 
   const $ = (id) => document.getElementById(id);
   const $$ = (selector) => Array.from(document.querySelectorAll(selector));
@@ -54,6 +58,7 @@
     boardVisible: BOARD_PAGE_SIZE,
     boardProjectsOnly: false,
     boardEvidence: new Map(),
+    boardLoading: new Set(),
   };
 
   function makeId(prefix) {
@@ -65,6 +70,38 @@
 
   function cleanString(value, maxLength) {
     return typeof value === 'string' ? value.trim().slice(0, maxLength) : '';
+  }
+
+  function loadMarketCache() {
+    try {
+      const parsed = JSON.parse(localStorage.getItem(MARKET_CACHE_KEY) || '{}');
+      return parsed && typeof parsed === 'object' && parsed.entries && typeof parsed.entries === 'object'
+        ? parsed.entries
+        : {};
+    } catch (_) {
+      return {};
+    }
+  }
+
+  function marketCacheEntry(item, freshOnly) {
+    const entry = loadMarketCache()[item.id];
+    const observedAt = Number(entry?.observedAt);
+    const maxAge = freshOnly ? MARKET_CACHE_FRESH_MS : MARKET_CACHE_STALE_MS;
+    if (!Array.isArray(entry?.markets) || !Number.isFinite(observedAt) || Date.now() - observedAt > maxAge) return null;
+    return { markets: entry.markets, observedAt };
+  }
+
+  function persistMarketCache(item, markets, observedAt) {
+    try {
+      const entries = loadMarketCache();
+      entries[item.id] = { observedAt: Number(observedAt) || Date.now(), markets };
+      const ordered = Object.entries(entries)
+        .sort((left, right) => Number(right[1]?.observedAt || 0) - Number(left[1]?.observedAt || 0))
+        .slice(0, MARKET_CACHE_MAX_ENTRIES);
+      localStorage.setItem(MARKET_CACHE_KEY, JSON.stringify({ entries: Object.fromEntries(ordered) }));
+    } catch (_) {
+      // Storage can be disabled or full; the in-memory cache still works.
+    }
   }
 
   function makeElement(tag, className, text) {
@@ -1117,6 +1154,7 @@
         if (item.kind === 'hook') history.replaceState(null, '', `#/board/${item.chainId}/${item.address}`);
         renderBoard();
         renderBoardProfile();
+        inspectProfileIfNeeded();
       };
       row.addEventListener('click', select);
       row.addEventListener('keydown', (event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); select(); } });
@@ -1153,6 +1191,15 @@
     $('hook-profile-content').hidden = !item;
     empty.hidden = Boolean(item);
     if (!item) return;
+    const persistedMarkets = marketCacheEntry(item, false);
+    const priorEvidence = state.boardEvidence.get(item.id);
+    if (persistedMarkets && !Array.isArray(priorEvidence?.markets)) {
+      state.boardEvidence.set(item.id, {
+        ...priorEvidence,
+        markets: persistedMarkets.markets,
+        marketObservedAt: persistedMarkets.observedAt,
+      });
+    }
     const project = item.project;
     $('hook-profile-chain').textContent = item.chainName;
     $('hook-profile-source').textContent = project?.provenance || item.verifiedContract?.provenance || 'indexed identity';
@@ -1213,7 +1260,8 @@
     section.hidden = markets.length === 0;
     if (!markets.length) return;
     const hasLiveMarkets = markets.some((market) => market.priceUsd != null && Number.isFinite(Number(market.priceUsd)));
-    status.textContent = `${markets.length} shown · ${hasLiveMarkets ? 'DexScreener' : 'pool index'}`;
+    const age = Number(cached?.marketObservedAt);
+    status.textContent = `${markets.length} shown · ${hasLiveMarkets ? 'DexScreener' : 'pool index'}${Number.isFinite(age) ? ` · ${relativeTime(age)}` : ''}`;
     markets.forEach((market) => {
       const card = makeElement('article', 'profile-market-card');
       const head = makeElement('div', 'market-card-head');
@@ -1293,7 +1341,9 @@
     status.textContent = new Date(observation.observedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
   }
 
-  async function readHookMarkets(item) {
+  async function readHookMarkets(item, force) {
+    const persisted = !force && marketCacheEntry(item, true);
+    if (persisted) return persisted.markets;
     const params = new URLSearchParams({
       chainId: String(item.chainId),
       address: item.indexedAddress || item.address,
@@ -1302,71 +1352,96 @@
     const response = await fetch(`/api/hook-markets?${params}`, { headers: { Accept: 'application/json' } });
     const payload = await response.json().catch(() => null);
     if (!response.ok || !payload || !Array.isArray(payload.markets)) throw new Error('Market lookup failed.');
-    const markets = payload.markets;
+    let markets = payload.markets;
     const dexSlug = DEXSCREENER_CHAIN_SLUGS[item.chainId];
     const pairIds = markets.map((market) => cleanString(market.pairAddress, 70)).filter((value) => /^0x[0-9a-fA-F]{64}$/.test(value));
-    if (!dexSlug || !pairIds.length || markets.every((market) => market.priceUsd != null && Number.isFinite(Number(market.priceUsd)))) return markets;
-    try {
+    if (dexSlug && pairIds.length && !markets.every((market) => market.priceUsd != null && Number.isFinite(Number(market.priceUsd)))) try {
       const dexResponse = await fetch(`https://api.dexscreener.com/latest/dex/pairs/${dexSlug}/${pairIds.join(',')}`, { headers: { Accept: 'application/json' } });
-      if (!dexResponse.ok) return markets;
-      const dexPayload = await dexResponse.json();
-      const pairs = Array.isArray(dexPayload?.pairs) ? dexPayload.pairs : [];
-      const byPool = new Map(pairs.map((pair) => [String(pair?.pairAddress || '').toLowerCase(), pair]));
-      return markets.map((market) => {
-        const pair = byPool.get(String(market.pairAddress || '').toLowerCase());
-        if (!pair) return market;
-        const websites = Array.isArray(pair.info?.websites) ? pair.info.websites : [];
-        const socials = Array.isArray(pair.info?.socials) ? pair.info.socials : [];
-        const website = websites.find((entry) => entry && typeof entry.url === 'string')?.url || market.website;
-        const x = socials.find((entry) => ['twitter', 'x'].includes(String(entry?.type || '').toLowerCase()))?.url || market.x;
-        return {
-          ...market,
-          baseToken: pair.baseToken || market.baseToken,
-          quoteToken: pair.quoteToken || market.quoteToken,
-          dexLabel: pair.dexId === 'uniswap' ? `Uniswap ${Array.isArray(pair.labels) && pair.labels[0] ? pair.labels[0] : ''}`.trim() : cleanString(pair.dexId, 40) || market.dexLabel,
-          priceUsd: Number.isFinite(Number(pair.priceUsd)) ? Number(pair.priceUsd) : market.priceUsd,
-          priceChange24h: Number.isFinite(Number(pair.priceChange?.h24)) ? Number(pair.priceChange.h24) : market.priceChange24h,
-          volume24h: Number.isFinite(Number(pair.volume?.h24)) ? Number(pair.volume.h24) : market.volume24h,
-          liquidityUsd: Number.isFinite(Number(pair.liquidity?.usd)) ? Number(pair.liquidity.usd) : market.liquidityUsd,
-          marketCap: Number.isFinite(Number(pair.marketCap ?? pair.fdv)) ? Number(pair.marketCap ?? pair.fdv) : market.marketCap,
-          chartUrl: cleanString(pair.url, 500) || market.chartUrl,
-          website: cleanString(website, 500) || null,
-          x: cleanString(x, 500) || null,
-        };
-      });
+      if (dexResponse.ok) {
+        const dexPayload = await dexResponse.json();
+        const pairs = Array.isArray(dexPayload?.pairs) ? dexPayload.pairs : [];
+        const byPool = new Map(pairs.map((pair) => [String(pair?.pairAddress || '').toLowerCase(), pair]));
+        markets = markets.map((market) => {
+          const pair = byPool.get(String(market.pairAddress || '').toLowerCase());
+          if (!pair) return market;
+          const websites = Array.isArray(pair.info?.websites) ? pair.info.websites : [];
+          const socials = Array.isArray(pair.info?.socials) ? pair.info.socials : [];
+          const website = websites.find((entry) => entry && typeof entry.url === 'string')?.url || market.website;
+          const x = socials.find((entry) => ['twitter', 'x'].includes(String(entry?.type || '').toLowerCase()))?.url || market.x;
+          return {
+            ...market,
+            baseToken: pair.baseToken || market.baseToken,
+            quoteToken: pair.quoteToken || market.quoteToken,
+            dexLabel: pair.dexId === 'uniswap' ? `Uniswap ${Array.isArray(pair.labels) && pair.labels[0] ? pair.labels[0] : ''}`.trim() : cleanString(pair.dexId, 40) || market.dexLabel,
+            priceUsd: Number.isFinite(Number(pair.priceUsd)) ? Number(pair.priceUsd) : market.priceUsd,
+            priceChange24h: Number.isFinite(Number(pair.priceChange?.h24)) ? Number(pair.priceChange.h24) : market.priceChange24h,
+            volume24h: Number.isFinite(Number(pair.volume?.h24)) ? Number(pair.volume.h24) : market.volume24h,
+            liquidityUsd: Number.isFinite(Number(pair.liquidity?.usd)) ? Number(pair.liquidity.usd) : market.liquidityUsd,
+            marketCap: Number.isFinite(Number(pair.marketCap ?? pair.fdv)) ? Number(pair.marketCap ?? pair.fdv) : market.marketCap,
+            chartUrl: cleanString(pair.url, 500) || market.chartUrl,
+            website: cleanString(website, 500) || null,
+            x: cleanString(x, 500) || null,
+          };
+        });
+      }
     } catch (_) {
-      return markets;
+      // Pool-index data remains useful when DexScreener is unavailable.
     }
+    persistMarketCache(item, markets, Date.parse(payload.observedAt) || Date.now());
+    return markets;
   }
 
-  async function inspectSelectedProfile() {
+  async function inspectSelectedProfile(options) {
     const item = selectedBoardItem();
     if (!item || item.kind !== 'hook' || !item.address) return;
+    const settings = options || {};
+    if (state.boardLoading.has(item.id)) return;
+    state.boardLoading.add(item.id);
     const button = $('hook-profile-inspect');
     button.disabled = true;
     button.textContent = 'Inspecting…';
     if (item.liveInspection) $('hook-profile-live-status').textContent = 'reading';
+    const previous = state.boardEvidence.get(item.id) || {};
+    const includeContract = settings.includeContract !== false && item.liveInspection && (!settings.automatic || !previous.result);
+    const includeMarkets = settings.includeMarkets !== false;
     const [contract, markets] = await Promise.allSettled([
-      item.liveInspection ? readHook(item.chainId, item.address) : Promise.resolve(null),
-      readHookMarkets(item),
+      includeContract ? readHook(item.chainId, item.address) : Promise.resolve(null),
+      includeMarkets ? readHookMarkets(item, Boolean(settings.forceMarkets)) : Promise.resolve(null),
     ]);
-    const next = {};
+    const next = { ...previous };
     if (contract.status === 'fulfilled' && contract.value) next.result = contract.value;
     if (contract.status === 'rejected') next.error = contract.reason?.message || 'RPC read failed.';
-    if (markets.status === 'fulfilled') next.markets = markets.value;
+    if (markets.status === 'fulfilled' && markets.value) {
+      next.markets = markets.value;
+      next.marketObservedAt = marketCacheEntry(item, false)?.observedAt || Date.now();
+    }
     if (markets.status === 'rejected') next.marketError = markets.reason?.message || 'Market lookup failed.';
     state.boardEvidence.set(item.id, next);
-    if (next.result || next.markets?.length) {
+    if (!settings.automatic && (next.result || next.markets?.length)) {
       state.inspectionsThisSession += 1;
       updateDeskCounters();
       toast(next.markets?.length ? `${next.markets.length} related markets resolved.` : 'Contract read complete.', 'info');
-    } else {
+    } else if (!settings.automatic && !(next.result || next.markets?.length)) {
       toast(next.error || next.marketError || 'Inspection failed.', 'alert');
     }
-    renderBoardMarkets(item);
-    renderBoardLiveEvidence(item);
-    button.disabled = false;
-    button.textContent = next.result || next.markets ? 'Refresh' : 'Inspect';
+    state.boardLoading.delete(item.id);
+    if (state.boardSelectedId === item.id) {
+      renderBoardMarkets(item);
+      renderBoardLiveEvidence(item);
+      button.disabled = false;
+      button.textContent = next.result || next.markets ? 'Refresh' : 'Inspect';
+    }
+  }
+
+  function inspectProfileIfNeeded() {
+    const item = selectedBoardItem();
+    if (!item || item.kind !== 'hook' || !item.address || state.boardLoading.has(item.id)) return;
+    const evidence = state.boardEvidence.get(item.id) || {};
+    const needsMarkets = !marketCacheEntry(item, true);
+    const needsContract = item.liveInspection && !evidence.result;
+    if (needsMarkets || needsContract) {
+      void inspectSelectedProfile({ automatic: true, includeMarkets: needsMarkets, includeContract: needsContract });
+    }
   }
 
   function addSelectedToWatchlist() {
@@ -1452,6 +1527,7 @@
       renderBoardStats();
       renderBoard();
       renderBoardProfile();
+      inspectProfileIfNeeded();
     } catch (error) {
       $('board-result-count').textContent = 'Hook index unavailable';
       $('board-empty').hidden = false;
@@ -1560,7 +1636,7 @@
       if (active) link.setAttribute('aria-current', 'page');
       else link.removeAttribute('aria-current');
     });
-    if (view === 'board') { syncBoardSelectionFromHash(); renderBoard(); renderBoardProfile(); }
+    if (view === 'board') { syncBoardSelectionFromHash(); renderBoard(); renderBoardProfile(); inspectProfileIfNeeded(); }
     if (view === 'watchlists') renderWatchlists();
     if (view === 'network') renderTelemetry(state.metrics);
     window.scrollTo(0, 0);
@@ -1667,7 +1743,7 @@
       const item = selectedBoardItem();
       if (item?.address) copyText(item.address, event.currentTarget);
     });
-    $('hook-profile-inspect').addEventListener('click', inspectSelectedProfile);
+    $('hook-profile-inspect').addEventListener('click', () => inspectSelectedProfile({ forceMarkets: true }));
     $('hook-profile-watch').addEventListener('click', addSelectedToWatchlist);
     $('hook-profile-share').addEventListener('click', (event) => copyText(location.href, event.currentTarget));
     $$('[data-doc-target]').forEach((button) => {

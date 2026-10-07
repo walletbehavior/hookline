@@ -84,6 +84,7 @@ const DEXSCREENER_PAIRS_URL = 'https://api.dexscreener.com/latest/dex/pairs';
 const MARKET_UPSTREAM_TIMEOUT_MS = 7000;
 const MARKET_UPSTREAM_MAX_BYTES = 2 * 1024 * 1024;
 const MARKET_RESULT_LIMIT = 8;
+const MARKET_EDGE_CACHE_SECONDS = 10 * 60;
 const DEXSCREENER_CHAIN_SLUGS = Object.freeze({
   1: 'ethereum',
   10: 'optimism',
@@ -102,6 +103,26 @@ const DEXSCREENER_CHAIN_SLUGS = Object.freeze({
   57073: 'ink',
   81457: 'blast',
 });
+
+let canonicalHookAddresses;
+
+function canonicalIndexedHookAddress(chainId, address) {
+  if (!canonicalHookAddresses) {
+    canonicalHookAddresses = new Map();
+    try {
+      const snapshot = JSON.parse(ASSETS.hooks);
+      const hooks = Array.isArray(snapshot?.hooks) ? snapshot.hooks : [];
+      hooks.forEach((hook) => {
+        if (Number.isSafeInteger(Number(hook?.chainId)) && EVM_ADDRESS_RE.test(String(hook?.address || ''))) {
+          canonicalHookAddresses.set(`${Number(hook.chainId)}:${String(hook.address).toLowerCase()}`, String(hook.address));
+        }
+      });
+    } catch {
+      // The address supplied by the caller remains a valid fallback.
+    }
+  }
+  return canonicalHookAddresses.get(`${chainId}:${address.toLowerCase()}`) || address;
+}
 
 // ---------------------------------------------------------------------------
 // Rate limiting (per-isolate, best effort): 60 POST RPC requests per minute
@@ -1303,10 +1324,41 @@ export default {
           headers: baseJsonHeaders({ 'Cache-Control': 'no-store' }),
         });
       }
+
+      const canonicalAddress = canonicalIndexedHookAddress(chainId, address);
+      const cacheUrl = new URL('/api/hook-markets', url.origin);
+      cacheUrl.searchParams.set('chainId', String(chainId));
+      cacheUrl.searchParams.set('address', address.toLowerCase());
+      const cacheRequest = new Request(cacheUrl.toString(), { method: 'GET' });
+      const edgeCache = globalThis.caches?.default;
+
+      if (edgeCache) {
+        const cachedResponse = await edgeCache.match(cacheRequest);
+        if (cachedResponse) {
+          const headers = new Headers(cachedResponse.headers);
+          headers.set('X-Hookline-Cache', 'HIT');
+          return new Response(cachedResponse.body, {
+            status: cachedResponse.status,
+            statusText: cachedResponse.statusText,
+            headers,
+          });
+        }
+      }
+
       try {
-        return new Response(JSON.stringify(await resolveHookMarkets(chainId, address)), {
-          headers: baseJsonHeaders({ 'Cache-Control': 'public, max-age=120, s-maxage=300' }),
+        const response = new Response(JSON.stringify(await resolveHookMarkets(chainId, canonicalAddress)), {
+          headers: baseJsonHeaders({
+            'Cache-Control': `public, max-age=120, s-maxage=${MARKET_EDGE_CACHE_SECONDS}, stale-while-revalidate=86400`,
+            'Access-Control-Expose-Headers': 'X-Hookline-Cache',
+            'X-Hookline-Cache': 'MISS',
+          }),
         });
+        if (edgeCache) {
+          const cacheWrite = edgeCache.put(cacheRequest, response.clone());
+          if (ctx && typeof ctx.waitUntil === 'function') ctx.waitUntil(cacheWrite);
+          else await cacheWrite;
+        }
+        return response;
       } catch {
         return new Response(JSON.stringify({ error: 'market data unavailable', markets: [] }), {
           status: 502,

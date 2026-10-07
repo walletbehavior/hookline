@@ -8,6 +8,20 @@ artifactUrl.searchParams.set('test', String(Date.now()));
 
 const originalFetch = globalThis.fetch;
 const upstreamCalls = [];
+const marketUpstreamCalls = [];
+const edgeResponses = new Map();
+const originalCaches = globalThis.caches;
+globalThis.caches = {
+  default: {
+    async match(request) {
+      const response = edgeResponses.get(String(request.url || request));
+      return response ? response.clone() : undefined;
+    },
+    async put(request, response) {
+      edgeResponses.set(String(request.url || request), response.clone());
+    },
+  },
+};
 const expectedOwner = `0x${'ab'.repeat(20)}`;
 const testX402PayTo = `0x${'ef'.repeat(20)}`;
 let failedUpstream = null;
@@ -34,6 +48,7 @@ globalThis.fetch = async (url, init = {}) => {
   }
 
   if (urlString.startsWith('https://www.v4.xyz/api/pools-by-hook?')) {
+    marketUpstreamCalls.push(urlString);
     const chainId = new URL(urlString).searchParams.get('chainId');
     const robinhood = chainId === '4663';
     return new Response(JSON.stringify({
@@ -50,6 +65,7 @@ globalThis.fetch = async (url, init = {}) => {
   }
 
   if (urlString.startsWith('https://api.dexscreener.com/latest/dex/pairs/base/')) {
+    marketUpstreamCalls.push(urlString);
     return new Response(JSON.stringify({
       pairs: [{
         chainId: 'base',
@@ -73,6 +89,7 @@ globalThis.fetch = async (url, init = {}) => {
   }
 
   if (urlString.startsWith('https://api.dexscreener.com/latest/dex/pairs/robinhood/')) {
+    marketUpstreamCalls.push(urlString);
     return new Response(JSON.stringify({
       pairs: [{
         chainId: 'robinhood',
@@ -212,11 +229,18 @@ try {
 
   const marketsResponse = await request(`/api/hook-markets?chainId=8453&address=0x${'ab'.repeat(20)}`);
   assert.equal(marketsResponse.status, 200);
+  assert.equal(marketsResponse.headers.get('x-hookline-cache'), 'MISS');
   const markets = await marketsResponse.json();
   assert.equal(markets.markets.length, 1);
   assert.equal(markets.markets[0].baseToken.symbol, 'TEST');
   assert.equal(markets.markets[0].marketCap, 420000);
   assert.match(markets.markets[0].chartUrl, /^https:\/\/dexscreener\.com\//);
+
+  const marketCallsAfterMiss = marketUpstreamCalls.length;
+  const cachedMarketsResponse = await request(`/api/hook-markets?chainId=8453&address=0x${'ab'.repeat(20)}&v=ignored`);
+  assert.equal(cachedMarketsResponse.status, 200);
+  assert.equal(cachedMarketsResponse.headers.get('x-hookline-cache'), 'HIT');
+  assert.equal(marketUpstreamCalls.length, marketCallsAfterMiss);
 
   const robinhoodMarketsResponse = await request(`/api/hook-markets?chainId=4663&address=0x${'ab'.repeat(20)}`);
   assert.equal(robinhoodMarketsResponse.status, 200);
@@ -226,6 +250,11 @@ try {
   assert.equal(robinhoodMarkets.markets[0].priceChange24h, -3.2);
   assert.equal(robinhoodMarkets.markets[0].volume24h, 88000);
   assert.equal(robinhoodMarkets.markets[0].marketCap, 5100000);
+
+  const ponsAddress = '0xE5e702641Ea86F4ae6cC3cDaeD2B886f976Be044';
+  await request(`/api/hook-markets?chainId=4663&address=${ponsAddress.toLowerCase()}`);
+  const ponsV4Call = marketUpstreamCalls.find((value) => value.includes(`hookAddress=${encodeURIComponent(ponsAddress)}`));
+  assert.ok(ponsV4Call, 'lowercase board addresses must resolve to the indexed checksum address');
 
   const healthResponse = await request('/health');
   assert.equal(healthResponse.status, 200);
@@ -367,4 +396,6 @@ try {
   console.log('✓ Hookline Worker tests passed');
 } finally {
   globalThis.fetch = originalFetch;
+  if (originalCaches === undefined) delete globalThis.caches;
+  else globalThis.caches = originalCaches;
 }
