@@ -111,6 +111,8 @@ try {
   assert.match(rootHtml, /HOOKS ANALYTICS DESK/);
   assert.match(rootHtml, /Free RPC/);
   assert.match(rootHtml, /Watchlists/);
+  assert.match(rootHtml, /The hook board\./);
+  assert.match(rootHtml, /CROSS-CHAIN HOOK MARKET INTELLIGENCE/);
   assert.match(rootHtml, /Hookline docs/);
   assert.match(rootHtml, /Frequently asked questions/);
   assert.match(rootHtml, /github\.com\/walletbehavior\/hookline/);
@@ -133,6 +135,17 @@ try {
   assert.match(appSource, /fetch\('\/metrics'/);
   assert.doesNotMatch(appSource, /FEE_WALLET|strip-copy-fee/);
   assert.doesNotMatch(appSource, /\.innerHTML\s*=/);
+
+  const hookDataResponse = await request('/data/hooks.json');
+  assert.equal(hookDataResponse.status, 200);
+  assert.match(hookDataResponse.headers.get('cache-control'), /no-store/);
+  const hookData = await hookDataResponse.json();
+  assert.equal(hookData.schemaVersion, 1);
+  assert.ok(hookData.coverage.hookCount >= 1000);
+  assert.equal(hookData.coverage.exhaustive, false);
+  assert.ok(hookData.coverage.chainCount >= 10);
+  assert.ok(hookData.hooks.some((hook) => hook.project?.name === 'CLAUS'));
+  assert.ok(hookData.projects.some((project) => project.provenance === 'Hookline researched'));
 
   const healthResponse = await request('/health');
   assert.equal(healthResponse.status, 200);
@@ -166,6 +179,7 @@ try {
   assert.equal(docs.origin, 'https://hookline.example');
   assert.equal(docs.constraints.batchesSupported, false);
   assert.equal(docs.routes.paidRpc, '/rpc/paid');
+  assert.equal(docs.routes.hookBoard, '/data/hooks.json');
   assert.equal(docs.paidAccess.amountAtomic, '10000');
   assert.equal(docs.paidAccess.network, 'eip155:8453');
   assert.equal('payTo' in docs.paidAccess, false);

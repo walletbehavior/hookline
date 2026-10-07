@@ -7,6 +7,8 @@ The roadmap separates shipped work from planned work. Sequence can change as cha
 Status: operating in production.
 
 - Live contract inspection on four chains
+- Cross-chain hook board and project directory
+- Timestamped indexed pool and swap aggregates
 - Permission decoding and runtime fingerprints
 - Owner-probe status
 - Named local watchlists and evidence history
@@ -22,12 +24,12 @@ Acceptance criteria:
 - Transaction submission remains unavailable.
 - Public claims contain no fabricated usage or market data.
 
-## Next: hook registry and pool graph
+## Next: first-party hook registry and pool graph
 
 - Index PoolManager initialization events on the first production chain
 - Build canonical hook-deployment and pool identities
 - Store raw logs and reorganization-safe cursors
-- Publish searchable hook and pool profiles
+- Expand searchable hook and pool profiles with first-party event provenance
 - Add verified-source and deployer metadata with provenance
 - Expose indexed records through the API
 

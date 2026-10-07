@@ -8,6 +8,12 @@ Hookline gives that ecosystem a shared evidence model and a practical workstatio
 
 ## Current capabilities
 
+### Board
+
+The hook board is a cross-chain discovery surface for active deployed hook identities and hook ecosystem projects. It supports search, chain and capability filters, activity sorting, address-permission profiles, shareable profile URLs, filtered JSON exports, explorer links, inline live contract reads, and a direct handoff into local watchlists.
+
+Discovery and aggregate pool and swap counts come from a timestamped v4.xyz community-indexer snapshot. The sync queries the activity leaders in every two-nibble address prefix, so coverage is broad but explicitly not exhaustive. Records without a deployed address remain visible as directory entries rather than being presented as chain evidence.
+
 ### Observe
 
 The live inspector accepts a supported chain and contract address. Hookline reads deployed runtime bytecode, calculates a SHA-256 fingerprint, probes `owner()` when the contract supports it, decodes the canonical 14 hook permission bits, and records the latest observed block.
@@ -43,9 +49,16 @@ Hookline keeps four evidence classes distinct:
 
 This separation prevents a project claim from being mistaken for chain evidence and prevents a derived score from being mistaken for a raw fact.
 
-## Planned event index
+The board applies those classes visibly:
 
-The next data layer follows official PoolManager events to build a graph of:
+- Indexed hook identities and aggregate counts are attributed to the community index snapshot.
+- Permission profiles are deterministic derivations from each address.
+- Project records carry their metadata provenance.
+- Live inspection is available only where Hookline has configured RPC coverage.
+
+## Planned first-party event index
+
+The current board supplies useful discovery before Hookline owns the complete event pipeline. The next data layer follows official PoolManager events to build a graph of:
 
 ```text
 hook ↔ pools ↔ chains ↔ deployers ↔ code versions ↔ events

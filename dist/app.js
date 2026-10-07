@@ -23,7 +23,13 @@
   const MAX_OBSERVATIONS = 100;
   const MAX_IMPORT_BYTES = 1024 * 1024;
   const CURRENT_WINDOW_MS = 15 * 60 * 1000;
-  const VIEWS = new Set(['observatory', 'watchlists', 'network', 'docs']);
+  const VIEWS = new Set(['board', 'observatory', 'watchlists', 'network', 'docs']);
+  const BOARD_PAGE_SIZE = 50;
+  const CHAIN_COLORS = Object.freeze({
+    1: '#8b9aee', 10: '#ff5364', 56: '#f0b90b', 130: '#ff3d96', 137: '#8e6cff', 143: '#836ef9',
+    146: '#d7d0c5', 480: '#72a892', 1868: '#7590bd', 4663: '#839a79', 8453: '#5e84b2',
+    42161: '#3f8ed0', 42220: '#fcff52', 43114: '#e84142', 57073: '#8a68ff', 81457: '#ffdfb5',
+  });
 
   const $ = (id) => document.getElementById(id);
   const $$ = (selector) => Array.from(document.querySelectorAll(selector));
@@ -36,6 +42,12 @@
     healthOk: null,
     toastTimer: null,
     refreshing: false,
+    board: null,
+    boardItems: [],
+    boardSelectedId: null,
+    boardVisible: BOARD_PAGE_SIZE,
+    boardProjectsOnly: false,
+    boardEvidence: new Map(),
   };
 
   function makeId(prefix) {
@@ -111,6 +123,46 @@
         enabled: Boolean(value & (1 << (13 - index))),
       })),
     };
+  }
+
+  function permissionProfiles(address) {
+    const enabled = new Set(decodePermissions(address).flags.filter((flag) => flag.enabled).map((flag) => flag.name));
+    const profiles = [];
+    if ([...enabled].some((name) => name.toLowerCase().includes('swap'))) profiles.push('swap');
+    if ([...enabled].some((name) => name.toLowerCase().includes('liquidity'))) profiles.push('liquidity');
+    if ([...enabled].some((name) => name.toLowerCase().includes('initialize'))) profiles.push('initialize');
+    if ([...enabled].some((name) => name.toLowerCase().includes('donate'))) profiles.push('donate');
+    if ([...enabled].some((name) => name.toLowerCase().includes('returndelta'))) profiles.push('delta');
+    return { enabled: [...enabled], profiles };
+  }
+
+  function explorerAddressUrl(chainId, address) {
+    const origins = {
+      1: 'https://etherscan.io/address/',
+      10: 'https://optimistic.etherscan.io/address/',
+      56: 'https://bscscan.com/address/',
+      130: 'https://uniscan.xyz/address/',
+      137: 'https://polygonscan.com/address/',
+      143: 'https://monadvision.com/address/',
+      146: 'https://sonicscan.org/address/',
+      480: 'https://worldscan.org/address/',
+      1868: 'https://soneium.blockscout.com/address/',
+      4663: 'https://explorer.mainnet.chain.robinhood.com/address/',
+      8453: 'https://basescan.org/address/',
+      42161: 'https://arbiscan.io/address/',
+      42220: 'https://celoscan.io/address/',
+      43114: 'https://snowtrace.io/address/',
+      57073: 'https://explorer.inkonchain.com/address/',
+      81457: 'https://blastscan.io/address/',
+    };
+    return origins[chainId] ? origins[chainId] + address : null;
+  }
+
+  function compactNumber(value) {
+    const number = Number(value);
+    if (!Number.isFinite(number)) return '—';
+    if (number < 1000) return number.toLocaleString();
+    return new Intl.NumberFormat(undefined, { notation: 'compact', maximumFractionDigits: 1 }).format(number);
   }
 
   function candidateKey(candidate) {
@@ -879,6 +931,394 @@
     });
   }
 
+  function normalizeBoardProject(raw) {
+    if (!raw || typeof raw !== 'object') return null;
+    const name = cleanString(raw.name, 120);
+    if (!name) return null;
+    return {
+      sourceId: cleanString(raw.sourceId, 120) || null,
+      hookId: cleanString(raw.hookId, 100).toLowerCase() || null,
+      name,
+      description: cleanString(raw.description, 800),
+      type: cleanString(raw.type, 200),
+      dex: cleanString(raw.dex, 120),
+      stage: cleanString(raw.stage, 120),
+      website: cleanString(raw.website, 500) || null,
+      x: cleanString(raw.x, 500) || null,
+      provenance: cleanString(raw.provenance, 80) || 'community record',
+    };
+  }
+
+  function normalizeBoardSnapshot(raw) {
+    if (!raw || raw.schemaVersion !== 1 || !Array.isArray(raw.hooks) || !Array.isArray(raw.projects)) return null;
+    const projects = raw.projects.map(normalizeBoardProject).filter(Boolean);
+    const byHook = new Map(projects.filter((project) => project.hookId).map((project) => [project.hookId, project]));
+    const hooks = raw.hooks.map((hook) => {
+      const chainId = Number(hook && hook.chainId);
+      const checked = validateAddress(hook && hook.address);
+      if (!Number.isSafeInteger(chainId) || !checked.ok) return null;
+      const id = `${chainId}_${checked.address}`;
+      const project = normalizeBoardProject(hook.project) || byHook.get(id) || null;
+      const permissions = permissionProfiles(checked.address);
+      return {
+        kind: 'hook', id, chainId, chainName: cleanString(hook.chainName, 100) || `Chain ${chainId}`,
+        address: checked.address, numberOfPools: Math.max(0, Number(hook.numberOfPools) || 0),
+        numberOfSwaps: Math.max(0, Number(hook.numberOfSwaps) || 0),
+        liveInspection: SUPPORTED_CHAINS.includes(chainId), project, permissions,
+      };
+    }).filter(Boolean);
+    const linked = new Set(hooks.filter((hook) => hook.project).map((hook) => hook.project.sourceId).filter(Boolean));
+    const directory = projects.filter((project) => !project.hookId || !linked.has(project.sourceId)).map((project) => ({
+      kind: 'project', id: `project:${project.sourceId || project.name.toLowerCase()}`, chainId: null,
+      chainName: 'Unlinked', address: null, numberOfPools: null, numberOfSwaps: null,
+      liveInspection: false, project, permissions: { enabled: [], profiles: [] },
+    }));
+    const generatedAt = Date.parse(raw.generatedAt);
+    return {
+      generatedAt: Number.isFinite(generatedAt) ? generatedAt : null,
+      coverage: raw.coverage && typeof raw.coverage === 'object' ? raw.coverage : {},
+      chains: Array.isArray(raw.chains) ? raw.chains : [], projects, hooks, items: hooks.concat(directory),
+    };
+  }
+
+  function boardItemName(item) {
+    return item.project ? item.project.name : `Hook ${shorten(item.address, 8, 6)}`;
+  }
+
+  function boardProfileLabels(item) {
+    if (item.kind === 'project') {
+      return item.project.type ? item.project.type.split(',').map((value) => value.trim()).filter(Boolean).slice(0, 3) : ['project record'];
+    }
+    return item.permissions.profiles.length ? item.permissions.profiles : ['no callbacks'];
+  }
+
+  function filteredBoardItems() {
+    if (!state.board) return [];
+    const query = $('board-search').value.trim().toLowerCase();
+    const chain = $('board-chain').value;
+    const profile = $('board-profile').value;
+    const sort = $('board-sort').value;
+    const result = state.board.items.filter((item) => {
+      if (chain !== 'all' && String(item.chainId) !== chain) return false;
+      if (profile !== 'all' && !item.permissions.profiles.includes(profile)) return false;
+      if (state.boardProjectsOnly && !item.project) return false;
+      if (!query) return true;
+      const fields = [boardItemName(item), item.chainName, item.address, item.project?.type, item.project?.stage, ...boardProfileLabels(item)];
+      return fields.some((value) => String(value || '').toLowerCase().includes(query));
+    });
+    result.sort((a, b) => {
+      if (sort === 'name') return boardItemName(a).localeCompare(boardItemName(b));
+      if (sort === 'pools') return (b.numberOfPools ?? -1) - (a.numberOfPools ?? -1) || (b.numberOfSwaps ?? -1) - (a.numberOfSwaps ?? -1);
+      return (b.numberOfSwaps ?? -1) - (a.numberOfSwaps ?? -1) || (b.numberOfPools ?? -1) - (a.numberOfPools ?? -1);
+    });
+    return result;
+  }
+
+  function makeCapabilityChips(item) {
+    const container = makeElement('div', 'capability-stack');
+    boardProfileLabels(item).forEach((label) => {
+      const className = item.permissions.profiles.includes(label) ? `capability-chip ${label}` : 'capability-chip';
+      container.append(makeElement('span', className, label));
+    });
+    return container;
+  }
+
+  function renderBoardStats() {
+    if (!state.board) return;
+    const values = [
+      [state.board.coverage.hookCount ?? state.board.hooks.length, 'community discovery'],
+      [state.board.coverage.chainCount ?? state.board.chains.length, 'cross-chain coverage'],
+      [state.board.coverage.totalPools ?? 0, 'indexed aggregate'],
+      [state.board.coverage.totalSwaps ?? 0, 'indexed aggregate'],
+    ];
+    $('board-stats').querySelectorAll(':scope > div').forEach((node, index) => {
+      const value = Number(values[index][0]);
+      node.querySelector('strong').textContent = formatNumber(value);
+      node.querySelector('small').textContent = values[index][1];
+    });
+    $('board-updated').textContent = state.board.generatedAt ? relativeTime(state.board.generatedAt) : 'timestamp unavailable';
+  }
+
+  function populateBoardChains() {
+    const select = $('board-chain');
+    while (select.options.length > 1) select.remove(1);
+    state.board.chains.forEach((chain) => {
+      const option = document.createElement('option');
+      option.value = String(chain.chainId);
+      option.textContent = `${cleanString(chain.name, 100) || `Chain ${chain.chainId}`} (${formatNumber(Number(chain.hookCount) || 0)})`;
+      select.append(option);
+    });
+  }
+
+  function renderBoard() {
+    const body = $('hook-board-body');
+    body.replaceChildren();
+    if (!state.board) return;
+    const filtered = filteredBoardItems();
+    const visible = filtered.slice(0, state.boardVisible);
+    $('board-result-count').textContent = `${formatNumber(filtered.length)} results · ${formatNumber(state.board.hooks.length)} deployed hook identities · ${formatNumber(state.board.projects.length)} project records`;
+    visible.forEach((item, index) => {
+      const row = document.createElement('tr');
+      row.dataset.id = item.id;
+      row.tabIndex = 0;
+      row.classList.toggle('selected', item.id === state.boardSelectedId);
+      row.setAttribute('aria-label', `Open ${boardItemName(item)} profile`);
+      const identity = makeElement('div', 'hook-identity');
+      identity.append(makeElement('strong', '', boardItemName(item)), makeElement('code', '', item.address ? shorten(item.address, 10, 8) : 'project record · no indexed address'));
+      const identityCell = document.createElement('td');
+      identityCell.append(identity);
+      const chainCell = makeElement('td', 'chain-cell');
+      const chainSpan = makeElement('span', '', item.chainName);
+      chainSpan.style.setProperty('--chain-color', CHAIN_COLORS[item.chainId] || '#66727e');
+      chainCell.append(chainSpan);
+      const capabilities = document.createElement('td');
+      capabilities.append(makeCapabilityChips(item));
+      const coverage = makeElement('span', `coverage-chip${item.liveInspection ? ' live' : ''}`, item.liveInspection ? 'live RPC' : item.kind === 'project' ? 'directory' : 'index only');
+      const coverageCell = document.createElement('td');
+      coverageCell.append(coverage);
+      row.append(
+        makeElement('td', 'hook-rank', index + 1), identityCell, chainCell, capabilities,
+        makeElement('td', 'number', item.numberOfPools == null ? '—' : compactNumber(item.numberOfPools)),
+        makeElement('td', 'number', item.numberOfSwaps == null ? '—' : compactNumber(item.numberOfSwaps)), coverageCell,
+      );
+      const select = () => {
+        state.boardSelectedId = item.id;
+        if (item.kind === 'hook') history.replaceState(null, '', `#/board/${item.chainId}/${item.address}`);
+        renderBoard();
+        renderBoardProfile();
+      };
+      row.addEventListener('click', select);
+      row.addEventListener('keydown', (event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); select(); } });
+      body.append(row);
+    });
+    $('board-empty').hidden = filtered.length !== 0;
+    $('board-more').hidden = filtered.length <= state.boardVisible;
+    $('board-more').textContent = `Load ${Math.min(BOARD_PAGE_SIZE, filtered.length - state.boardVisible)} more rows`;
+  }
+
+  function selectedBoardItem() {
+    return state.board?.items.find((item) => item.id === state.boardSelectedId) || null;
+  }
+
+  function setProfileRecord(id, value) {
+    $(id).textContent = value || 'not supplied';
+  }
+
+  function safeProfileLink(url, label) {
+    try {
+      const parsed = new URL(url);
+      if (!['http:', 'https:'].includes(parsed.protocol)) return null;
+      const link = makeElement('a', '', label);
+      link.href = parsed.href;
+      link.target = '_blank';
+      link.rel = 'noopener noreferrer';
+      return link;
+    } catch (_) { return null; }
+  }
+
+  function renderBoardProfile() {
+    const item = selectedBoardItem();
+    const empty = $('hook-board-detail').querySelector('.hook-profile-empty');
+    $('hook-profile-content').hidden = !item;
+    empty.hidden = Boolean(item);
+    if (!item) return;
+    const project = item.project;
+    $('hook-profile-chain').textContent = item.chainName;
+    $('hook-profile-source').textContent = project ? project.provenance : 'indexed identity';
+    $('hook-profile-title').textContent = boardItemName(item);
+    $('hook-profile-address').textContent = item.address || 'No deployment address linked';
+    $('hook-profile-copy').hidden = !item.address;
+    $('hook-profile-description').textContent = project?.description || (item.kind === 'hook'
+      ? 'A deployed hook identity discovered through the cross-chain community index. Open live inspection for direct contract evidence where supported.'
+      : 'A hook ecosystem project record without an indexed deployment address.');
+    $('hook-profile-pools').textContent = item.numberOfPools == null ? '—' : formatNumber(item.numberOfPools);
+    $('hook-profile-swaps').textContent = item.numberOfSwaps == null ? '—' : formatNumber(item.numberOfSwaps);
+    $('hook-profile-mask').textContent = item.address ? `0x${decodePermissions(item.address).value.toString(16).padStart(4, '0')}` : '—';
+    const permissions = $('hook-profile-permissions');
+    permissions.replaceChildren();
+    if (item.permissions.enabled.length) {
+      item.permissions.enabled.forEach((name) => permissions.append(makeElement('span', '', name)));
+    } else {
+      permissions.append(makeElement('span', 'none', item.address ? 'no callback bits enabled' : 'deployment not linked'));
+    }
+    renderBoardLiveEvidence(item);
+    $('hook-profile-project').hidden = !project;
+    if (project) {
+      setProfileRecord('hook-profile-type', project.type);
+      setProfileRecord('hook-profile-stage', project.stage);
+      setProfileRecord('hook-profile-dex', project.dex);
+      const links = $('hook-profile-links');
+      links.replaceChildren();
+      const website = project.website && safeProfileLink(project.website, 'Website ↗');
+      const x = project.x && safeProfileLink(project.x, 'X ↗');
+      if (website) links.append(website);
+      if (x) links.append(x);
+    }
+    const supported = item.kind === 'hook' && item.liveInspection;
+    $('hook-profile-inspect').disabled = !supported;
+    $('hook-profile-inspect').textContent = supported && state.boardEvidence.get(item.id)?.result ? 'Refresh live' : 'Inspect live';
+    $('hook-profile-watch').disabled = !supported;
+    $('hook-profile-share').disabled = item.kind !== 'hook';
+    const explorer = $('hook-profile-explorer');
+    const explorerUrl = item.address ? explorerAddressUrl(item.chainId, item.address) : null;
+    explorer.hidden = !explorerUrl;
+    if (explorerUrl) explorer.href = explorerUrl;
+    $('hook-profile-boundary').textContent = supported
+      ? 'Pool and swap totals are indexed aggregates. Use live inspection for bytecode, ownership probe, permission state, and current-chain evidence.'
+      : item.kind === 'project' ? 'This directory entry is not yet linked to a deployed hook address.' : 'This hook is indexed, but Hookline live inspection does not yet cover this chain.';
+  }
+
+  function renderBoardLiveEvidence(item) {
+    const grid = $('hook-profile-live-grid');
+    const status = $('hook-profile-live-status');
+    const note = $('hook-profile-live-note');
+    grid.replaceChildren();
+    const cached = state.boardEvidence.get(item.id);
+    if (!item.liveInspection || !item.address) {
+      status.textContent = 'not covered';
+      note.textContent = item.kind === 'project' ? 'A deployment address is required for live evidence.' : 'Hookline live RPC does not yet cover this chain.';
+      return;
+    }
+    if (!cached) {
+      status.textContent = 'not requested';
+      note.textContent = 'Run a live inspection for current bytecode, ownership probe, runtime fingerprint, block, and latency.';
+      return;
+    }
+    if (cached.error) {
+      status.textContent = 'request failed';
+      note.textContent = cached.error;
+      return;
+    }
+    const { evidence, observation } = cached.result;
+    const values = [
+      ['Code size', `${formatNumber(evidence.codeByteLength)} bytes`],
+      ['Owner probe', evidence.owner ? shorten(evidence.owner, 9, 7) : evidence.ownerProbeStatus || 'none found'],
+      ['Block', observation.block == null ? 'unavailable' : formatNumber(observation.block)],
+      ['Latency', formatLatency(evidence.latencyMs)],
+      ['Runtime SHA-256', fingerprintOf(evidence) ? shorten(fingerprintOf(evidence), 14, 10) : 'unavailable'],
+    ];
+    values.forEach(([label, value]) => {
+      const row = makeElement('div', 'profile-live-row');
+      row.append(makeElement('span', '', label), makeElement('code', '', value));
+      grid.append(row);
+    });
+    status.textContent = 'observed now';
+    note.textContent = `Direct RPC evidence observed ${relativeTime(observation.observedAt)}.`;
+  }
+
+  async function inspectSelectedProfile() {
+    const item = selectedBoardItem();
+    if (!item || !item.liveInspection || !item.address) return;
+    const button = $('hook-profile-inspect');
+    button.disabled = true;
+    button.textContent = 'Inspecting…';
+    $('hook-profile-live-status').textContent = 'reading chain';
+    try {
+      const result = await readHook(item.chainId, item.address);
+      state.boardEvidence.set(item.id, { result });
+      state.inspectionsThisSession += 1;
+      updateDeskCounters();
+      renderBoardLiveEvidence(item);
+      toast('Live evidence captured.', 'info');
+    } catch (error) {
+      state.boardEvidence.set(item.id, { error: error.message });
+      renderBoardLiveEvidence(item);
+      toast(error.message, 'alert');
+    } finally {
+      button.disabled = false;
+      button.textContent = state.boardEvidence.get(item.id)?.result ? 'Refresh live' : 'Inspect live';
+    }
+  }
+
+  function addSelectedToWatchlist() {
+    const item = selectedBoardItem();
+    if (!item || !item.liveInspection || !item.address) return;
+    const list = activeList();
+    if (list.items.some((candidate) => candidateKey(candidate) === `${item.chainId}:${item.address}`)) {
+      toast('This hook is already in the active watchlist.', 'info');
+      return;
+    }
+    if (list.items.length >= MAX_ITEMS_PER_LIST) {
+      toast('The active watchlist is full.', 'alert');
+      return;
+    }
+    const cached = state.boardEvidence.get(item.id)?.result || null;
+    list.items.push({
+      id: makeId('contract'), chainId: item.chainId, address: item.address,
+      label: item.project?.name || null, evidence: cached?.evidence || null,
+      observations: cached?.observation ? [cached.observation] : [], lastError: null,
+      lastAttemptAt: cached ? Date.now() : null,
+    });
+    saveModel();
+    toast(`${boardItemName(item)} added to ${list.name}.`, 'info');
+  }
+
+  function exportBoardView() {
+    if (!state.board) return;
+    const records = filteredBoardItems().map((item) => ({
+      kind: item.kind,
+      chainId: item.chainId,
+      chain: item.chainName,
+      address: item.address,
+      project: item.project ? {
+        name: item.project.name,
+        description: item.project.description,
+        type: item.project.type,
+        stage: item.project.stage,
+        dex: item.project.dex,
+        website: item.project.website,
+        x: item.project.x,
+        provenance: item.project.provenance,
+      } : null,
+      numberOfPools: item.numberOfPools,
+      numberOfSwaps: item.numberOfSwaps,
+      permissionMask: item.address ? decodePermissions(item.address).value : null,
+      enabledPermissions: item.permissions.enabled,
+      liveInspection: item.liveInspection,
+    }));
+    const payload = {
+      schemaVersion: 1,
+      exportedAt: new Date().toISOString(),
+      indexGeneratedAt: state.board.generatedAt ? new Date(state.board.generatedAt).toISOString() : null,
+      filters: {
+        query: $('board-search').value.trim(), chain: $('board-chain').value,
+        capability: $('board-profile').value, sort: $('board-sort').value,
+        namedProjectsOnly: state.boardProjectsOnly,
+      },
+      records,
+    };
+    const blob = new Blob([`${JSON.stringify(payload, null, 2)}\n`], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `hookline-board-${new Date().toISOString().slice(0, 10)}.json`;
+    document.body.append(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+    toast(`Exported ${formatNumber(records.length)} board records.`, 'info');
+  }
+
+  async function loadBoard() {
+    try {
+      const response = await fetch('/data/hooks.json', { headers: { Accept: 'application/json' } });
+      if (!response.ok) throw new Error('Hook index request failed.');
+      const snapshot = normalizeBoardSnapshot(await response.json());
+      if (!snapshot) throw new Error('Hook index response was incomplete.');
+      state.board = snapshot;
+      state.boardItems = snapshot.items;
+      syncBoardSelectionFromHash();
+      populateBoardChains();
+      renderBoardStats();
+      renderBoard();
+      renderBoardProfile();
+    } catch (error) {
+      $('board-result-count').textContent = 'Hook index unavailable';
+      $('board-empty').hidden = false;
+      $('board-empty').textContent = error.message;
+    }
+  }
+
   function validMetrics(raw) {
     if (!raw || !Array.isArray(raw.chains)) return null;
     const supportedChains = Number(raw.supportedChains);
@@ -956,8 +1396,19 @@
   }
 
   function viewFromHash() {
-    const value = location.hash.replace(/^#\/?/, '') || 'observatory';
-    return VIEWS.has(value) ? value : 'observatory';
+    const value = (location.hash.replace(/^#\/?/, '') || 'board').split('/')[0];
+    return VIEWS.has(value) ? value : 'board';
+  }
+
+  function boardItemIdFromHash() {
+    const match = location.hash.match(/^#\/board\/([0-9]+)\/(0x[0-9a-fA-F]{40})$/);
+    return match ? `${Number(match[1])}_${match[2].toLowerCase()}` : null;
+  }
+
+  function syncBoardSelectionFromHash() {
+    if (!state.board) return;
+    const id = boardItemIdFromHash();
+    if (id && state.board.items.some((item) => item.id === id)) state.boardSelectedId = id;
   }
 
   function renderView() {
@@ -969,6 +1420,7 @@
       if (active) link.setAttribute('aria-current', 'page');
       else link.removeAttribute('aria-current');
     });
+    if (view === 'board') { syncBoardSelectionFromHash(); renderBoard(); renderBoardProfile(); }
     if (view === 'watchlists') renderWatchlists();
     if (view === 'network') renderTelemetry(state.metrics);
     window.scrollTo(0, 0);
@@ -1053,6 +1505,31 @@
   }
 
   function setupEvents() {
+    ['board-search', 'board-chain', 'board-profile', 'board-sort'].forEach((id) => {
+      const eventName = id === 'board-search' ? 'input' : 'change';
+      $(id).addEventListener(eventName, () => { state.boardVisible = BOARD_PAGE_SIZE; renderBoard(); });
+    });
+    $('board-projects-only').addEventListener('click', (event) => {
+      state.boardProjectsOnly = !state.boardProjectsOnly;
+      state.boardVisible = BOARD_PAGE_SIZE;
+      event.currentTarget.setAttribute('aria-pressed', String(state.boardProjectsOnly));
+      renderBoard();
+    });
+    $('board-more').addEventListener('click', () => { state.boardVisible += BOARD_PAGE_SIZE; renderBoard(); });
+    $('board-export').addEventListener('click', exportBoardView);
+    $('hook-profile-close').addEventListener('click', () => {
+      state.boardSelectedId = null;
+      history.replaceState(null, '', '#/board');
+      renderBoard();
+      renderBoardProfile();
+    });
+    $('hook-profile-copy').addEventListener('click', (event) => {
+      const item = selectedBoardItem();
+      if (item?.address) copyText(item.address, event.currentTarget);
+    });
+    $('hook-profile-inspect').addEventListener('click', inspectSelectedProfile);
+    $('hook-profile-watch').addEventListener('click', addSelectedToWatchlist);
+    $('hook-profile-share').addEventListener('click', (event) => copyText(location.href, event.currentTarget));
     $$('[data-doc-target]').forEach((button) => {
       button.addEventListener('click', () => {
         const section = document.getElementById(button.dataset.docTarget);
@@ -1099,6 +1576,7 @@
     setupEvents();
     renderWatchlists();
     renderView();
+    loadBoard();
     setupWebMCP();
     loadHealth();
     loadTelemetry(false);

@@ -9,6 +9,10 @@ Hookline is a multichain evidence and analytics desk for programmable-liquidity 
 ## What works today
 
 - Live contract inspection on Ethereum, Base, Arbitrum One, and Robinhood Chain
+- Cross-chain hook board with 1,000+ active hook identities across 10+ chains
+- Searchable community project directory with explicit source labels
+- Aggregate indexed pool and swap counts with snapshot timestamps
+- Shareable hook profile URLs, filtered JSON exports, and inline live inspection
 - Deployed-bytecode size and SHA-256 runtime fingerprints
 - Best-effort `owner()` probing with explicit probe status
 - Canonical Uniswap v4 low-14-bit permission decoding
@@ -18,7 +22,7 @@ Hookline is a multichain evidence and analytics desk for programmable-liquidity 
 - Free, allowlisted JSON-RPC access
 - x402-protected capacity at 0.01 USDC per request on Base
 
-Hookline currently provides point-in-time contract evidence. Event-indexed pool discovery, activity analytics, alerts, and long-range history are described in the roadmap and are not represented as shipped features.
+The board's discovery and aggregate counts come from a timestamped v4.xyz community-indexer snapshot. Project descriptions are community-curated, project-submitted, or Hookline-researched and labeled in the interface. Direct live evidence still comes from Hookline's configured RPC endpoints. First-party event indexing, alerts, and long-range history remain roadmap work.
 
 ## Quick start
 
@@ -51,6 +55,7 @@ curl https://hookline.world/rpc \
 ```text
 dist/                         browser application and generated Worker artifact
 worker/index.js               maintainable Cloudflare Worker source
+scripts/sync-hook-board.mjs   reproducible community-index snapshot sync
 scripts/build-hookline-worker.mjs
 scripts/test-hookline-worker.mjs
 docs/                         product, API, whitepaper, roadmap, and FAQ
@@ -58,7 +63,7 @@ token/                        public HKLN launch record
 wrangler.jsonc                Cloudflare deployment configuration
 ```
 
-The build script embeds `dist/index.html`, `dist/styles.css`, and `dist/app.js` into a single Cloudflare Worker artifact at `dist/server/index.js`.
+The build script embeds `dist/index.html`, `dist/styles.css`, `dist/app.js`, and the generated `dist/hooks.json` snapshot into a single Cloudflare Worker artifact at `dist/server/index.js`.
 
 ## Data model
 
@@ -78,6 +83,7 @@ See [Product documentation](docs/PRODUCT.md), [API reference](docs/API.md), [Whi
 | --- | --- |
 | `GET /health` | Service status |
 | `GET /metrics` | Current chain health, height, and latency |
+| `GET /data/hooks.json` | Timestamped cross-chain hook-board snapshot |
 | `GET /rpc` | Machine-readable RPC reference |
 | `POST /rpc` | Hookline methods |
 | `POST /rpc/{chainId}` | Allowlisted Ethereum JSON-RPC proxy |

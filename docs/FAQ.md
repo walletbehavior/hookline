@@ -2,7 +2,7 @@
 
 ## What is Hookline?
 
-Hookline is a multichain intelligence desk and API for onchain hooks. It helps people inspect deployed contracts, decode Uniswap v4 hook permissions, preserve evidence, compare deployments, and monitor supported networks.
+Hookline is a multichain intelligence desk and API for onchain hooks. It helps people discover active hooks and projects, inspect deployed contracts, decode Uniswap v4 hook permissions, preserve evidence, compare deployments, and monitor supported networks.
 
 ## What problem does it solve?
 
@@ -10,11 +10,15 @@ Hook information is split across explorers, repositories, RPC calls, dashboards,
 
 ## Where does the current data come from?
 
-Current evidence comes directly from configured Ethereum, Base, Arbitrum One, and Robinhood Chain RPC endpoints. Hookline uses bytecode and call methods, current block height, deterministic hashing, and local permission decoding. The network page shows the selected upstream and current status.
+The board uses a timestamped v4.xyz community-indexer snapshot for hook discovery and aggregate pool and swap counts. Its directory metadata is community-curated, project-submitted, or Hookline-researched and labeled accordingly. Live contract evidence comes directly from configured Ethereum, Base, Arbitrum One, and Robinhood Chain RPC endpoints. Hookline uses bytecode and call methods, current block height, deterministic hashing, and local permission decoding.
+
+## Is the board exhaustive?
+
+No. The sync collects activity leaders for every two-nibble hook-address prefix exposed by the public index. That creates broad cross-chain coverage without overstating completeness or overloading a community service. First-party PoolManager event indexing is the path to exhaustive, reproducible coverage.
 
 ## Is Hookline already indexing pool volume and liquidity?
 
-No. The current release provides point-in-time contract evidence and network telemetry. Event-backed pool discovery, swap activity, liquidity changes, and historical analytics are planned work.
+The board exposes indexed pool and swap counts. It does not infer price, market capitalization, dollar volume, or liquidity from those counts. First-party event-backed discovery, time-series swap activity, liquidity changes, and historical analytics are planned work.
 
 ## What do the 14 permission flags mean?
 

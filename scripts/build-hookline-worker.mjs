@@ -3,11 +3,11 @@
 // Builds the Cloudflare Worker-compatible ESM artifact for Hookline:
 //
 //   1. Reads the existing static bundle: dist/index.html, dist/styles.css,
-//      dist/app.js.
+//      dist/app.js and dist/hooks.json.
 //   2. Validates the assets (must not contain inline <script> bodies or
 //      server-side template syntax).
 //   3. Reads worker/index.js (the maintainable runtime source).
-//   4. Embeds the three assets safely via JSON.stringify at the
+//   4. Embeds the four assets safely via JSON.stringify at the
 //      @ASSETS-INJECT injection point in worker/index.js.
 //   5. Writes one self-contained artifact at dist/server/index.js exporting
 //      default.fetch(request, env, ctx).
@@ -37,9 +37,10 @@ const out = join(outDir, 'index.js');
 const htmlPath = join(dist, 'index.html');
 const cssPath = join(dist, 'styles.css');
 const appPath = join(dist, 'app.js');
+const hooksPath = join(dist, 'hooks.json');
 
 const missing = [];
-for (const p of [htmlPath, cssPath, appPath]) {
+for (const p of [htmlPath, cssPath, appPath, hooksPath]) {
   try {
     readFileSync(p, 'utf8');
   } catch {
@@ -53,6 +54,7 @@ if (missing.length) {
 const html = readFileSync(htmlPath, 'utf8');
 const css = readFileSync(cssPath, 'utf8');
 const app = readFileSync(appPath, 'utf8');
+const hooks = readFileSync(hooksPath, 'utf8');
 const runtime = readFileSync(workerSrc, 'utf8');
 
 const assetVersion = createHash('sha256')
@@ -82,6 +84,7 @@ for (const [name, content] of [
   ['index.html', html],
   ['styles.css', css],
   ['app.js', app],
+  ['hooks.json', hooks],
 ]) {
   const inlineScriptRe = /<\s*script\b(?![^>]*\bsrc\s*=)/;
   if (inlineScriptRe.test(content)) {
@@ -103,6 +106,7 @@ const assetsBlock =
   `  html: ${JSON.stringify(versionedHtml)},\n` +
   `  css: ${JSON.stringify(css)},\n` +
   `  app: ${JSON.stringify(app)},\n` +
+  `  hooks: ${JSON.stringify(hooks)},\n` +
   `});\n`;
 
 const emitted = runtime.replace(/\/\* @ASSETS-INJECT \*\/\s*\n?/s, () => assetsBlock);
@@ -123,5 +127,5 @@ try {
 }
 
 console.log(`✓ Built Cloudflare Worker artifact: ${out}`);
-console.log(`  embedded static assets: index.html (${versionedHtml.length} bytes), styles.css (${css.length} bytes), app.js (${app.length} bytes)`);
+console.log(`  embedded static assets: index.html (${versionedHtml.length} bytes), styles.css (${css.length} bytes), app.js (${app.length} bytes), hooks.json (${hooks.length} bytes)`);
 console.log(`  asset version: ${assetVersion}`);

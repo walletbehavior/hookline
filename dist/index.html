@@ -3,10 +3,10 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="theme-color" content="#0b0e12">
+  <meta name="theme-color" content="#151311">
   <meta name="description" content="Hookline is the intelligence layer for onchain hooks: live contract evidence, multichain watchlists, comparisons, telemetry, and developer access.">
   <title>Hookline | Onchain Hooks Intelligence</title>
-  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' fill='%230b0e12'/%3E%3Cpath d='M38 8v27c0 11-6 17-15 17-7 0-12-4-12-10 0-6 5-10 11-10 4 0 7 1 9 4V8h7zm0 4h15v8H38' fill='none' stroke='%23c8f73c' stroke-width='6'/%3E%3C/svg%3E">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' fill='%23151311'/%3E%3Cpath d='M38 8v27c0 11-6 17-15 17-7 0-12-4-12-10 0-6 5-10 11-10 4 0 7 1 9 4V8h7zm0 4h15v8H38' fill='none' stroke='%23d67850' stroke-width='6'/%3E%3C/svg%3E">
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
@@ -14,10 +14,11 @@
 
   <header class="top-bar" role="banner">
     <div class="top-inner">
-      <a class="wordmark" href="#/observatory" aria-label="Hookline home">HOOKLINE<span class="wordmark-mark">/</span></a>
+      <a class="wordmark" href="#/board" aria-label="Hookline home">HOOKLINE<span class="wordmark-mark">/</span></a>
       <span class="product-label">HOOKS ANALYTICS DESK</span>
       <nav class="main-nav" aria-label="Primary navigation">
         <ul>
+          <li><a href="#/board" data-view="board">Board</a></li>
           <li><a href="#/observatory" data-view="observatory">Observe</a></li>
           <li><a href="#/watchlists" data-view="watchlists">Watchlists</a></li>
           <li><a href="#/network" data-view="network">Network</a></li>
@@ -34,6 +35,117 @@
   </header>
 
   <main id="main" class="view-container">
+    <section id="view-board" class="view board-view" aria-labelledby="board-title">
+      <header class="board-hero">
+        <div class="board-title-block">
+          <p class="eyebrow">CROSS-CHAIN HOOK MARKET INTELLIGENCE</p>
+          <h1 id="board-title">The hook board.</h1>
+          <p>Discover active hooks, understand what their addresses permit, and move from aggregate activity into live contract evidence.</p>
+        </div>
+        <div class="board-index-state">
+          <span class="index-pulse" aria-hidden="true"></span>
+          <div><b>INDEX SNAPSHOT</b><span id="board-updated">loading</span></div>
+        </div>
+      </header>
+
+      <div id="board-stats" class="board-stats" role="status" aria-live="polite">
+        <div><span>HOOKS INDEXED</span><strong>—</strong><small>community discovery</small></div>
+        <div><span>CHAINS SEEN</span><strong>—</strong><small>cross-chain coverage</small></div>
+        <div><span>POOLS ATTACHED</span><strong>—</strong><small>indexed aggregate</small></div>
+        <div><span>SWAPS OBSERVED</span><strong>—</strong><small>indexed aggregate</small></div>
+      </div>
+
+      <section class="board-shell" aria-label="Hook market board">
+        <header class="board-toolbar">
+          <div class="board-search-wrap">
+            <span aria-hidden="true">⌕</span>
+            <input id="board-search" type="search" placeholder="Search name, address, chain, permission…" autocomplete="off" aria-label="Search hook board">
+          </div>
+          <select id="board-chain" aria-label="Filter hook board by chain"><option value="all">All chains</option></select>
+          <select id="board-profile" aria-label="Filter hook board by permission profile">
+            <option value="all">All capabilities</option>
+            <option value="swap">Swap callbacks</option>
+            <option value="liquidity">Liquidity callbacks</option>
+            <option value="initialize">Initialize callbacks</option>
+            <option value="donate">Donate callbacks</option>
+            <option value="delta">Return deltas</option>
+          </select>
+          <select id="board-sort" aria-label="Sort hook board">
+            <option value="swaps">Most swaps</option>
+            <option value="pools">Most pools</option>
+            <option value="name">Project name</option>
+          </select>
+          <button id="board-projects-only" class="filter-toggle" type="button" aria-pressed="false">Named projects</button>
+        </header>
+
+        <div class="board-result-line">
+          <p id="board-result-count">Loading hook index…</p>
+          <div class="board-result-actions"><p><i class="legend-dot live"></i> live inspection <i class="legend-dot index"></i> index only</p><button id="board-export" type="button">Export view</button></div>
+        </div>
+
+        <div class="hook-board-grid">
+          <div class="hook-table-wrap">
+            <table class="hook-table" aria-label="Indexed hooks">
+              <thead><tr><th>#</th><th>Hook / project</th><th>Chain</th><th>Capability profile</th><th class="number">Pools</th><th class="number">Swaps</th><th>Coverage</th></tr></thead>
+              <tbody id="hook-board-body"></tbody>
+            </table>
+            <div id="board-empty" class="board-empty" hidden>No hooks match these filters.</div>
+            <button id="board-more" class="board-more" type="button" hidden>Load more rows</button>
+          </div>
+
+          <aside id="hook-board-detail" class="hook-profile" aria-labelledby="hook-profile-title">
+            <div class="hook-profile-empty">
+              <span class="profile-glyph" aria-hidden="true">⌁</span>
+              <p>Select a hook to open its evidence profile.</p>
+            </div>
+            <div id="hook-profile-content" hidden>
+              <header class="profile-head">
+                <div><span id="hook-profile-chain" class="chain-badge"></span><span id="hook-profile-source" class="source-badge"></span></div>
+                <button id="hook-profile-close" class="profile-close" type="button" aria-label="Close hook profile">×</button>
+              </header>
+              <p class="panel-kicker">HOOK PROFILE</p>
+              <h2 id="hook-profile-title"></h2>
+              <div class="profile-address-line"><code id="hook-profile-address"></code><button id="hook-profile-copy" class="copy-icon-btn" type="button" aria-label="Copy hook address" title="Copy hook address"><span class="copy-icon" aria-hidden="true"></span></button></div>
+              <p id="hook-profile-description" class="profile-description"></p>
+              <div class="profile-metrics">
+                <div><span>POOLS</span><strong id="hook-profile-pools"></strong></div>
+                <div><span>SWAPS</span><strong id="hook-profile-swaps"></strong></div>
+                <div><span>PERMISSION MASK</span><strong id="hook-profile-mask"></strong></div>
+              </div>
+              <section class="profile-section">
+                <h3>Address capabilities</h3>
+                <div id="hook-profile-permissions" class="profile-permissions"></div>
+                <p>Derived from the canonical low 14 address bits. Runtime behavior still requires code-level review.</p>
+              </section>
+              <section class="profile-section profile-live-section">
+                <div class="profile-section-heading"><h3>Live contract evidence</h3><span id="hook-profile-live-status">not requested</span></div>
+                <div id="hook-profile-live-grid" class="profile-live-grid"></div>
+                <p id="hook-profile-live-note">Run a live inspection for current bytecode, ownership probe, runtime fingerprint, block, and latency.</p>
+              </section>
+              <section id="hook-profile-project" class="profile-section" hidden>
+                <h3>Project record</h3>
+                <dl class="profile-record"><div><dt>Type</dt><dd id="hook-profile-type"></dd></div><div><dt>Stage</dt><dd id="hook-profile-stage"></dd></div><div><dt>DEX</dt><dd id="hook-profile-dex"></dd></div></dl>
+                <div id="hook-profile-links" class="profile-links"></div>
+              </section>
+              <div class="profile-actions">
+                <button id="hook-profile-inspect" class="btn btn-primary" type="button">Inspect live</button>
+                <button id="hook-profile-watch" class="btn btn-secondary" type="button">Add to watchlist</button>
+                <button id="hook-profile-share" class="btn btn-ghost" type="button">Copy profile link</button>
+                <a id="hook-profile-explorer" class="btn btn-ghost" href="#" target="_blank" rel="noopener noreferrer">Explorer ↗</a>
+              </div>
+              <p id="hook-profile-boundary" class="profile-boundary"></p>
+            </div>
+          </aside>
+        </div>
+      </section>
+
+      <footer class="board-provenance">
+        <div><b>DISCOVERY + COUNTS</b><span>v4.xyz community indexer snapshot</span></div>
+        <div><b>PROJECT RECORDS</b><span>community-curated and submitted metadata</span></div>
+        <div><b>LIVE EVIDENCE</b><span>Hookline RPC on Ethereum, Base, Arbitrum, and Robinhood Chain</span></div>
+      </footer>
+    </section>
+
     <section id="view-observatory" class="view" aria-labelledby="observe-title">
       <div class="desk-heading">
         <div>
@@ -258,7 +370,7 @@
             <div class="doc-card"><strong>Monitor</strong><p>Save named local watchlists, refresh evidence intentionally, preserve successful history, and surface failures without erasing prior state.</p></div>
             <div class="doc-card"><strong>Build</strong><p>Consume the same evidence through constrained JSON-RPC and a machine-payable x402 capacity route.</p></div>
           </div>
-          <p class="doc-boundary"><strong>Current boundary:</strong> Hookline provides point-in-time contract evidence. Pool discovery, activity analytics, alerts, and long-range history are planned work.</p>
+          <p class="doc-boundary"><strong>Current boundary:</strong> The board uses a timestamped community-indexer snapshot for discovery and aggregate counts. Live inspection remains direct RPC evidence. Time-series analytics, alerts, and long-range event history are planned work.</p>
         </section>
 
         <section id="docs-data" class="doc-section">
@@ -309,7 +421,7 @@
           <div class="system-graph" aria-label="Hookline system-of-record graph">
             <span>HOOK</span><i>↔</i><span>POOLS</span><i>↔</i><span>CHAINS</span><i>↔</i><span>DEPLOYERS</span><i>↔</i><span>CODE</span><i>↔</i><span>EVENTS</span>
           </div>
-          <p>The next layer indexes official PoolManager initialization, swap, liquidity, and donation events into a rebuildable graph. Every metric keeps its chain, block range, generated time, and derivation version.</p>
+          <p>The board now supplies broad cross-chain discovery and aggregate activity. The next data layer indexes official PoolManager initialization, swap, liquidity, and donation events into a rebuildable first-party graph. Every metric keeps its chain, block range, generated time, and derivation version.</p>
           <a class="doc-link" href="https://github.com/walletbehavior/hookline/blob/main/docs/WHITEPAPER.md" target="_blank" rel="noopener noreferrer">Read the complete whitepaper on GitHub ↗</a>
         </section>
 
@@ -329,8 +441,8 @@
           <span class="panel-kicker">06 / FAQ</span>
           <h2>Frequently asked questions</h2>
           <div class="faq-list">
-            <details><summary>Where does Hookline data come from?</summary><p>Current evidence comes directly from configured Ethereum, Base, Arbitrum One, and Robinhood Chain RPC endpoints. Hookline reads bytecode and current blocks, performs a conventional owner probe, calculates deterministic fingerprints, and decodes permissions locally.</p></details>
-            <details><summary>Is Hookline already indexing volume and liquidity?</summary><p>No. The current release provides point-in-time contract evidence and network telemetry. Event-backed pool discovery, activity, and historical analytics are the next data layer.</p></details>
+            <details><summary>Where does Hookline data come from?</summary><p>The hook board uses a timestamped v4.xyz community-indexer snapshot for discovery and aggregate pool and swap counts. Names and descriptions are community-curated or project-submitted. Live contract evidence comes directly from configured Ethereum, Base, Arbitrum One, and Robinhood Chain RPC endpoints.</p></details>
+            <details><summary>Is Hookline already indexing volume and liquidity?</summary><p>The board exposes indexed pool and swap aggregates, not price, market cap, dollar volume, or liquidity claims. First-party event-backed pool discovery, time-series activity, and historical analytics are the next data layer.</p></details>
             <details><summary>What do the 14 permission flags prove?</summary><p>They identify which Uniswap v4 callback permissions are encoded in the hook address. They do not explain the complete runtime behavior and do not establish that a contract is safe.</p></details>
             <details><summary>Is this a smart-contract audit?</summary><p>No. Hookline is an evidence and monitoring product, not an audit, legal opinion, or trading recommendation.</p></details>
             <details><summary>Why can’t I compare live state across chains?</summary><p>An address is not a complete identity, and block heights on separate chains do not share state or time semantics. Hookline limits direct comparisons to one chain.</p></details>
@@ -359,7 +471,7 @@
   <footer class="site-footer">
     <span>HOOKLINE / MULTICHAIN HOOKS ANALYTICS DESK</span>
     <span>Ethereum · Base · Arbitrum · Robinhood Chain</span>
-    <span><a href="#/docs">Docs</a> · <a href="#/network">RPC and network</a> · <a href="https://github.com/walletbehavior/hookline" target="_blank" rel="noopener noreferrer">GitHub</a></span>
+    <span><a href="#/board">Board</a> · <a href="#/docs">Docs</a> · <a href="#/network">RPC and network</a> · <a href="https://github.com/walletbehavior/hookline" target="_blank" rel="noopener noreferrer">GitHub</a></span>
     <p>
       <code>0x11672C8cD5CB3F17364339244826B110Bac0AC91</code> ·
       <a href="https://x.com/_hookline" target="_blank" rel="noopener noreferrer">X</a> ·

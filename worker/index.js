@@ -2,8 +2,8 @@
    Hookline — public JSON-RPC layer for Cloudflare Workers
 
    This is the maintainable runtime source. The build step
-   (scripts/build-hookline-worker.mjs) reads dist/index.html, dist/styles.css
-   and dist/app.js, embeds them with JSON.stringify and emits a single
+   (scripts/build-hookline-worker.mjs) reads dist/index.html, dist/styles.css,
+   dist/app.js and dist/hooks.json, embeds them with JSON.stringify and emits a single
    self-contained artifact at dist/server/index.js.
 
    Export contract: default.fetch(request, env, ctx) — the Cloudflare Worker
@@ -39,7 +39,8 @@ import { facilitator as payAiFacilitator } from '@payai/facilitator';
 
 // ---------------------------------------------------------------------------
 // Static assets (public bundle) — injected by scripts/build-hookline-worker.mjs
-// via JSON.stringify over dist/index.html, dist/styles.css and dist/app.js.
+// via JSON.stringify over dist/index.html, dist/styles.css, dist/app.js and
+// dist/hooks.json.
 // The build script replaces the marker below verbatim with the embedded assets.
 // ---------------------------------------------------------------------------
 /* @ASSETS-INJECT */
@@ -118,6 +119,7 @@ const STATIC_ROUTES = Object.freeze({
   '/': { type: 'text/html; charset=utf-8', key: 'html' },
   '/styles.css': { type: 'text/css; charset=utf-8', key: 'css' },
   '/app.js': { type: 'application/javascript; charset=utf-8', key: 'app' },
+  '/data/hooks.json': { type: 'application/json; charset=utf-8', key: 'hooks' },
 });
 
 const HOOKLINE_METHODS = new Set([
@@ -928,6 +930,7 @@ function jsonDocsBody(request) {
       paidRpc: '/rpc/paid',
       metrics: '/metrics',
       health: '/health',
+      hookBoard: '/data/hooks.json',
       documentation: '/rpc',
       chainProxies: chainRoutes,
     },
