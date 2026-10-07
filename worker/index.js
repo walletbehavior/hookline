@@ -106,7 +106,7 @@ const MARKET_RESULT_LIMIT = 8;
 const MARKET_EDGE_CACHE_SECONDS = 10 * 60;
 // Bump when the market response shape or fallback rules change so an older
 // edge entry cannot mask a just-deployed resolver fix.
-const MARKET_CACHE_SCHEMA_VERSION = '3';
+const MARKET_CACHE_SCHEMA_VERSION = '5';
 const DEXSCREENER_CHAIN_SLUGS = Object.freeze({
   1: 'ethereum',
   10: 'optimism',
@@ -1037,6 +1037,15 @@ function tokenShape(token) {
   return address || name || symbol ? { address, name, symbol } : null;
 }
 
+function indexedPoolToken(value, label) {
+  const raw = typeof value === 'string' ? value.split('_').pop() : '';
+  if (!EVM_ADDRESS_RE.test(raw)) return null;
+  const address = /^0x0{40}$/i.test(raw) ? EXECUTION_NATIVE_TOKEN : raw.toLowerCase();
+  const name = typeof label === 'string' && label ? label.slice(0, 100) : null;
+  const symbol = typeof label === 'string' && label ? label.slice(0, 24) : null;
+  return { address, name, symbol };
+}
+
 function safeExternalUrl(value, hosts) {
   if (typeof value !== 'string') return null;
   try {
@@ -1111,12 +1120,14 @@ async function resolveHookMarkets(chainId, address) {
       && !commonQuotes.has(String(fallbackSymbols[1]).toUpperCase());
     const fallbackBase = reverseFallback ? fallbackSymbols[1] : fallbackSymbols[0];
     const fallbackQuote = reverseFallback ? fallbackSymbols[0] : fallbackSymbols[1];
+    const indexedBase = indexedPoolToken(reverseFallback ? pool.token1 : pool.token0, fallbackBase);
+    const indexedQuote = indexedPoolToken(reverseFallback ? pool.token0 : pool.token1, fallbackQuote);
     return {
       poolId: typeof pool.id === 'string' ? pool.id : null,
       poolName: typeof pool.name === 'string' ? pool.name.slice(0, 140) : null,
       pairAddress: addressKey,
-      baseToken: tokenShape(pair?.baseToken) || tokenShape(persistent?.baseToken) || { address: null, name: fallbackBase || null, symbol: fallbackBase || null },
-      quoteToken: tokenShape(pair?.quoteToken) || tokenShape(persistent?.quoteToken) || { address: null, name: fallbackQuote || null, symbol: fallbackQuote || null },
+      baseToken: tokenShape(pair?.baseToken) || tokenShape(persistent?.baseToken) || indexedBase || { address: null, name: fallbackBase || null, symbol: fallbackBase || null },
+      quoteToken: tokenShape(pair?.quoteToken) || tokenShape(persistent?.quoteToken) || indexedQuote || { address: null, name: fallbackQuote || null, symbol: fallbackQuote || null },
       dexLabel: pair?.dexId === 'uniswap' ? `Uniswap ${Array.isArray(pair.labels) && pair.labels[0] ? pair.labels[0] : ''}`.trim() : String(pair?.dexId || 'Uniswap v4').slice(0, 40),
       priceUsd: finiteMarketNumber(pair?.priceUsd),
       priceChange24h: finiteMarketNumber(pair?.priceChange?.h24),

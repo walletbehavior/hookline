@@ -35,8 +35,8 @@
     146: 'sonic', 480: 'worldchain', 1868: 'soneium', 4663: 'robinhood', 8453: 'base', 42161: 'arbitrum',
     42220: 'celo', 43114: 'avalanche', 57073: 'ink', 81457: 'blast',
   });
-  const MARKET_RESOLVER_VERSION = '3';
-  const MARKET_CACHE_KEY = 'hookline:market-cache:v3';
+  const MARKET_RESOLVER_VERSION = '5';
+  const MARKET_CACHE_KEY = 'hookline:market-cache:v5';
   const MARKET_CACHE_FRESH_MS = 10 * 60 * 1000;
   const MARKET_CACHE_STALE_MS = 24 * 60 * 60 * 1000;
   const MARKET_CACHE_MAX_ENTRIES = 80;

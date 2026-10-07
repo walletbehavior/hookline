@@ -393,7 +393,7 @@ try {
   assert.match(appSource, /hookline:watchlists:v3/);
   assert.match(appSource, /Promise\.all\(\[worker\(\), worker\(\)\]\)/);
   assert.match(appSource, /fetch\('\/metrics'/);
-  assert.match(appSource, /hookline:market-cache:v3/);
+  assert.match(appSource, /hookline:market-cache:v5/);
   assert.match(appSource, /api\/token-hooks/);
   assert.match(appSource, /board-profile-open/);
   assert.match(appSource, /boardVelocity/);
