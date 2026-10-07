@@ -67,6 +67,7 @@ const CHAIN_CONFIG = Object.freeze({
     name: 'Base',
     code: 'BASE',
     upstream: 'https://base-rpc.publicnode.com',
+    fallbackUpstreams: Object.freeze(['https://mainnet.base.org']),
   },
   42161: { name: 'Arbitrum One', code: 'ARB', upstream: 'https://arb1.arbitrum.io/rpc' },
   4663: {
@@ -513,6 +514,7 @@ async function callUpstream(upstream, payload, timeoutMs) {
         error: {
           code: -32603,
           message: `upstream HTTP error ${res.status}`,
+          retryable: res.status === 429 || res.status >= 500,
         },
       };
     }
@@ -537,23 +539,34 @@ async function callUpstream(upstream, payload, timeoutMs) {
     try {
       json = JSON.parse(new TextDecoder().decode(buffer));
     } catch {
-      return { error: { code: -32603, message: 'upstream returned invalid JSON' } };
+      return { error: { code: -32603, message: 'upstream returned invalid JSON', retryable: true } };
     }
     if (isJsonRpcObject(json)) {
       if ('error' in json && json.error) {
-        return { error: Object.assign({ code: -32000 }, json.error) };
+        return { error: Object.assign({ code: -32000, retryable: false }, json.error) };
       }
       return { result: json.result };
     }
     return { error: { code: -32603, message: 'upstream response is not JSON-RPC' } };
   } catch (err) {
     if (err.name === 'AbortError') {
-      return { error: { code: -32000, message: `upstream request timed out after ${timeoutMs}ms` } };
+      return { error: { code: -32000, message: `upstream request timed out after ${timeoutMs}ms`, retryable: true } };
     }
-    return { error: { code: -32603, message: `upstream error: ${err.message}` } };
+    return { error: { code: -32603, message: `upstream error: ${err.message}`, retryable: true } };
   } finally {
     clearTimeout(timeoutId);
   }
+}
+
+async function callChainUpstream(config, payload, timeoutMs) {
+  const upstreams = [config.upstream, ...(config.fallbackUpstreams || [])];
+  let last = null;
+  for (const upstream of upstreams) {
+    const result = await callUpstream(upstream, payload, timeoutMs);
+    last = { ...result, upstream };
+    if (!result.error || !result.error.retryable) return last;
+  }
+  return last;
 }
 
 // ---------------------------------------------------------------------------
@@ -661,8 +674,8 @@ async function hookline_chainStatus_handler(params, id, ctx) {
 
   const startedAt = performance.now();
   const [chainIdRes, blockRes] = await Promise.all([
-    callUpstream(cfg.upstream, { jsonrpc: '2.0', method: 'eth_chainId', params: [], id: 1 }, UPSTREAM_TIMEOUT_MS),
-    callUpstream(cfg.upstream, { jsonrpc: '2.0', method: 'eth_blockNumber', params: [], id: 2 }, UPSTREAM_TIMEOUT_MS),
+    callChainUpstream(cfg, { jsonrpc: '2.0', method: 'eth_chainId', params: [], id: 1 }, UPSTREAM_TIMEOUT_MS),
+    callChainUpstream(cfg, { jsonrpc: '2.0', method: 'eth_blockNumber', params: [], id: 2 }, UPSTREAM_TIMEOUT_MS),
   ]);
   const elapsedMs = Math.round(performance.now() - startedAt);
 
@@ -671,7 +684,7 @@ async function hookline_chainStatus_handler(params, id, ctx) {
       chainId,
       chainIdHex: '0x' + chainId.toString(16),
       name: cfg.name,
-      upstream: cfg.upstream,
+      upstream: chainIdRes.upstream || cfg.upstream,
       latencyMs: elapsedMs,
       status: 'unreachable',
       errors: [chainIdRes.error, blockRes.error || null].filter(Boolean),
@@ -684,7 +697,7 @@ async function hookline_chainStatus_handler(params, id, ctx) {
       chainId,
       chainIdHex: '0x' + chainId.toString(16),
       name: cfg.name,
-      upstream: cfg.upstream,
+      upstream: chainIdRes.upstream || cfg.upstream,
       latencyMs: elapsedMs,
       status: 'error',
       errors: [chainIdRes.error || { code: -32603, message: 'malformed eth_chainId response' }],
@@ -695,7 +708,7 @@ async function hookline_chainStatus_handler(params, id, ctx) {
       chainId,
       chainIdHex: '0x' + chainIdNum.toString(16),
       name: cfg.name,
-      upstream: cfg.upstream,
+      upstream: chainIdRes.upstream || cfg.upstream,
       latencyMs: elapsedMs,
       status: 'error',
       errors: [
@@ -714,7 +727,7 @@ async function hookline_chainStatus_handler(params, id, ctx) {
       chainId,
       chainIdHex: '0x' + chainIdNum.toString(16),
       name: cfg.name,
-      upstream: cfg.upstream,
+      upstream: blockRes.upstream || chainIdRes.upstream || cfg.upstream,
       latencyMs: elapsedMs,
       status: 'error',
       errors: [blockRes.error || { code: -32603, message: 'malformed eth_blockNumber response' }],
@@ -725,7 +738,7 @@ async function hookline_chainStatus_handler(params, id, ctx) {
     chainId,
     chainIdHex: '0x' + chainIdNum.toString(16),
     name: cfg.name,
-    upstream: cfg.upstream,
+    upstream: blockRes.upstream || chainIdRes.upstream || cfg.upstream,
     blockNumber: blockNum,
     blockNumberHex: blockRes.result,
     latencyMs: elapsedMs,
@@ -755,8 +768,8 @@ async function hookline_getHook_handler(params, id, ctx) {
   const cfg = CHAIN_CONFIG[chainId];
   const startedAt = performance.now();
 
-  const codeRes = await callUpstream(
-    cfg.upstream,
+  const codeRes = await callChainUpstream(
+    cfg,
     { jsonrpc: '2.0', method: 'eth_getCode', params: [addr, 'latest'], id: 1 },
     UPSTREAM_TIMEOUT_MS
   );
@@ -783,8 +796,8 @@ async function hookline_getHook_handler(params, id, ctx) {
   const runtimeFingerprintHex = await sha256HexOfHex(bytecode);
 
   // Owner probe — never fails the whole request.
-  const probeRes = await callUpstream(
-    cfg.upstream,
+  const probeRes = await callChainUpstream(
+    cfg,
     {
       jsonrpc: '2.0',
       method: 'eth_call',
@@ -821,7 +834,7 @@ async function hookline_getHook_handler(params, id, ctx) {
     chainIdHex: '0x' + chainId.toString(16),
     name: cfg.name,
     address: addr,
-    upstream: cfg.upstream,
+    upstream: codeRes.upstream || cfg.upstream,
     codeByteLength,
     runtimeFingerprint: { algorithm: 'SHA-256', fingerprint: runtimeFingerprintHex },
     owner,
@@ -931,8 +944,8 @@ async function proxyStandardRpc(chainId, parsed, id, ctx) {
   }
 
   const startedAt = performance.now();
-  const res = await callUpstream(
-    cfg.upstream,
+  const res = await callChainUpstream(
+    cfg,
     { jsonrpc: '2.0', method: parsed.method, params: parsed.params, id },
     UPSTREAM_TIMEOUT_MS
   );
@@ -951,7 +964,7 @@ async function jsonMetricsBody() {
     entries.map(async ([idKey, cfg]) => {
       const start = performance.now();
       try {
-        const res = await callUpstream(cfg.upstream, { jsonrpc: '2.0', method: 'eth_blockNumber', params: [], id: 'metrics-' + idKey }, UPSTREAM_TIMEOUT_MS);
+        const res = await callChainUpstream(cfg, { jsonrpc: '2.0', method: 'eth_blockNumber', params: [], id: 'metrics-' + idKey }, UPSTREAM_TIMEOUT_MS);
         const blockNumber = res.error ? null : hexToInt(res.result);
         const healthy = !res.error && blockNumber !== null;
         const error = res.error ? res.error.message : healthy ? null : 'malformed eth_blockNumber response';

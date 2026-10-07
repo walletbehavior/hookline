@@ -31,6 +31,7 @@ let failedUpstream = null;
 function upstreamChainId(url) {
   if (url === 'https://eth.drpc.org') return '0x1';
   if (url === 'https://base-rpc.publicnode.com') return '0x2105';
+  if (url === 'https://mainnet.base.org') return '0x2105';
   if (url === 'https://arb1.arbitrum.io/rpc') return '0xa4b1';
   if (url === 'https://robinhood.drpc.org') return '0x1237';
   throw new Error(`unexpected upstream URL: ${url}`);
@@ -350,12 +351,13 @@ try {
   const partialMetricsResponse = await request('/metrics');
   assert.equal(partialMetricsResponse.status, 200);
   const partialMetrics = await partialMetricsResponse.json();
-  assert.equal(partialMetrics.healthyChains, 3);
-  assert.equal(partialMetrics.baseLatestBlock, null);
+  assert.equal(partialMetrics.healthyChains, 4);
+  assert.equal(partialMetrics.baseLatestBlock, 256);
   const failedBase = partialMetrics.chains.find((chain) => chain.chainId === 8453);
-  assert.equal(failedBase.healthy, false);
-  assert.equal(failedBase.blockNumber, null);
-  assert.ok(failedBase.error);
+  assert.equal(failedBase.healthy, true);
+  assert.equal(failedBase.blockNumber, 256);
+  assert.ok(upstreamCalls.some((call) =>
+    call.url === 'https://mainnet.base.org' && call.payload.method === 'eth_blockNumber'));
   failedUpstream = null;
 
   const docsResponse = await request('/rpc');
