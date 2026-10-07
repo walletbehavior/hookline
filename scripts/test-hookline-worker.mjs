@@ -263,6 +263,19 @@ try {
     'PonsV2MemeHook'
   );
 
+  const tokenIndexResponse = await request('/data/token-hooks.json');
+  assert.equal(tokenIndexResponse.status, 200);
+  const tokenIndex = await tokenIndexResponse.json();
+  assert.equal(tokenIndex.schemaVersion, 1);
+  assert.ok(tokenIndex.coverage.relationships >= 1000);
+  assert.equal(tokenIndex.coverage.hooksFailed, 0);
+
+  const defaultTokenHooksResponse = await request('/api/token-hooks');
+  assert.equal(defaultTokenHooksResponse.status, 200);
+  const defaultTokenHooks = await defaultTokenHooksResponse.json();
+  assert.ok(defaultTokenHooks.relationships.length >= 1000);
+  assert.equal(defaultTokenHooks.relationships.length, tokenIndex.coverage.relationships);
+
   const marketsResponse = await request(`/api/hook-markets?chainId=8453&address=0x${'ab'.repeat(20)}`);
   assert.equal(marketsResponse.status, 200);
   assert.equal(marketsResponse.headers.get('x-hookline-cache'), 'MISS');

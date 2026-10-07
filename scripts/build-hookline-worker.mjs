@@ -3,7 +3,7 @@
 // Builds the Cloudflare Worker-compatible ESM artifact for Hookline:
 //
 //   1. Reads the existing static bundle: dist/index.html, dist/styles.css,
-//      dist/app.js and dist/hooks.json.
+//      dist/app.js, dist/hooks.json and dist/token-hooks.json.
 //   2. Validates the assets (must not contain inline <script> bodies or
 //      server-side template syntax).
 //   3. Reads worker/index.js (the maintainable runtime source).
@@ -38,9 +38,10 @@ const htmlPath = join(dist, 'index.html');
 const cssPath = join(dist, 'styles.css');
 const appPath = join(dist, 'app.js');
 const hooksPath = join(dist, 'hooks.json');
+const tokenHooksPath = join(dist, 'token-hooks.json');
 
 const missing = [];
-for (const p of [htmlPath, cssPath, appPath, hooksPath]) {
+for (const p of [htmlPath, cssPath, appPath, hooksPath, tokenHooksPath]) {
   try {
     readFileSync(p, 'utf8');
   } catch {
@@ -55,11 +56,14 @@ const html = readFileSync(htmlPath, 'utf8');
 const css = readFileSync(cssPath, 'utf8');
 const app = readFileSync(appPath, 'utf8');
 const hooks = readFileSync(hooksPath, 'utf8');
+const tokenHooks = readFileSync(tokenHooksPath, 'utf8');
 const runtime = readFileSync(workerSrc, 'utf8');
 
 const assetVersion = createHash('sha256')
   .update(css)
   .update(app)
+  .update(hooks)
+  .update(tokenHooks)
   .digest('hex')
   .slice(0, 12);
 const versionedHtml = html
@@ -85,6 +89,7 @@ for (const [name, content] of [
   ['styles.css', css],
   ['app.js', app],
   ['hooks.json', hooks],
+  ['token-hooks.json', tokenHooks],
 ]) {
   const inlineScriptRe = /<\s*script\b(?![^>]*\bsrc\s*=)/;
   if (inlineScriptRe.test(content)) {
@@ -107,6 +112,7 @@ const assetsBlock =
   `  css: ${JSON.stringify(css)},\n` +
   `  app: ${JSON.stringify(app)},\n` +
   `  hooks: ${JSON.stringify(hooks)},\n` +
+  `  tokenHooks: ${JSON.stringify(tokenHooks)},\n` +
   `});\n`;
 
 const emitted = runtime.replace(/\/\* @ASSETS-INJECT \*\/\s*\n?/s, () => assetsBlock);
@@ -127,5 +133,5 @@ try {
 }
 
 console.log(`✓ Built Cloudflare Worker artifact: ${out}`);
-console.log(`  embedded static assets: index.html (${versionedHtml.length} bytes), styles.css (${css.length} bytes), app.js (${app.length} bytes), hooks.json (${hooks.length} bytes)`);
+console.log(`  embedded static assets: index.html (${versionedHtml.length} bytes), styles.css (${css.length} bytes), app.js (${app.length} bytes), hooks.json (${hooks.length} bytes), token-hooks.json (${tokenHooks.length} bytes)`);
 console.log(`  asset version: ${assetVersion}`);

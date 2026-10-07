@@ -3,7 +3,7 @@
 
    This is the maintainable runtime source. The build step
    (scripts/build-hookline-worker.mjs) reads dist/index.html, dist/styles.css,
-   dist/app.js and dist/hooks.json, embeds them with JSON.stringify and emits a single
+   dist/app.js, dist/hooks.json and dist/token-hooks.json, embeds them with JSON.stringify and emits a single
    self-contained artifact at dist/server/index.js.
 
    Export contract: default.fetch(request, env, ctx) — the Cloudflare Worker
@@ -40,7 +40,7 @@ import { facilitator as payAiFacilitator } from '@payai/facilitator';
 // ---------------------------------------------------------------------------
 // Static assets (public bundle) — injected by scripts/build-hookline-worker.mjs
 // via JSON.stringify over dist/index.html, dist/styles.css, dist/app.js and
-// dist/hooks.json.
+// dist/hooks.json and dist/token-hooks.json.
 // The build script replaces the marker below verbatim with the embedded assets.
 // ---------------------------------------------------------------------------
 /* @ASSETS-INJECT */
@@ -113,6 +113,7 @@ const DEXSCREENER_SLUG_CHAINS = Object.freeze(
 
 let canonicalHookAddresses;
 let indexedHooks;
+let tokenIndexSnapshot;
 
 function ensureHookIndexes() {
   if (!canonicalHookAddresses) {
@@ -142,6 +143,11 @@ function canonicalIndexedHookAddress(chainId, address) {
 function indexedHook(chainId, address) {
   ensureHookIndexes();
   return indexedHooks.get(`${chainId}:${address.toLowerCase()}`) || null;
+}
+
+function staticTokenIndex() {
+  if (!tokenIndexSnapshot) tokenIndexSnapshot = JSON.parse(ASSETS.tokenHooks);
+  return tokenIndexSnapshot;
 }
 
 // ---------------------------------------------------------------------------
@@ -184,6 +190,7 @@ const STATIC_ROUTES = Object.freeze({
   '/styles.css': { type: 'text/css; charset=utf-8', key: 'css' },
   '/app.js': { type: 'application/javascript; charset=utf-8', key: 'app' },
   '/data/hooks.json': { type: 'application/json; charset=utf-8', key: 'hooks' },
+  '/data/token-hooks.json': { type: 'application/json; charset=utf-8', key: 'tokenHooks' },
 });
 
 const HOOKLINE_METHODS = new Set([
@@ -1167,17 +1174,27 @@ async function poolsFromDexSearch(query) {
 }
 
 async function resolveTokenHooks(query) {
+  if (!query) {
+    const snapshot = staticTokenIndex();
+    return {
+      query: null,
+      observedAt: snapshot.generatedAt,
+      source: snapshot.source,
+      coverage: snapshot.coverage,
+      relationships: Array.isArray(snapshot.relationships) ? snapshot.relationships : [],
+    };
+  }
+
   let resolved = [];
-  if (query && EVM_ADDRESS_RE.test(query)) {
+  if (EVM_ADDRESS_RE.test(query)) {
     resolved = await poolsFromDexSearch(query);
   } else {
     try {
-      const target = query ? `${V4_SEARCH_URL}?q=${encodeURIComponent(query)}` : V4_POOLS_URL;
+      const target = `${V4_SEARCH_URL}?q=${encodeURIComponent(query)}`;
       const payload = await fetchBoundedJson(target);
       const pools = Array.isArray(payload?.pools) ? payload.pools : Array.isArray(payload?.Pool) ? payload.Pool : [];
       resolved = pools.map((pool) => ({ pool, pair: null }));
     } catch (error) {
-      if (!query) throw error;
       resolved = await poolsFromDexSearch(query);
     }
   }
@@ -1191,7 +1208,7 @@ async function resolveTokenHooks(query) {
     ))
     .slice(0, 50);
   return {
-    query: query || null,
+    query,
     observedAt: new Date().toISOString(),
     source: query && EVM_ADDRESS_RE.test(query) ? 'DexScreener + v4.xyz' : 'v4.xyz',
     relationships,
@@ -1512,6 +1529,7 @@ export default {
 
       const cacheUrl = new URL('/api/token-hooks', url.origin);
       if (query) cacheUrl.searchParams.set('q', query.toLowerCase());
+      else cacheUrl.searchParams.set('index', String(staticTokenIndex().generatedAt || '1'));
       const cacheRequest = new Request(cacheUrl.toString(), { method: 'GET' });
       const edgeCache = globalThis.caches?.default;
       if (edgeCache) {
