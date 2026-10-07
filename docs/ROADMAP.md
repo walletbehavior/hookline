@@ -6,7 +6,7 @@ The roadmap separates shipped work from planned work. Sequence can change as cha
 
 Status: operating in production.
 
-- Live contract inspection on four chains
+- Live contract inspection on five chains
 - Cross-chain hook board and project directory
 - Timestamped indexed pool and swap aggregates
 - Permission decoding and runtime fingerprints

@@ -4,11 +4,12 @@
 
   const CHAINS = Object.freeze({
     1: { name: 'Ethereum', code: 'ETH' },
+    56: { name: 'BNB Chain', code: 'BNB' },
     8453: { name: 'Base', code: 'BASE' },
     42161: { name: 'Arbitrum One', code: 'ARB' },
     4663: { name: 'Robinhood Chain', code: 'RHB' },
   });
-  const SUPPORTED_CHAINS = Object.freeze([1, 8453, 42161, 4663]);
+  const SUPPORTED_CHAINS = Object.freeze([1, 56, 8453, 42161, 4663]);
   const PERMISSION_FLAGS = Object.freeze([
     'beforeInitialize', 'afterInitialize', 'beforeAddLiquidity', 'afterAddLiquidity',
     'beforeRemoveLiquidity', 'afterRemoveLiquidity', 'beforeSwap', 'afterSwap',
@@ -35,7 +36,7 @@
     42220: 'celo', 43114: 'avalanche', 57073: 'ink', 81457: 'blast',
   });
   const MARKET_RESOLVER_VERSION = '3';
-  const MARKET_CACHE_KEY = 'hookline:market-cache:v2';
+  const MARKET_CACHE_KEY = 'hookline:market-cache:v3';
   const MARKET_CACHE_FRESH_MS = 10 * 60 * 1000;
   const MARKET_CACHE_STALE_MS = 24 * 60 * 60 * 1000;
   const MARKET_CACHE_MAX_ENTRIES = 80;
@@ -275,9 +276,15 @@
     return new Intl.NumberFormat(undefined, { notation: 'compact', maximumFractionDigits: 1 }).format(number);
   }
 
-  function formatUsd(value, compact) {
+  function finiteNumberOrNull(value) {
+    if (value == null || value === '') return null;
     const number = Number(value);
-    if (!Number.isFinite(number)) return '—';
+    return Number.isFinite(number) ? number : null;
+  }
+
+  function formatUsd(value, compact) {
+    const number = finiteNumberOrNull(value);
+    if (number == null) return '—';
     if (compact && Math.abs(number) >= 1000) return '$' + compactNumber(number);
     const digits = Math.abs(number) < 0.01 ? 8 : Math.abs(number) < 1 ? 5 : 2;
     return '$' + number.toLocaleString(undefined, { maximumFractionDigits: digits });
@@ -1842,8 +1849,8 @@
         makeElement('strong', '', market.baseToken?.symbol ? `$${market.baseToken.symbol}` : market.poolName),
         makeElement('span', '', market.baseToken?.name || market.poolName || 'Token market'),
       );
-      const change = Number(market.priceChange24h);
-      const changeNode = makeElement('b', Number.isFinite(change) ? (change > 0 ? 'positive' : change < 0 ? 'negative' : '') : '', Number.isFinite(change) ? `${change > 0 ? '+' : ''}${change.toFixed(2)}%` : '—');
+      const change = finiteNumberOrNull(market.priceChange24h);
+      const changeNode = makeElement('b', change != null ? (change > 0 ? 'positive' : change < 0 ? 'negative' : '') : '', change != null ? `${change > 0 ? '+' : ''}${change.toFixed(2)}%` : '—');
       head.append(identity, changeNode);
       const pair = makeElement('p', 'market-pair', `${market.baseToken?.symbol || '?'} / ${market.quoteToken?.symbol || '?'} · ${market.dexLabel || 'DEX'}`);
       const stats = makeElement('div', 'market-stats');
@@ -1954,11 +1961,11 @@
             baseToken: pair.baseToken || market.baseToken,
             quoteToken: pair.quoteToken || market.quoteToken,
             dexLabel: pair.dexId === 'uniswap' ? `Uniswap ${Array.isArray(pair.labels) && pair.labels[0] ? pair.labels[0] : ''}`.trim() : cleanString(pair.dexId, 40) || market.dexLabel,
-            priceUsd: Number.isFinite(Number(pair.priceUsd)) ? Number(pair.priceUsd) : market.priceUsd,
-            priceChange24h: Number.isFinite(Number(pair.priceChange?.h24)) ? Number(pair.priceChange.h24) : market.priceChange24h,
-            volume24h: Number.isFinite(Number(pair.volume?.h24)) ? Number(pair.volume.h24) : market.volume24h,
-            liquidityUsd: Number.isFinite(Number(pair.liquidity?.usd)) ? Number(pair.liquidity.usd) : market.liquidityUsd,
-            marketCap: Number.isFinite(Number(pair.marketCap ?? pair.fdv)) ? Number(pair.marketCap ?? pair.fdv) : market.marketCap,
+            priceUsd: finiteNumberOrNull(pair.priceUsd) ?? market.priceUsd,
+            priceChange24h: finiteNumberOrNull(pair.priceChange?.h24) ?? market.priceChange24h,
+            volume24h: finiteNumberOrNull(pair.volume?.h24) ?? market.volume24h,
+            liquidityUsd: finiteNumberOrNull(pair.liquidity?.usd) ?? market.liquidityUsd,
+            marketCap: finiteNumberOrNull(pair.marketCap ?? pair.fdv) ?? market.marketCap,
             chartUrl: cleanString(pair.url, 500) || market.chartUrl,
             website: cleanString(website, 500) || null,
             x: cleanString(x, 500) || null,

@@ -59,13 +59,23 @@ const CHAIN_CONFIG = Object.freeze({
     code: 'ETH',
     upstream: 'https://eth.drpc.org',
   },
+  56: {
+    name: 'BNB Chain',
+    code: 'BNB',
+    upstream: 'https://bsc-dataseed.bnbchain.org',
+  },
   8453: {
     name: 'Base',
     code: 'BASE',
     upstream: 'https://base-rpc.publicnode.com',
     fallbackUpstreams: Object.freeze(['https://mainnet.base.org']),
   },
-  42161: { name: 'Arbitrum One', code: 'ARB', upstream: 'https://arb1.arbitrum.io/rpc' },
+  42161: {
+    name: 'Arbitrum One',
+    code: 'ARB',
+    upstream: 'https://arb1.arbitrum.io/rpc',
+    fallbackUpstreams: Object.freeze(['https://arbitrum.drpc.org']),
+  },
   4663: {
     name: 'Robinhood Chain',
     code: 'RHB',

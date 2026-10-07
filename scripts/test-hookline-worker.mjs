@@ -80,9 +80,11 @@ const executionBinding = {
 
 function upstreamChainId(url) {
   if (url === 'https://eth.drpc.org') return '0x1';
+  if (url === 'https://bsc-dataseed.bnbchain.org') return '0x38';
   if (url === 'https://base-rpc.publicnode.com') return '0x2105';
   if (url === 'https://mainnet.base.org') return '0x2105';
   if (url === 'https://arb1.arbitrum.io/rpc') return '0xa4b1';
+  if (url === 'https://arbitrum.drpc.org') return '0xa4b1';
   if (url === 'https://robinhood.drpc.org') return '0x1237';
   throw new Error(`unexpected upstream URL: ${url}`);
 }
@@ -307,7 +309,7 @@ try {
   assert.match(appSource, /hookline:watchlists:v3/);
   assert.match(appSource, /Promise\.all\(\[worker\(\), worker\(\)\]\)/);
   assert.match(appSource, /fetch\('\/metrics'/);
-  assert.match(appSource, /hookline:market-cache:v2/);
+  assert.match(appSource, /hookline:market-cache:v3/);
   assert.match(appSource, /api\/token-hooks/);
   assert.match(appSource, /board-profile-open/);
   assert.match(appSource, /boardVelocity/);
@@ -465,17 +467,17 @@ try {
   const metricsResponse = await request('/metrics');
   assert.equal(metricsResponse.status, 200);
   const metrics = await metricsResponse.json();
-  assert.equal(metrics.supportedChains, 4);
-  assert.equal(metrics.healthyChains, 4);
+  assert.equal(metrics.supportedChains, 5);
+  assert.equal(metrics.healthyChains, 5);
   assert.equal(metrics.baseLatestBlock, 256);
-  assert.equal(metrics.chains.length, 4);
+  assert.equal(metrics.chains.length, 5);
   assert.equal(metrics.chains.every((chain) => chain.healthy), true);
 
   failedUpstream = 'https://base-rpc.publicnode.com';
   const partialMetricsResponse = await request('/metrics');
   assert.equal(partialMetricsResponse.status, 200);
   const partialMetrics = await partialMetricsResponse.json();
-  assert.equal(partialMetrics.healthyChains, 4);
+  assert.equal(partialMetrics.healthyChains, 5);
   assert.equal(partialMetrics.baseLatestBlock, 256);
   const failedBase = partialMetrics.chains.find((chain) => chain.chainId === 8453);
   assert.equal(failedBase.healthy, true);

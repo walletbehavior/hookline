@@ -8,7 +8,7 @@ Hookline is a multichain evidence and analytics desk for programmable-liquidity 
 
 ## What works today
 
-- Live contract inspection on Ethereum, Base, Arbitrum One, and Robinhood Chain
+- Live contract inspection on Ethereum, BNB Chain, Base, Arbitrum One, and Robinhood Chain
 - Cross-chain hook board with 1,000+ active hook identities across 10+ chains
 - Searchable community project directory with explicit source labels
 - Aggregate indexed pool and swap counts with snapshot timestamps

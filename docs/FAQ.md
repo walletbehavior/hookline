@@ -10,7 +10,7 @@ Hook information is split across explorers, repositories, RPC calls, dashboards,
 
 ## Where does the current data come from?
 
-The board uses a timestamped v4.xyz community-indexer snapshot for hook discovery and aggregate pool and swap counts. Its directory metadata is community-curated, project-submitted, or Hookline-researched and labeled accordingly. Live contract evidence comes directly from configured Ethereum, Base, Arbitrum One, and Robinhood Chain RPC endpoints. Hookline uses bytecode and call methods, current block height, deterministic hashing, and local permission decoding.
+The board uses a timestamped v4.xyz community-indexer snapshot for hook discovery and aggregate pool and swap counts. Its directory metadata is community-curated, project-submitted, or Hookline-researched and labeled accordingly. Live contract evidence comes directly from configured Ethereum, BNB Chain, Base, Arbitrum One, and Robinhood Chain RPC endpoints. Hookline uses bytecode and call methods, current block height, deterministic hashing, and local permission decoding.
 
 ## Is the board exhaustive?
 

@@ -149,7 +149,7 @@
       <footer class="board-provenance">
         <div><b>DISCOVERY + COUNTS</b><span>v4.xyz community indexer snapshot</span></div>
         <div><b>PROJECT RECORDS</b><span>community-curated and submitted metadata</span></div>
-        <div><b>LIVE EVIDENCE</b><span>Hookline RPC on Ethereum, Base, Arbitrum, and Robinhood Chain</span></div>
+        <div><b>LIVE EVIDENCE</b><span>Hookline RPC on Ethereum, BNB, Base, Arbitrum, and Robinhood Chain</span></div>
       </footer>
     </section>
 
@@ -161,7 +161,7 @@
           <p class="desk-lede">Inspect, verify, monitor, and build around programmable liquidity across chains.</p>
         </div>
         <div class="desk-scope" aria-label="Supported chains">
-          <span>ETHEREUM</span><span>BASE</span><span>ARBITRUM</span><span>ROBINHOOD</span>
+          <span>ETHEREUM</span><span>BNB</span><span>BASE</span><span>ARBITRUM</span><span>ROBINHOOD</span>
         </div>
       </div>
 
@@ -179,6 +179,7 @@
             <label for="inspect-chain">Chain</label>
             <select id="inspect-chain" required>
               <option value="1">Ethereum (1)</option>
+              <option value="56">BNB Chain (56)</option>
               <option value="8453" selected>Base (8453)</option>
               <option value="42161">Arbitrum One (42161)</option>
               <option value="4663">Robinhood Chain (4663)</option>
@@ -248,6 +249,7 @@
               <select id="watchlist-chain-filter" aria-label="Filter by chain">
                 <option value="all">All chains</option>
                 <option value="1">Ethereum</option>
+                <option value="56">BNB Chain</option>
                 <option value="8453">Base</option>
                 <option value="42161">Arbitrum</option>
                 <option value="4663">Robinhood</option>
@@ -448,7 +450,7 @@
           <span class="panel-kicker">06 / FAQ</span>
           <h2>Frequently asked questions</h2>
           <div class="faq-list">
-            <details><summary>Where does Hookline data come from?</summary><p>The hook board uses a timestamped v4.xyz community-indexer snapshot for discovery and aggregate pool and swap counts. Names and descriptions are community-curated or project-submitted. Live contract evidence comes directly from configured Ethereum, Base, Arbitrum One, and Robinhood Chain RPC endpoints.</p></details>
+            <details><summary>Where does Hookline data come from?</summary><p>The hook board uses a timestamped v4.xyz community-indexer snapshot for discovery and aggregate pool and swap counts. Names and descriptions are community-curated or project-submitted. Live contract evidence comes directly from configured Ethereum, BNB Chain, Base, Arbitrum One, and Robinhood Chain RPC endpoints.</p></details>
             <details><summary>Is Hookline already indexing volume and liquidity?</summary><p>Yes. Open a hook profile to resolve related markets. When DexScreener has the pool, Hookline shows price, market cap, liquidity, 24-hour volume, and change alongside the indexed hook relationship.</p></details>
             <details><summary>What does Velocity mean?</summary><p>Velocity ranks the current indexed activity density of each hook or token relationship. It is a discovery ranking, not a promise of future performance.</p></details>
             <details><summary>What is the Hook Tape?</summary><p>It is the planned block-range feed for what hooked pools advertised and what the available transaction evidence shows happened. Tape rows will separate pool fees from measurable hook deltas, report refused swaps and recipients only when supported, and link to the underlying evidence.</p></details>
@@ -516,7 +518,7 @@
 
   <footer class="site-footer">
     <span>HOOKLINE / MULTICHAIN HOOKS ANALYTICS DESK</span>
-    <span>Ethereum · Base · Arbitrum · Robinhood Chain</span>
+    <span>Ethereum · BNB · Base · Arbitrum · Robinhood Chain</span>
     <span><a href="#/board">Board</a> · <a href="#/docs">Docs</a> · <a href="#/network">RPC and network</a> · <a href="https://github.com/walletbehavior/hookline" target="_blank" rel="noopener noreferrer">GitHub</a></span>
     <p><a href="https://x.com/_hookline" target="_blank" rel="noopener noreferrer">X</a> · <a href="https://t.me/HooklineTradeBot" target="_blank" rel="noopener noreferrer">Telegram</a></p>
   </footer>
