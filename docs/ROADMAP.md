@@ -25,34 +25,41 @@ Acceptance criteria:
 - Transaction submission remains unavailable.
 - Public claims contain no fabricated usage or market data.
 
-## Next: first-party hook registry and pool graph
+## Next: Hook Tape and runtime families
 
 - Index PoolManager initialization events on the first production chain
 - Build canonical hook-deployment and pool identities
 - Store raw logs and reorganization-safe cursors
-- Expand searchable hook and pool profiles with first-party event provenance
-- Add verified-source and deployer metadata with provenance
-- Expose indexed records through the API
+- Index swap outcomes and hook calls over explicit block ranges
+- Measure the pool-advertised fee separately from observable hook-adjusted token flow
+- Record swap refusals, hook gas, recipients, and return-delta involvement where the evidence supports it
+- Cluster deployments by runtime fingerprint and identify changed forks as separate families
+- Publish short tape rows with links to their source transactions, logs, traces, and derivation version
+- Alert on material fee deltas, refusal-rate changes, and new deployments of known runtime families
 
 Acceptance criteria:
 
 - Every pool relationship resolves to its originating transaction and block.
+- Every tape metric identifies the exact chain, hook, pool, and block range.
+- Pool fee, hook delta, and measured token flow remain separate fields.
+- A metric is withheld when the available receipt or trace cannot support it.
+- Runtime-family membership is reproducible from retained bytecode and its fingerprint.
 - The index can rebuild its derived state from retained source data.
 - Project-submitted profiles are visibly separate from chain observations.
 
-## After that: activity and change intelligence
+## After that: route checks and change intelligence
 
-- Index swaps, liquidity modifications, and donations
-- Add explicit block-range activity metrics
+- Compare pool price with the hook-adjusted execution result before user signing
+- Show hook fees and Hookline execution fees in one preview
 - Detect runtime, owner, permission, and dependency changes
-- Add saved-search, code-change, and watchlist alerts
+- Add saved-search, runtime-family, and watchlist alerts
 - Provide activity, change, and dependency timelines
 - Add CSV and JSON dataset exports
 
 Acceptance criteria:
 
 - Each metric displays chain, block range, generated time, and derivation version.
-- Alerts link to the before and after evidence.
+- Alerts link to the before and after evidence or the exact tape range.
 - Reorganizations produce deterministic corrections rather than duplicate activity.
 
 ## Professional layer

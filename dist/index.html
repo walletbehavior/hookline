@@ -58,16 +58,16 @@
         <header class="board-toolbar">
           <div class="board-search-wrap">
             <span aria-hidden="true">⌕</span>
-            <input id="board-search" type="search" placeholder="Search name, address, chain, permission…" autocomplete="off" aria-label="Search hook board">
+            <input id="board-search" type="search" placeholder="Search name, address, chain, behavior…" autocomplete="off" aria-label="Search hook board">
           </div>
           <select id="board-chain" aria-label="Filter hook board by chain"><option value="all">All chains</option></select>
-          <select id="board-profile" aria-label="Filter hook board by permission profile">
-            <option value="all">All capabilities</option>
-            <option value="swap">Swap callbacks</option>
-            <option value="liquidity">Liquidity callbacks</option>
-            <option value="initialize">Initialize callbacks</option>
-            <option value="donate">Donate callbacks</option>
-            <option value="delta">Return deltas</option>
+          <select id="board-profile" aria-label="Filter hook board by encoded behavior">
+            <option value="all">All behaviors</option>
+            <option value="swap-intercept">Pre-swap checks</option>
+            <option value="swap-rewrite">Swap delta changes</option>
+            <option value="liquidity-gate">Liquidity gating</option>
+            <option value="donate-handle">Donation handling</option>
+            <option value="return-delta">Any return delta</option>
           </select>
           <select id="board-sort" aria-label="Sort hook board">
             <option value="velocity">Velocity</option>
@@ -86,7 +86,7 @@
         <div class="hook-board-grid">
           <div class="hook-table-wrap">
             <table class="hook-table" aria-label="Indexed hooks">
-              <thead><tr><th>#</th><th><div class="identity-mode" aria-label="Board identity mode"><button id="board-mode-hook" type="button" aria-pressed="true">HOOK</button><span>/</span><button id="board-mode-token" type="button" aria-pressed="false">TOKEN</button></div></th><th>Chain</th><th>Capability profile</th><th id="board-pools-heading" class="number">Pools</th><th id="board-swaps-heading" class="number">Swaps</th><th>Coverage</th></tr></thead>
+              <thead><tr><th>#</th><th><div class="identity-mode" aria-label="Board identity mode"><button id="board-mode-hook" type="button" aria-pressed="true">HOOK</button><span>/</span><button id="board-mode-token" type="button" aria-pressed="false">TOKEN</button></div></th><th>Chain</th><th>Encoded behavior</th><th id="board-pools-heading" class="number">Pools</th><th id="board-swaps-heading" class="number">Swaps</th><th>Coverage</th></tr></thead>
               <tbody id="hook-board-body"></tbody>
             </table>
             <div id="board-empty" class="board-empty" hidden>No hooks match these filters.</div>
@@ -107,6 +107,7 @@
               <p class="panel-kicker">HOOK PROFILE</p>
               <h2 id="hook-profile-title"></h2>
               <div class="profile-address-line"><code id="hook-profile-address"></code><button id="hook-profile-copy" class="copy-icon-btn" type="button" aria-label="Copy hook address" title="Copy hook address"><span class="copy-icon" aria-hidden="true"></span></button></div>
+              <p id="hook-profile-capability" class="profile-capability"></p>
               <p id="hook-profile-description" class="profile-description"></p>
               <div class="profile-metrics">
                 <div><span>POOLS</span><strong id="hook-profile-pools"></strong></div>
@@ -427,7 +428,7 @@
           <div class="system-graph" aria-label="Hookline system-of-record graph">
             <span>HOOKS</span><i>,</i><span>POOLS</span><i>,</i><span>CHAINS</span><i>,</i><span>DEPLOYERS</span><i>,</i><span>CODE</span><i>,</i><span>EVENTS</span>
           </div>
-          <p>The board now supplies broad cross-chain discovery and aggregate activity. The next data layer indexes official PoolManager initialization, swap, liquidity, and donation events into a rebuildable first-party graph. Every metric keeps its chain, block range, generated time, and derivation version.</p>
+          <p>The board is the map. The next product layer is the Hook Tape: block-range evidence for swaps touched, swaps refused, pool-advertised fees, measurable hook-adjusted flows, recipients, gas, and runtime families. Every metric keeps its chain, block range, generated time, evidence links, and derivation version.</p>
           <a class="doc-link" href="https://github.com/walletbehavior/hookline/blob/main/docs/WHITEPAPER.md" target="_blank" rel="noopener noreferrer">Read the complete whitepaper on GitHub</a>
         </section>
 
@@ -436,8 +437,8 @@
           <h2>Build usefulness before surface area</h2>
           <ol class="roadmap">
             <li class="current"><span>NOW</span><div><h3>Dependable evidence desk</h3><p>Live inspection, permission decoding, watchlists, comparisons, telemetry, free RPC, and x402 capacity.</p></div></li>
-            <li><span>NEXT</span><div><h3>Hook registry and pool graph</h3><p>PoolManager event ingestion, canonical identities, raw-log retention, verified-source metadata, and searchable profiles.</p></div></li>
-            <li><span>NOW</span><div><h3>Activity and market intelligence</h3><p>Indexed velocity, related-token discovery, live contract evidence, and DexScreener market enrichment.</p></div></li>
+            <li><span>NEXT</span><div><h3>Hook Tape and runtime families</h3><p>PoolManager event ingestion, fee and refusal evidence, recipient flows, block-range tape rows, and bytecode-family alerts.</p></div></li>
+            <li><span>AFTER</span><div><h3>Route checks and user-owned execution</h3><p>Pool quote, hook-adjusted result, complete fee stack, cashback, and explicit browser signing from Telegram.</p></div></li>
             <li><span>LATER</span><div><h3>Professional and ecosystem layers</h3><p>Team workspaces, webhooks, longer retention, signed manifests, contributed research, and additional programmable-liquidity systems.</p></div></li>
           </ol>
           <a class="doc-link" href="https://github.com/walletbehavior/hookline/blob/main/docs/ROADMAP.md" target="_blank" rel="noopener noreferrer">See roadmap acceptance criteria</a>
@@ -450,6 +451,7 @@
             <details><summary>Where does Hookline data come from?</summary><p>The hook board uses a timestamped v4.xyz community-indexer snapshot for discovery and aggregate pool and swap counts. Names and descriptions are community-curated or project-submitted. Live contract evidence comes directly from configured Ethereum, Base, Arbitrum One, and Robinhood Chain RPC endpoints.</p></details>
             <details><summary>Is Hookline already indexing volume and liquidity?</summary><p>Yes. Open a hook profile to resolve related markets. When DexScreener has the pool, Hookline shows price, market cap, liquidity, 24-hour volume, and change alongside the indexed hook relationship.</p></details>
             <details><summary>What does Velocity mean?</summary><p>Velocity ranks the current indexed activity density of each hook or token relationship. It is a discovery ranking, not a promise of future performance.</p></details>
+            <details><summary>What is the Hook Tape?</summary><p>It is the planned block-range feed for what hooked pools advertised and what the available transaction evidence shows happened. Tape rows will separate pool fees from measurable hook deltas, report refused swaps and recipients only when supported, and link to the underlying evidence.</p></details>
             <details><summary>What does the Telegram bot do?</summary><p>Send it a token or hook address to navigate hook relationships, related tokens, markets, and trade previews. A hook profile can enable a Telegram alert for new pools or an aggregate liquidity move of 10% or more. Checks run every 10 minutes. User-owned wallet signing is not connected yet.</p></details>
             <details><summary>What will Telegram trading cost?</summary><p>Hookline’s planned execution fee is 1% of trade notional, with 0.3% of trade notional returned to the user as cashback. Execution remains inactive until user-owned wallet signing is connected.</p></details>
             <details><summary>What do the 14 permission flags prove?</summary><p>They identify which Uniswap v4 callback permissions are encoded in the hook address. They do not explain the complete runtime behavior and do not establish that a contract is safe.</p></details>

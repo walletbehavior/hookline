@@ -96,6 +96,12 @@ A searchable record of hook deployments, code versions, permissions, owners, poo
 
 A human workstation for inspection, history, comparisons, activity, dependency views, and reproducible exports.
 
+### Hook Tape
+
+A block-range feed of hook-mediated execution behavior. Tape rows separate the pool-advertised fee from measurable hook deltas and token flows, report refused swap attempts and hook gas where trace evidence exists, identify recipients when they can be proven, and link every claim to its source transaction, logs, traces, and derivation version.
+
+Runtime fingerprints group identical deployments into behavior families. A newly deployed copy of known bytecode is a family event; a runtime change is a distinct event even when the project name stays the same.
+
 ### Monitoring and alerts
 
 Hook profiles can already create bounded Telegram alerts for new pools and material liquidity changes. The monitoring layer expands next into code, ownership, permission, dependency, activity, and upstream-health changes.
@@ -119,8 +125,6 @@ The public product should remain useful without a token or paid account. Sustain
 - higher API limits and service guarantees
 - x402 queries for autonomous agents
 - integration and adapter work
-
-HKLN is the project's service-alignment asset on Base. It does not replace payment for infrastructure costs, establish governance by implication, or make a contract safe. Current product access does not require holding it. Any future holder capability must be implemented, bounded, and documented before being described as active utility.
 
 ## 7. Risks and limitations
 

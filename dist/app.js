@@ -183,6 +183,47 @@
     return { enabled: [...enabled], profiles };
   }
 
+  function capabilityPhrases(address) {
+    const enabled = new Set(decodePermissions(address).flags.filter((flag) => flag.enabled).map((flag) => flag.name));
+    const has = (name) => enabled.has(name);
+    const parts = [];
+    if (has('beforeSwapReturnDelta')) parts.push('swap input changes');
+    if (has('afterSwapReturnDelta')) parts.push('swap output changes');
+    if (!has('beforeSwapReturnDelta') && has('beforeSwap')) parts.push('pre-swap checks');
+    if (!has('afterSwapReturnDelta') && has('afterSwap')) parts.push('post-swap processing');
+    if (has('beforeAddLiquidity') || has('beforeRemoveLiquidity')) parts.push('liquidity gating');
+    if (has('afterAddLiquidityReturnDelta') || has('afterRemoveLiquidityReturnDelta')) parts.push('liquidity settlement changes');
+    if (has('beforeInitialize')) parts.push('initialization gating');
+    else if (has('afterInitialize')) parts.push('post-initialization processing');
+    if (has('beforeDonate') || has('afterDonate')) parts.push('donation handling');
+    return parts;
+  }
+
+  function capabilitySentence(item) {
+    if (!item.address) return 'Directory record, deployment not linked.';
+    const parts = capabilityPhrases(item.address);
+    if (!parts.length) return 'No callback permissions encoded.';
+    if (parts.length > 3) return `Permits ${parts.slice(0, 3).join(', ')} + ${parts.length - 3} more.`;
+    if (parts.length === 3) return `Permits ${parts[0]}, ${parts[1]}, and ${parts[2]}.`;
+    if (parts.length === 2) return `Permits ${parts[0]} and ${parts[1]}.`;
+    return `Permits ${parts[0]}.`;
+  }
+
+  function matchPermissionPattern(item, pattern) {
+    if (pattern === 'all') return true;
+    if (!item.address) return false;
+    const enabled = new Set(decodePermissions(item.address).flags.filter((flag) => flag.enabled).map((flag) => flag.name));
+    if (pattern === 'swap-intercept') return enabled.has('beforeSwap');
+    if (pattern === 'swap-rewrite') return enabled.has('beforeSwapReturnDelta') || enabled.has('afterSwapReturnDelta');
+    if (pattern === 'liquidity-gate') return enabled.has('beforeAddLiquidity') || enabled.has('beforeRemoveLiquidity');
+    if (pattern === 'donate-handle') return enabled.has('beforeDonate') || enabled.has('afterDonate');
+    if (pattern === 'return-delta') {
+      return enabled.has('beforeSwapReturnDelta') || enabled.has('afterSwapReturnDelta')
+        || enabled.has('afterAddLiquidityReturnDelta') || enabled.has('afterRemoveLiquidityReturnDelta');
+    }
+    return false;
+  }
+
   function explorerAddressUrl(chainId, address) {
     const origins = {
       1: 'https://etherscan.io/address/',
@@ -1054,7 +1095,7 @@
   }
 
   function boardItemName(item) {
-    return item.project?.name || item.verifiedContract?.name || `Hook ${shorten(item.address, 8, 6)}`;
+    return item.project?.name || item.verifiedContract?.name || 'Unlabeled hook';
   }
 
   function boardProfileLabels(item) {
@@ -1089,10 +1130,10 @@
       : state.board.items;
     const result = source.filter((item) => {
       if (chain !== 'all' && String(item.chainId) !== chain) return false;
-      if (profile !== 'all' && !item.permissions.profiles.includes(profile)) return false;
+      if (!matchPermissionPattern(item, profile)) return false;
       if (state.boardProjectsOnly && !item.project && !item.verifiedContract) return false;
       if (state.boardMode === 'token' || !query) return true;
-      const fields = [boardItemName(item), item.chainName, item.address, item.project?.type, item.project?.stage, item.verifiedContract?.fullyQualifiedName, ...boardProfileLabels(item)];
+      const fields = [boardItemName(item), capabilitySentence(item), item.chainName, item.address, item.project?.type, item.project?.stage, item.verifiedContract?.fullyQualifiedName, ...boardProfileLabels(item)];
       return fields.some((value) => String(value || '').toLowerCase().includes(query));
     });
     result.sort((a, b) => {
@@ -1175,7 +1216,7 @@
       replaceSortOptions([['velocity', 'Velocity'], ['liquidity', 'Most liquidity'], ['activity', 'Most transactions'], ['token', 'Token name']]);
       void loadTokenRelationships('');
     } else {
-      search.placeholder = 'Search name, address, chain, permission…';
+      search.placeholder = 'Search name, address, chain, behavior…';
       search.setAttribute('aria-label', 'Search hook board');
       $('board-pools-heading').textContent = 'Pools';
       $('board-swaps-heading').textContent = 'Swaps';
@@ -1249,8 +1290,8 @@
       const chainSpan = makeElement('span', '', item.chainName);
       chainSpan.style.setProperty('--chain-color', CHAIN_COLORS[item.chainId] || '#66727e');
       chainCell.append(chainSpan);
-      const capabilities = document.createElement('td');
-      capabilities.append(makeCapabilityChips(item));
+      const capabilities = makeElement('td', 'capability-cell');
+      capabilities.append(makeElement('p', 'capability-sentence', capabilitySentence(item)), makeCapabilityChips(item));
       const coverage = makeElement('span', `coverage-chip${item.liveInspection ? ' live' : ''}`, item.liveInspection ? 'live RPC' : item.kind === 'project' ? 'directory' : 'index only');
       const coverageCell = document.createElement('td');
       coverageCell.append(coverage);
@@ -1320,6 +1361,7 @@
     $('hook-profile-title').textContent = boardItemName(item);
     $('hook-profile-address').textContent = item.address || 'No deployment address linked';
     $('hook-profile-copy').hidden = !item.address;
+    $('hook-profile-capability').textContent = capabilitySentence(item);
     const description = $('hook-profile-description');
     description.textContent = project?.description || '';
     description.hidden = !description.textContent;

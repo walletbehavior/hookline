@@ -231,6 +231,8 @@ try {
   assert.doesNotMatch(rootHtml, /flaunch\.gg/);
   assert.match(rootHtml, /copy-icon-btn/);
   assert.match(rootHtml, /hook-profile-backdrop/);
+  assert.match(rootHtml, /hook-profile-capability/);
+  assert.match(rootHtml, /Swap delta changes/);
   assert.match(rootHtml, /HooklineTradeBot/);
   assert.match(rootHtml, />Velocity</);
   assert.match(rootHtml, /\/assets\/[a-f0-9]{12}\/app\.js/);
@@ -251,6 +253,9 @@ try {
   assert.match(appSource, /api\/token-hooks/);
   assert.match(appSource, /board-profile-open/);
   assert.match(appSource, /boardVelocity/);
+  assert.match(appSource, /function capabilitySentence/);
+  assert.match(appSource, /Unlabeled hook/);
+  assert.match(appSource, /matchPermissionPattern/);
   assert.match(appSource, /delete next\.error/);
   assert.match(appSource, /delete next\.marketError/);
   assert.doesNotMatch(appSource, /FEE_WALLET|strip-copy-fee/);
@@ -262,6 +267,8 @@ try {
   const cssSource = await cssResponse.text();
   assert.match(cssSource, /body\.board-profile-open \.hook-profile/);
   assert.match(cssSource, /max-height: min\(88dvh, 820px\)/);
+  assert.match(cssSource, /telemetry-summary \.stat-value/);
+  assert.match(cssSource, /font-size: clamp\(0\.78rem, 1\.45vw, 1rem\)/);
 
   const hookDataResponse = await request('/data/hooks.json');
   assert.equal(hookDataResponse.status, 200);

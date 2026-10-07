@@ -4,7 +4,7 @@
 
 Hookline is a multichain evidence and analytics desk for programmable-liquidity contracts. It gives researchers, builders, and agents a consistent way to inspect deployed hook code, decode permissions, preserve observations, compare contracts, monitor network health, and consume the same evidence through an API.
 
-[Live desk](https://hookline.world) · [RPC documentation](https://hookline.world/rpc) · [HKLN on Base](https://basescan.org/token/0x11672C8cD5CB3F17364339244826B110Bac0AC91) · [X](https://x.com/_hookline)
+[Live desk](https://hookline.world) · [RPC documentation](https://hookline.world/rpc) · [X](https://x.com/_hookline)
 
 ## What works today
 
@@ -60,7 +60,6 @@ scripts/sync-hook-board.mjs   reproducible community-index snapshot sync
 scripts/build-hookline-worker.mjs
 scripts/test-hookline-worker.mjs
 docs/                         product, API, whitepaper, roadmap, and FAQ
-token/                        public HKLN launch record
 wrangler.jsonc                Cloudflare deployment configuration
 ```
 
@@ -91,16 +90,6 @@ See [Product documentation](docs/PRODUCT.md), [API reference](docs/API.md), [Whi
 | `POST /rpc/paid` | x402-protected Hookline methods |
 
 The public proxy does not submit transactions. It rejects write, account, administrative, debug, trace, and batch requests.
-
-## HKLN
-
-HKLN is the service-alignment asset launched on Base.
-
-```text
-0x11672C8cD5CB3F17364339244826B110Bac0AC91
-```
-
-Current product access does not require holding HKLN. Paid RPC capacity settles in USDC through x402. Any future holder features must be shipped and documented before being treated as active utility.
 
 ## Contributing and security
 

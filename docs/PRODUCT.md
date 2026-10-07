@@ -6,6 +6,8 @@ Hookline is the intelligence and coordination layer for onchain hooks. The initi
 
 Hookline gives that ecosystem a shared evidence model and a practical workstation.
 
+The board is the map. The user-facing intelligence product is the Hook Tape: a block-range record of what hooked pools advertised, what the hook changed, which swaps were refused, where measurable value moved, and which observations support each claim.
+
 ## Current capabilities
 
 ### Board
@@ -65,6 +67,21 @@ hook ↔ pools ↔ chains ↔ deployers ↔ code versions ↔ events
 ```
 
 The index will associate initialized pools with their configured hook, aggregate swap and liquidity activity over explicit block ranges, retain reorganization-safe cursors, and make every derived metric reproducible from its source events.
+
+## Hook Tape
+
+The first tape starts on one production chain and expands only after its derivations are dependable. Each row is designed to answer a concrete execution question:
+
+- How many swaps touched this hook in the stated block range?
+- How many attempts reverted during the hook path?
+- What fee did the pool advertise?
+- Did a return-delta capability participate in the settlement path?
+- What hook-adjusted token flow can be measured from the available call and transfer evidence?
+- Which address received measurable value?
+
+The tape does not infer an exact hidden fee from permission bits. It publishes a fee delta or recipient only when transaction receipts, call traces, and token movements support the claim. Missing trace coverage is reported as unavailable rather than estimated.
+
+Runtime fingerprint is a first-class identity key for this layer. Deployments with identical runtime bytecode form a reproducible family, while a changed runtime becomes a separate family even when the name is reused.
 
 ## Trust model
 
