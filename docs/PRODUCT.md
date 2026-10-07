@@ -6,7 +6,7 @@ Hookline is the intelligence and coordination layer for onchain hooks. The initi
 
 Hookline gives that ecosystem a shared evidence model and a practical workstation.
 
-The board is the map. The user-facing intelligence product is the Hook Tape: a block-range record of what hooked pools advertised, what the hook changed, which swaps were refused, where measurable value moved, and which observations support each claim.
+The boards are the map. The shipped Projects layer shares configuration reads, selected activity, and changes across a broad ecosystem. The planned Hook Tape deepens that into block-range measurements of what pools advertised, what hooks changed, which attempts failed, and where measurable value moved.
 
 ## Current capabilities
 
@@ -15,6 +15,16 @@ The board is the map. The user-facing intelligence product is the Hook Tape: a b
 The hook board is a cross-chain discovery surface for active deployed hook identities and hook ecosystem projects. It supports search, chain and capability filters, activity sorting, address-permission profiles, shareable profile URLs, filtered JSON exports, explorer links, inline live contract reads, and a direct handoff into local watchlists.
 
 Discovery and aggregate pool and swap counts come from a timestamped v4.xyz community-indexer snapshot. The sync queries the activity leaders in every two-nibble address prefix, so coverage is broad but explicitly not exhaustive. Records without a deployed address remain visible as directory entries rather than being presented as chain evidence.
+
+### Projects and shared activity
+
+A project can span factories, hooks, implementations, fee recipients, model contracts, and pools. A token is optional. All projects use one registry, deployment identity, observation envelope, and change feed; project-specific readers fill that schema instead of spawning separate dashboards.
+
+Descriptions, domain-controlled team updates, direct configuration reads, contract events, and reconciled outcomes are distinct. A configured buyback allocation is not an executed buyback. A payment event is not proof of every reward being distributed. Runtime equality is a research hint, not proof of shared project ownership or a new launch.
+
+Profiles disclose linked, monitored, and actually observed deployment counts. Selected targets rotate through bounded scans on the existing 10-minute schedule. Reorg checks, per-target cursors, backfill labels, and last-good observations keep partial coverage explicit. Public browsing uses cached snapshots rather than starting a new scan for every visitor.
+
+Teams and users can submit through the website, API, or Telegram, without email. Expiring DNS challenges verify control of the researched domain for metadata edits only. Suggestions enter a private authenticated agent queue. That workstation-based reviewer can publish supported metadata, not rewrite financial evidence or grant a safety endorsement.
 
 ### Observe
 
@@ -44,6 +54,10 @@ The free route uses a best-effort request limit. The x402 route provides a machi
 
 Supported market cards can request a short-lived 0x route bound to the connected wallet, chain, destination, calldata, value, and fee economics. Hookline shows a 1% gross fee, applies 0.3% cashback instantly, and collects a 0.7% effective fee. The user's browser wallet signs and submits; Hookline never receives wallet secrets and its backend never broadcasts.
 
+Website slippage and amount presets are device-local. Telegram preferences belong to its private user identity, and an explicit handoff carries the selected settings. Sell percentages use exact integer arithmetic against the current wallet balance. Unsupported native/token input combinations stop rather than reinterpret units. Aggregated routes may use other pools; displaying a hook does not certify execution through it.
+
+Saved priority-fee references and TP/SL profiles are not active transaction overrides or orders. User-owned smart accounts with constrained, revocable automation are planned. Wallet creation, transfers, bridging, and automatic orders are not part of this release.
+
 After confirmation, Hookline fetches the transaction and receipt directly from the configured chain RPC. A receipt is recorded only when the onchain sender, destination, calldata, value, chain, and successful status match the stored intent. Duplicate reconciliation is idempotent.
 
 ## Evidence classes
@@ -69,7 +83,7 @@ The board applies those classes visibly:
 The current board supplies useful discovery before Hookline owns the complete event pipeline. The next data layer follows official PoolManager events to build a graph of:
 
 ```text
-hook ↔ pools ↔ chains ↔ deployers ↔ code versions ↔ events
+hook, pools, chains, deployers, code versions, events
 ```
 
 The index will associate initialized pools with their configured hook, aggregate swap and liquidity activity over explicit block ranges, retain reorganization-safe cursors, and make every derived metric reproducible from its source events.

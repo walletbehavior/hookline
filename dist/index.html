@@ -19,6 +19,7 @@
       <nav class="main-nav" aria-label="Primary navigation">
         <ul>
           <li><a href="#/board" data-view="board">Board</a></li>
+          <li><a href="#/projects" data-view="projects">Projects</a></li>
           <li><a href="#/observatory" data-view="observatory">Observe</a></li>
           <li><a href="#/watchlists" data-view="watchlists">Watchlists</a></li>
           <li><a href="#/network" data-view="network">Network</a></li>
@@ -41,10 +42,6 @@
           <p class="eyebrow">CROSS-CHAIN HOOK MARKET INTELLIGENCE</p>
           <h1 id="board-title">The hook board.</h1>
           <p>Discover active hooks, understand what their addresses permit, and move from aggregate activity into live contract evidence.</p>
-        </div>
-        <div class="board-index-state">
-          <span class="index-pulse" aria-hidden="true"></span>
-          <div><b>INDEX SNAPSHOT</b><span id="board-updated">loading</span></div>
         </div>
       </header>
 
@@ -89,7 +86,7 @@
         <div class="hook-board-grid">
           <div class="hook-table-wrap">
             <table class="hook-table" aria-label="Indexed hooks">
-              <thead><tr><th>#</th><th><div class="identity-mode" aria-label="Board identity mode"><button id="board-mode-hook" type="button" aria-pressed="true">HOOK</button><span>/</span><button id="board-mode-token" type="button" aria-pressed="false">TOKEN</button></div></th><th>Chain</th><th>Capability</th><th id="board-pools-heading" class="number">Pools</th><th id="board-swaps-heading" class="number">Swaps</th><th>Coverage</th></tr></thead>
+              <thead><tr><th>#</th><th><div class="identity-mode" aria-label="Board identity mode"><button id="board-mode-hook" type="button" aria-pressed="true">HOOK</button><span>/</span><button id="board-mode-token" type="button" aria-pressed="false">TOKEN</button><span>/</span><a href="#/projects">PROJECT</a></div><span class="board-index-note" title="Discovery relationships and aggregate counts. Market quotes and direct contract observations have separate timestamps.">Index snapshot · <time id="board-updated">loading</time></span></th><th>Chain</th><th>Capability</th><th id="board-pools-heading" class="number">Pools</th><th id="board-swaps-heading" class="number">Swaps</th><th>Coverage</th></tr></thead>
               <tbody id="hook-board-body"></tbody>
             </table>
             <div id="board-empty" class="board-empty" hidden>No hooks match these filters.</div>
@@ -112,6 +109,7 @@
               <div class="profile-address-line"><code id="hook-profile-address"></code><button id="hook-profile-copy" class="copy-icon-btn" type="button" aria-label="Copy hook address" title="Copy hook address"><span class="copy-icon" aria-hidden="true"></span></button></div>
               <p id="hook-profile-capability" class="profile-capability"></p>
               <p id="hook-profile-description" class="profile-description"></p>
+              <div id="hook-profile-project-directory" class="profile-project-directory" hidden></div>
               <div class="profile-metrics">
                 <div><span>POOLS</span><strong id="hook-profile-pools"></strong></div>
                 <div><span>SWAPS</span><strong id="hook-profile-swaps"></strong></div>
@@ -160,6 +158,36 @@
         <div><b>PROJECT RECORDS</b><span>community-curated and submitted metadata</span></div>
         <div><b>LIVE EVIDENCE</b><span>Hookline RPC on Ethereum, BNB, Base, Arbitrum, and Robinhood Chain</span></div>
       </footer>
+    </section>
+
+    <section id="view-projects" class="view projects-view" aria-labelledby="projects-title">
+      <div id="projects-directory">
+        <header class="projects-hero">
+          <div><p class="eyebrow">THE HOOKS ECOSYSTEM</p><h1 id="projects-title">Follow the builders.</h1><p>Projects, mechanisms, and the contracts behind them. Discover what’s deployed and keep up with what changes.</p></div>
+          <button id="projects-submit" class="btn btn-primary" type="button">Submit a project</button>
+        </header>
+        <nav class="projects-tabs" aria-label="Ecosystem views"><a href="#/projects" aria-current="page">Projects</a><a href="#/activity">Activity</a><button id="projects-requests" type="button">Your requests</button></nav>
+        <div id="projects-error" class="projects-notice" role="status" hidden></div>
+        <div class="projects-toolbar">
+          <label class="project-search"><span class="visually-hidden">Search projects, mechanisms, chains, or addresses</span><input id="projects-search" type="search" placeholder="Search projects, mechanisms, or addresses…" autocomplete="off"></label>
+          <select id="projects-category" aria-label="Filter projects by mechanism"><option value="all">All mechanisms</option></select>
+          <select id="projects-chain" aria-label="Filter projects by chain"><option value="all">All chains</option></select>
+          <select id="projects-sort" aria-label="Sort projects"><option value="monitored">Most observed deployments</option><option value="name">Name A–Z</option><option value="deployments">Most linked deployments</option></select>
+        </div>
+        <div class="projects-result-line"><p id="projects-count" role="status" aria-live="polite">Loading projects…</p><span id="projects-generated"></span></div>
+        <div id="projects-list" class="projects-list" aria-label="Projects"></div>
+        <div id="projects-empty" class="projects-empty" hidden>No projects match these filters.</div>
+        <p class="projects-footnote">Source-linked project records. Listing isn’t endorsement or ownership verification. Hooks without a project remain on the <a href="#/board">open board</a>.</p>
+      </div>
+      <div id="project-detail" hidden aria-live="polite"></div>
+    </section>
+
+    <section id="view-activity" class="view projects-view" aria-labelledby="project-activity-title">
+      <header class="projects-hero"><div><p class="eyebrow">THE SHARED CHANGE FEED</p><h1 id="project-activity-title">What changed.</h1><p>Contract activity and changes between pinned observations. Each record keeps its source and block window.</p></div><button id="project-activity-refresh" class="btn btn-secondary" type="button">Refresh feed</button></header>
+      <nav class="projects-tabs" aria-label="Ecosystem views"><a href="#/projects">Projects</a><a href="#/activity" aria-current="page">Activity</a></nav>
+      <div class="projects-toolbar activity-toolbar"><select id="project-activity-filter" aria-label="Filter activity by project"><option value="all">All projects</option></select><span id="project-activity-generated"></span></div>
+      <div id="project-activity-status" class="projects-notice" role="status" hidden></div>
+      <div id="project-activity-list" class="project-event-list"></div>
     </section>
 
     <section id="view-observatory" class="view" aria-labelledby="observe-title">
@@ -388,7 +416,7 @@
             <div class="doc-card"><strong>Monitor</strong><p>Save named local watchlists, refresh evidence intentionally, preserve successful history, and surface failures without erasing prior state.</p></div>
             <div class="doc-card"><strong>Build</strong><p>Consume the same evidence through constrained JSON-RPC and a machine-payable x402 capacity route.</p></div>
           </div>
-          <p class="doc-boundary"><strong>Current boundary:</strong> The board uses a timestamped community-indexer snapshot for discovery and aggregate counts. Live inspection remains direct RPC evidence. Telegram can monitor a hook for runtime changes, new indexed pool relationships, and material index movement. Long-range event history is planned work.</p>
+          <p class="doc-boundary"><strong>Current boundary:</strong> Discovery and aggregate counts use a timestamped community snapshot. Project profiles add pinned contract reads and selected decoded events, with coverage and source blocks attached. This is not complete swap, fee, or payout history.</p>
         </section>
 
         <section id="docs-data" class="doc-section">
@@ -429,6 +457,14 @@
           </div>
           <p>The free route is rate limited. <code>POST /rpc/paid</code> requests 0.01 USDC on Base through x402. The proxy rejects transaction submission, account access, administrative, debug, trace, and batch requests.</p>
           <a class="doc-link" href="/rpc" target="_blank" rel="noopener noreferrer">Open machine-readable RPC reference</a>
+          <h3>Projects and contributions</h3>
+          <ul class="method-list">
+            <li><code>GET /api/projects</code><span>searchable project registry and observed coverage</span></li>
+            <li><code>GET /api/projects/:id</code><span>deployments, pinned state, changes, and scan progress</span></li>
+            <li><code>GET /api/project-activity</code><span>shared source-linked change records</span></li>
+            <li><code>POST /api/project-submissions</code><span>free private suggestions, listings, and domain claims</span></li>
+          </ul>
+          <a class="doc-link" href="https://github.com/walletbehavior/hookline/blob/main/docs/PROJECT_CONTRIBUTIONS.md" target="_blank" rel="noopener noreferrer">Submission API and domain-verification guide</a>
         </section>
 
         <section id="docs-whitepaper" class="doc-section">
@@ -447,7 +483,7 @@
           <span class="panel-kicker">05 / ROADMAP</span>
           <h2>Build usefulness before surface area</h2>
           <ol class="roadmap">
-            <li class="current"><span>NOW</span><div><h3>Evidence desk and reviewed execution</h3><p>Live inspection, permission decoding, alerts, watchlists, telemetry, fee-bound routes, browser-wallet signing, verified receipts, free RPC, and x402 capacity.</p></div></li>
+            <li class="current"><span>NOW</span><div><h3>Projects, evidence, and reviewed execution</h3><p>Broad project discovery, source-linked deployments, pinned contract state, selected mechanism events, project follows, free submissions and domain claims, and existing user-wallet execution.</p></div></li>
             <li><span>NEXT</span><div><h3>Hook Tape and runtime families</h3><p>PoolManager event ingestion, fee and refusal evidence, recipient flows, block-range tape rows, and bytecode-family alerts.</p></div></li>
             <li><span>AFTER</span><div><h3>Deeper route evidence</h3><p>Pool price versus hook-adjusted result, measurable fee deltas, refusal evidence, and recipient flows inside the existing user-wallet execution receipt.</p></div></li>
             <li><span>LATER</span><div><h3>Professional and ecosystem layers</h3><p>Team workspaces, webhooks, longer retention, signed manifests, contributed research, and additional programmable-liquidity systems.</p></div></li>
@@ -460,27 +496,60 @@
           <h2>Frequently asked questions</h2>
           <div class="faq-list">
             <details><summary>Where does Hookline data come from?</summary><p>The hook board uses a timestamped v4.xyz community-indexer snapshot for discovery and aggregate pool and swap counts. Names and descriptions are community-curated or project-submitted. Live contract evidence comes directly from configured Ethereum, BNB Chain, Base, Arbitrum One, and Robinhood Chain RPC endpoints.</p></details>
-            <details><summary>Is Hookline already indexing volume and liquidity?</summary><p>Yes. Open a hook profile to resolve related markets. When DexScreener has the pool, Hookline shows price, market cap, liquidity, 24-hour volume, and change alongside the indexed hook relationship.</p></details>
+            <details><summary>Why does the index snapshot show an older time?</summary><p>It shows when the discovery and aggregate-count snapshot was generated by the index-sync job. It does not update on each page load and is not the timestamp of every market quote or contract read. Those have their own observation times.</p></details>
+            <details><summary>What is the Projects board?</summary><p>A broader view of hook-powered projects and infrastructure, separate from individual hooks or tokens. A project can have several deployments or no token. Each profile separates sourced descriptions, team updates, saved contract reads, and observed changes.</p></details>
+            <details><summary>Can I submit or claim a project?</summary><p>Yes, free, through the project form, API, or Telegram bot. Suggestions enter private agent review. Claiming requires a DNS TXT record on the researched project domain. Domain control allows profile-copy updates, not edits to chain evidence or a safety badge. No email or HKLN holding is required.</p></details>
+            <details><summary>How do project alerts work?</summary><p>Follow a project in Telegram. A bounded scanner checks monitored deployments on a rotating 10-minute schedule and shares the same evidence records used on the site. Per-target timing varies; profiles show source blocks and scan coverage. Initial historical reads do not become new-activity alerts.</p></details>
+            <details><summary>Does every project have complete monitoring?</summary><p>No. Listed projects, sourced deployments, selected monitoring targets, and successful observations are separate counts. Profiles show source blocks, last successful reads, and event lag. A listed name or domain claim is not a safety endorsement or proof of complete history.</p></details>
+            <details><summary>Does Hookline show volume and liquidity?</summary><p>Yes. Related markets show available DexScreener price, market cap, liquidity, volume, and change alongside the indexed relationship. These are sourced readings, not a complete first-party swap index. Missing data stays unavailable. Liquidity alerts require complete readings for the same indexed pool set.</p></details>
+            <details><summary>What does a Dynamic pool fee mean?</summary><p>It identifies Uniswap v4's dynamic-fee configuration flag, not an 838.8608% fee or a measured current fee. Static advertised LP fees, adaptive LP fees, hook charges, and Hookline execution fees stay separate. Swap-specific evidence is required to measure what was actually paid.</p></details>
             <details><summary>What does Velocity mean?</summary><p>Velocity ranks the current indexed activity density of each hook or token relationship. It is a discovery ranking, not a promise of future performance.</p></details>
             <details><summary>What is the Hook Tape?</summary><p>It is the planned block-range feed for what hooked pools advertised and what the available transaction evidence shows happened. Tape rows will separate pool fees from measurable hook deltas, report refused swaps and recipients only when supported, and link to the underlying evidence.</p></details>
-            <details><summary>What does the Telegram bot do?</summary><p>Send it a token or hook address to navigate hook relationships, related tokens, markets, and trade previews. A hook profile can enable a Telegram alert for direct runtime changes, new indexed pool relationships, or indexed liquidity movement of 10% or more. Checks run every 10 minutes. Telegram does not sign; reviewed execution opens on the website for the user’s wallet.</p></details>
+            <details><summary>What does the Telegram bot do?</summary><p>Explore hook relationships, markets, and project follows. Alert cards show sourced names, chain, full copyable contract addresses, and Details/Pause/Resume buttons. Add alert, Projects, Settings, and Main menu reduce command typing. Hook alerts check runtime changes, newly indexed pools, and qualifying liquidity changes on the 10-minute schedule. Telegram does not sign; reviewed execution opens on the website for your wallet.</p></details>
             <details><summary>What does Hookline execution cost?</summary><p>Hookline shows a 1% gross execution fee and applies 0.3% cashback instantly in the route, leaving a 0.7% effective fee. There is no deferred cashback claim. The public RPC never submits a transaction. The user’s wallet signs and submits the exact reviewed route, then Hookline independently verifies the receipt.</p></details>
+            <details><summary>Can I save trade settings?</summary><p>Slippage and buy/sell presets are supported. Website settings stay on that device; Telegram settings belong to the private Telegram identity. A trade link carries its explicit settings, never an automatic signature. Native amounts are not silently converted to wrapped-token or stablecoin units. Priority remains wallet-managed; saved TP/SL profiles are not active orders.</p></details>
+            <details><summary>Will Hookline support user-owned smart wallets?</summary><p>That is the planned automated-order design, not a live wallet service. Users retain owner and recovery control. Any automation needs explicit, revocable, expiring permissions with asset, router, recipient, and spending limits. Transfers, bridges, and ownership changes need separate authority. Wallet creation and automatic limit or TP/SL orders are not enabled.</p></details>
+            <details><summary>Does Trade guarantee a route through this hook?</summary><p>No. A reviewed aggregator quote may use other pools, and some custom hooks are unsupported. Hook-specific routing is not verified. An unsupported route stops; the displayed project or hook is not an execution guarantee.</p></details>
             <details><summary>Do I need a Hookline account?</summary><p>No. Research stays anonymous. Telegram identifies alert subscriptions, and the connected wallet is the execution identity. Hookline never receives a private key, seed phrase, or signed transaction.</p></details>
             <details><summary>What do the 14 permission flags prove?</summary><p>They identify which Uniswap v4 callback permissions are encoded in the hook address. They do not explain the complete runtime behavior and do not establish that a contract is safe.</p></details>
             <details><summary>Is this a smart-contract audit?</summary><p>No. Hookline is an evidence and monitoring product, not an audit, legal opinion, or trading recommendation.</p></details>
             <details><summary>Why can’t I compare live state across chains?</summary><p>An address is not a complete identity, and block heights on separate chains do not share state or time semantics. Hookline limits direct comparisons to one chain.</p></details>
-            <details><summary>Are watchlists uploaded?</summary><p>Not currently. Lists and observations are stored in the browser and can be exported or imported as JSON.</p></details>
+            <details><summary>Are watchlists uploaded?</summary><p>Your local watchlists stay in your browser. Project monitoring history and Telegram follows are stored by Hookline so project alerts do not depend on leaving a browser tab open.</p></details>
             <details><summary>Does the RPC submit transactions?</summary><p>No. Transaction submission and account-access methods are rejected by the public service.</p></details>
             <details><summary>What is the x402 route?</summary><p>It is a machine-payable capacity path. A valid unpaid request receives an HTTP 402 challenge for 0.01 USDC on Base.</p></details>
             <details><summary>Does market cap generate Hookline revenue?</summary><p>No. Market cap itself does not create creator fees. Venue fees require trading activity, and product revenue requires useful paid services.</p></details>
             <details><summary>Is Hookline affiliated with Uniswap or Robinhood?</summary><p>No. Hookline is independent and is not endorsed by Uniswap Labs, Robinhood, Flaunch, PayAI, or its RPC providers.</p></details>
-            <details><summary>How can I contribute?</summary><p>Use the public GitHub repository. Include chain, exact address, block range, expected result, and reproduction steps in evidence-related issues.</p></details>
+            <details><summary>How can I contribute?</summary><p>Use Submit a project or Suggest correction on the Projects board, or send /submitproject or /suggest in Telegram. For code and evidence bugs, use GitHub with the chain, address, source block, and reproduction steps.</p></details>
           </div>
           <a class="doc-link" href="https://github.com/walletbehavior/hookline/blob/main/docs/FAQ.md" target="_blank" rel="noopener noreferrer">Open the complete FAQ on GitHub</a>
         </section>
       </article>
     </section>
   </main>
+
+  <dialog id="project-contribution-dialog" class="project-contribution-dialog" aria-labelledby="project-contribution-title">
+    <header class="project-dialog-head"><div><p class="panel-kicker">FREE COMMUNITY CONTRIBUTIONS</p><h2 id="project-contribution-title">Improve the directory.</h2></div><button id="project-contribution-close" class="profile-close" type="button" aria-label="Close project contribution">×</button></header>
+    <p class="project-dialog-intro">Submit through the API. Track the result here. No email required, no token gate.</p>
+    <form id="project-contribution-form">
+      <div class="project-form-field"><label for="project-contribution-kind">Request type</label><select id="project-contribution-kind" name="kind"><option value="project">Submit a project</option><option value="claim">Claim a project profile</option><option value="correction">Suggest a correction</option></select></div>
+      <div id="project-contribution-existing" class="project-form-field" hidden><label for="project-contribution-project">Project</label><select id="project-contribution-project" name="projectId"><option value="">Select a project</option></select></div>
+      <div id="project-contribution-new-fields">
+        <div class="project-form-field"><label for="project-contribution-name">Project name</label><input id="project-contribution-name" name="name" maxlength="100" autocomplete="organization"></div>
+        <div class="project-form-field"><label for="project-contribution-website">Official website</label><input id="project-contribution-website" name="website" type="url" placeholder="https://" maxlength="500" autocomplete="url"></div>
+        <div class="project-form-field"><label for="project-contribution-description">What does the project do?</label><textarea id="project-contribution-description" name="description" rows="3" maxlength="1200"></textarea></div>
+        <div class="project-form-field"><label for="project-contribution-contracts">Contracts and chains <span>optional</span></label><textarea id="project-contribution-contracts" name="contracts" rows="2" placeholder="Chain ID, contract address, role, source link" maxlength="4000"></textarea></div>
+      </div>
+      <p id="project-contribution-claim-help" class="projects-notice" hidden>Prove control of the project’s listed website with a DNS TXT record. Successful verification enables profile updates, not changes to Hookline’s measured evidence.</p>
+      <div id="project-contribution-message-field" class="project-form-field"><label for="project-contribution-message">Correction or supporting details <span>optional</span></label><textarea id="project-contribution-message" name="message" rows="3" maxlength="2000"></textarea></div>
+      <div class="project-form-field"><label for="project-contribution-proof">Public evidence link <span>optional</span></label><input id="project-contribution-proof" name="proofUrl" type="url" placeholder="https://" maxlength="500"></div>
+      <div class="project-form-field"><label for="project-contribution-contact">Telegram handle <span>optional, kept private</span></label><input id="project-contribution-contact" name="contact" placeholder="@yourhandle" maxlength="80" autocomplete="off"></div>
+      <div class="project-honeypot" aria-hidden="true"><label for="project-contribution-trap">Leave this blank</label><input id="project-contribution-trap" name="websiteTrap" tabindex="-1" autocomplete="off"></div>
+      <label class="project-agreement"><input id="project-contribution-agreement" name="agreement" type="checkbox" required><span>I’m submitting accurate information with permission to share it. A submission is not a verified listing or ownership claim.</span></label>
+      <button id="project-contribution-send" class="btn btn-primary" type="submit">Submit project</button>
+    </form>
+    <p id="project-contribution-status" class="project-contribution-status" role="status" aria-live="polite"></p>
+    <section id="project-request-receipts" class="project-request-receipts" aria-label="Private request receipts"></section>
+  </dialog>
 
   <dialog id="execution-dialog" class="execution-dialog" aria-labelledby="execution-title">
     <div class="execution-shell">
@@ -495,6 +564,7 @@
         <div><span id="execution-chain">CHAIN</span><strong id="execution-token">TOKEN</strong></div>
         <code id="execution-pool"></code>
         <p id="execution-behavior"></p>
+        <p>Quotes may use other pools. Hook-specific routing is not verified.</p>
       </div>
       <div class="execution-side" aria-label="Trade side">
         <button id="execution-side-buy" type="button" aria-pressed="true">BUY</button>
@@ -506,10 +576,27 @@
         <strong id="execution-input-symbol">TOKEN</strong>
       </div>
       <div id="execution-presets" class="execution-presets" aria-label="Amount presets"></div>
-      <div class="execution-controls">
-        <label for="execution-slippage">Max slippage</label>
-        <select id="execution-slippage"><option value="50">0.5%</option><option value="100">1.0%</option><option value="200">2.0%</option><option value="500">5.0%</option></select>
-      </div>
+      <details id="execution-settings" class="execution-settings">
+        <summary>Trade settings <span id="execution-settings-summary">0.5% slippage</span></summary>
+        <div class="execution-settings-body">
+          <label class="execution-setting-label" for="execution-slippage">Maximum slippage <span>%</span></label>
+          <input id="execution-slippage" type="number" inputmode="decimal" min="0.01" max="50" step="0.01" value="0.5" aria-describedby="execution-slippage-note">
+          <p id="execution-slippage-note">Higher slippage can mean a worse fill. The quote shows the minimum received.</p>
+          <label class="execution-setting-label" for="execution-buy-presets">Native buy amounts <span>ETH or BNB</span></label>
+          <input id="execution-buy-presets" type="text" inputmode="decimal" autocomplete="off" value="0.01, 0.05, 0.1, 1">
+          <label class="execution-setting-label" for="execution-sell-presets">Sell balance percentages <span>%</span></label>
+          <input id="execution-sell-presets" type="text" inputmode="numeric" autocomplete="off" value="25, 50, 75, 100">
+          <p>Separate presets with commas, up to six each.</p>
+          <button id="execution-settings-save" class="btn btn-secondary" type="button">Save preferences</button>
+          <p id="execution-settings-status" role="status">Preferences are stored on this device only.</p>
+          <div class="execution-setting-note"><strong>Network priority</strong><span>Managed by your wallet. Hookline does not overwrite the reviewed transaction’s fee fields.</span></div>
+          <div class="execution-setting-note"><strong>Take-profit / stop-loss</strong><span>Automated orders are not available. No orders run in the background.</span></div>
+          <div class="execution-settings-wallet">
+            <code id="execution-wallet-address">No wallet connected</code>
+            <div><button id="execution-switch-wallet" type="button" disabled>Switch wallet</button><button id="execution-disconnect" type="button" disabled>Disconnect</button></div>
+          </div>
+        </div>
+      </details>
       <p id="execution-amount-help" class="execution-help">A fresh route and fee stack are shown before the wallet opens.</p>
       <section id="execution-quote" class="execution-quote" hidden>
         <div><span>Expected output</span><strong id="execution-output">—</strong></div>
@@ -533,7 +620,7 @@
   <footer class="site-footer">
     <span>HOOKLINE / MULTICHAIN HOOKS ANALYTICS DESK</span>
     <span>Ethereum · BNB · Base · Arbitrum · Robinhood Chain</span>
-    <span><a href="#/board">Board</a> · <a href="#/docs">Docs</a> · <a href="#/network">RPC and network</a> · <a href="https://github.com/walletbehavior/hookline" target="_blank" rel="noopener noreferrer">GitHub</a></span>
+    <span><a href="#/board">Board</a> · <a href="#/projects">Projects</a> · <a href="#/activity">Activity</a> · <a href="#/docs">Docs</a> · <a href="#/network">RPC and network</a> · <a href="https://github.com/walletbehavior/hookline" target="_blank" rel="noopener noreferrer">GitHub</a></span>
     <p><a href="https://x.com/_hookline" target="_blank" rel="noopener noreferrer">X</a> · <a href="https://t.me/HooklineTradeBot" target="_blank" rel="noopener noreferrer">Telegram</a></p>
   </footer>
 

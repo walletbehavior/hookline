@@ -17,6 +17,7 @@
 import { getChain } from './chains.js';
 import { KEYS } from './keys.js';
 import { renderTokenCard } from './token-view.js';
+import { markdownText,menuButton } from './navigation.js';
 
 const PAGE_SIZE = 8;
 
@@ -28,19 +29,19 @@ export function renderHookView(token, chainId, hookInfo, siblings, siblingOffset
   const hasPrev = siblingOffset > 0;
 
   let hookLine = hookInfo
-    ? `Hook: ${hookInfo.hookName || 'v4 hook'}\n${hookInfo.hookAddress.slice(2, 10)}...${hookInfo.hookAddress.slice(-6)} • ${hookInfo.hookNamed ? 'verified contract' : 'address-only'}`
+    ? `Hook: ${markdownText(hookInfo.hookName || 'Unnamed hook')}\n${hookInfo.hookAddress.slice(2, 10)}...${hookInfo.hookAddress.slice(-6)} • ${hookInfo.hookNamed ? 'named record' : 'address-only'}`
     : `Hook: none indexed`;
 
   const lines = [
     `🪝 *Hookline* • *Hook profile*`,
     ``,
-    `*${token.symbol}* on chain ${chain ? chain.name : chainId}`,
+    `*${markdownText(token.symbol || 'HOOK')}* on chain ${chain ? chain.name : chainId}`,
     `Address: \`${token.address}\``,
     hookLine,
     ``,
     `Related tokens: ${siblings.length} total`,
     displayed.length
-      ? displayed.map((rel, i) => `${i + 1 + siblingOffset}. *${rel.baseToken?.symbol || rel.quoteToken?.symbol || rel.pairLabel}* $${rel.liquidityUsd != null ? rel.liquidityUsd.toFixed(0).replace(/\B(?=(\d{3})+(?!\d))/g, ',') : 'n/a'} TVL`)
+      ? displayed.map((rel, i) => `${i + 1 + siblingOffset}. *${markdownText(rel.baseToken?.symbol || rel.quoteToken?.symbol || rel.pairLabel || 'Unnamed token')}* ${rel.liquidityUsd != null && Number.isFinite(Number(rel.liquidityUsd)) ? `$${Number(rel.liquidityUsd).toFixed(0).replace(/\B(?=(\d{3})+(?!\d))/g, ',')}` : 'n/a'} TVL`).join('\n')
       : '  (none indexed)',
   ].filter(Boolean);
 
@@ -55,6 +56,7 @@ export function renderHookView(token, chainId, hookInfo, siblings, siblingOffset
   });
   const buttons = [
     ...siblingButtons,
+    [{text:'Follow this hook',callback_data:`tg:as:${chainId}:${hookInfo?.hookAddress || token.address}`},menuButton('My alerts','alerts')],
     [KEYS.back(), KEYS.related(chainId, hookInfo?.hookAddress || token.address)],
   ];
   if (hasPrev) {

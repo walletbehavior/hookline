@@ -23,7 +23,7 @@
   const MAX_OBSERVATIONS = 100;
   const MAX_IMPORT_BYTES = 1024 * 1024;
   const CURRENT_WINDOW_MS = 15 * 60 * 1000;
-  const VIEWS = new Set(['board', 'observatory', 'watchlists', 'network', 'docs']);
+  const VIEWS = new Set(['board', 'projects', 'activity', 'observatory', 'watchlists', 'network', 'docs']);
   const BOARD_PAGE_SIZE = 50;
   const CHAIN_COLORS = Object.freeze({
     1: '#8b9aee', 10: '#ff5364', 56: '#f0b90b', 130: '#ff3d96', 137: '#8e6cff', 143: '#836ef9',
@@ -43,6 +43,8 @@
   const NATIVE_TOKEN_ADDRESS = '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee';
   const ZERO_ADDRESS = '0x0000000000000000000000000000000000000000';
   const EXECUTION_CHAIN_IDS = new Set([1, 56, 4663, 8453]);
+  const EXECUTION_PREFERENCES_KEY = 'hookline:trade-preferences:v1';
+  const EXECUTION_DEFAULTS = Object.freeze({ slippageBps: 50, buyPresets: ['0.01', '0.05', '0.1', '1'], sellPresets: [25, 50, 75, 100] });
   const EXECUTION_CHAINS = Object.freeze({
     1: { chainId: '0x1', chainName: 'Ethereum', nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 }, rpcUrls: ['https://eth.drpc.org'], blockExplorerUrls: ['https://etherscan.io'] },
     56: { chainId: '0x38', chainName: 'BNB Chain', nativeCurrency: { name: 'BNB', symbol: 'BNB', decimals: 18 }, rpcUrls: ['https://bsc-dataseed.bnbchain.org'], blockExplorerUrls: ['https://bscscan.com'] },
@@ -74,6 +76,7 @@
     tokenSearchTimer: null,
     boardEvidence: new Map(),
     boardLoading: new Set(),
+    projects: { registry: null, loading: null, error: '', detailRequest: 0, detail: null, activityRequest: 0, events: [], activityLoaded: false, activityGeneratedAt: null, receipts: [], contributionBusy: false },
     execution: {
       module: null,
       modulePromise: null,
@@ -87,6 +90,11 @@
       capability: null,
       busy: false,
       tokenCache: new Map(),
+      preferences: null,
+      pendingSellPercent: null,
+      quoteContext: null,
+      handoffRequest: 0,
+      handoffHash: null,
     },
   };
 
@@ -305,6 +313,146 @@
     return state.execution.modulePromise;
   }
 
+  function exactPositiveDecimal(value) {
+    return typeof value === 'string' && value.length <= 80 && /^(?:0|[1-9]\d*)(?:\.\d{1,36})?$/.test(value) && /[1-9]/.test(value);
+  }
+
+  function normalizeExecutionPreferences(raw) {
+    const slippage = Number(raw?.slippageBps);
+    const buys = Array.isArray(raw?.buyPresets) ? [...new Set(raw.buyPresets.filter(exactPositiveDecimal))].slice(0, 6) : [];
+    const sells = Array.isArray(raw?.sellPresets) ? [...new Set(raw.sellPresets.map(Number).filter((n) => Number.isInteger(n) && n >= 1 && n <= 100))].slice(0, 6) : [];
+    return { slippageBps: Number.isInteger(slippage) && slippage >= 1 && slippage <= 5000 ? slippage : EXECUTION_DEFAULTS.slippageBps,
+      buyPresets: buys.length ? buys : [...EXECUTION_DEFAULTS.buyPresets], sellPresets: sells.length ? sells : [...EXECUTION_DEFAULTS.sellPresets] };
+  }
+
+  function loadExecutionPreferences() {
+    try { return normalizeExecutionPreferences(JSON.parse(localStorage.getItem(EXECUTION_PREFERENCES_KEY) || '{}')); }
+    catch (_) { return normalizeExecutionPreferences(null); }
+  }
+
+  function executionSlippageBps() {
+    const value = $('execution-slippage').value.trim();
+    if (!/^(?:0|[1-9]\d?)(?:\.\d{1,2})?$/.test(value)) throw new Error('Slippage must be between 0.01% and 50%, with at most two decimals.');
+    const [whole, fraction = ''] = value.split('.');
+    const bps = Number(whole) * 100 + Number(fraction.padEnd(2, '0'));
+    if (bps < 1 || bps > 5000) throw new Error('Slippage must be between 0.01% and 50%.');
+    return bps;
+  }
+
+  function renderExecutionSettingsSummary() {
+    try {
+      const bps = executionSlippageBps();
+      $('execution-settings-summary').textContent = `${bps / 100}% slippage`;
+      $('execution-settings-summary').className = bps >= 500 ? 'high-slippage' : '';
+      $('execution-slippage-note').textContent = bps >= 500
+        ? `High slippage: the fill may be up to ${bps / 100}% worse than quoted. Review the minimum received.`
+        : 'Higher slippage can mean a worse fill. The quote shows the minimum received.';
+    } catch (_) { $('execution-settings-summary').textContent = 'Check slippage'; }
+  }
+
+  function saveExecutionPreferences() {
+    try {
+      const buyPresets = $('execution-buy-presets').value.split(',').map((v) => v.trim());
+      const sellPresets = $('execution-sell-presets').value.split(',').map((v) => v.trim());
+      if (!buyPresets.length || buyPresets.length > 6 || !buyPresets.every(exactPositiveDecimal)) throw new Error('Use one to six positive buy amounts, separated by commas.');
+      if (!sellPresets.length || sellPresets.length > 6 || !sellPresets.every((v) => /^\d{1,3}$/.test(v) && Number(v) >= 1 && Number(v) <= 100)) throw new Error('Use one to six whole sell percentages from 1 to 100.');
+      const preferences = normalizeExecutionPreferences({ slippageBps: executionSlippageBps(), buyPresets, sellPresets });
+      state.execution.preferences = preferences;
+      try { localStorage.setItem(EXECUTION_PREFERENCES_KEY, JSON.stringify(preferences)); }
+      catch (_) { throw new Error('Settings work for this visit, but browser storage is unavailable.'); }
+      $('execution-settings-status').textContent = 'Saved on this device.';
+      renderExecutionPresets(); resetExecutionQuote();
+    } catch (error) { $('execution-settings-status').textContent = error.message; resetExecutionQuote(); }
+  }
+
+  function exactBalancePercent(balance, decimals, percent) {
+    if (!/^\d+$/.test(String(balance)) || !Number.isInteger(decimals) || decimals < 0 || decimals > 36
+      || !Number.isInteger(percent) || percent < 1 || percent > 100) throw new Error('Wallet balance or percentage is invalid.');
+    const raw = (BigInt(balance) * BigInt(percent) / 100n).toString();
+    if (raw === '0') throw new Error('This percentage is below one token unit or the balance is zero.');
+    const padded = raw.padStart(decimals + 1, '0');
+    const fraction = decimals ? padded.slice(-decimals).replace(/0+$/, '') : '';
+    return `${decimals ? padded.slice(0, -decimals) : padded}${fraction ? `.${fraction}` : ''}`;
+  }
+
+  function parseExecutionRoute(hash) {
+    if (!String(hash).startsWith('#/trade/')) return null;
+    const match = String(hash).match(/^#\/trade\/([1-9]\d*)\/(0x[0-9a-fA-F]{40})(?:\?([^#]*))?$/);
+    if (!match || !EXECUTION_CHAIN_IDS.has(Number(match[1]))) throw new Error('This trade link has an unsupported chain or invalid token address.');
+    const tokenAddress = match[2].toLowerCase();
+    if ([ZERO_ADDRESS, NATIVE_TOKEN_ADDRESS].includes(tokenAddress)) throw new Error('Trade links must identify the token contract.');
+    const query = new URLSearchParams(match[3] || '');
+    const allowed = new Set(['side', 'amount', 'slippage', 'sellPercent', 'inputAsset']);
+    for (const key of query.keys()) if (!allowed.has(key) || query.getAll(key).length !== 1) throw new Error('This trade link contains unsupported or duplicate settings.');
+    const side = query.has('side') ? query.get('side') : 'buy';
+    const amount = query.get('amount');
+    const slippage = query.get('slippage');
+    const percent = query.get('sellPercent');
+    const inputAsset = query.get('inputAsset');
+    if (!['buy', 'sell'].includes(side) || (amount !== null && !exactPositiveDecimal(amount))) throw new Error('This trade link has an invalid side or amount.');
+    if (slippage !== null && (!/^\d{1,4}$/.test(slippage) || Number(slippage) < 1 || Number(slippage) > 5000)) throw new Error('Trade link slippage must be from 1 to 5000 basis points.');
+    if (percent !== null && (side !== 'sell' || amount !== null || !/^\d{1,3}$/.test(percent) || Number(percent) < 1 || Number(percent) > 100)) throw new Error('A sell percentage must be 1–100 and cannot be combined with an amount.');
+    if (inputAsset !== null && (inputAsset !== 'native' || side !== 'buy' || amount === null)) throw new Error('Native-input settings require a buy amount.');
+    return { chainId: Number(match[1]), tokenAddress, side, amount, inputAsset, slippageBps: slippage === null ? null : Number(slippage), sellPercent: percent === null ? null : Number(percent) };
+  }
+
+  function relationshipMatchesTrade(relationship, route) {
+    const address = String(relationship?.hookAddress || '').toLowerCase();
+    return Number(relationship?.chainId) === route.chainId && /^0x[0-9a-f]{40}$/.test(address)
+      && String(relationship.hookId).toLowerCase() === `${route.chainId}_${address}`
+      && new RegExp(`^${route.chainId}_0x[0-9a-f]{64}$`, 'i').test(String(relationship.poolId));
+  }
+
+  function marketForTrade(item, market, relationship, route) {
+    if (item.chainId !== route.chainId || item.address.toLowerCase() !== relationship.hookAddress.toLowerCase()
+      || !executionMarketReady(item, market)) return null;
+    if (market.chainId != null && ![String(route.chainId), DEXSCREENER_CHAIN_SLUGS[route.chainId]].includes(String(market.chainId))) return null;
+    const pool = String(market.poolId || market.pairAddress || '').toLowerCase().replace(`${route.chainId}_`, '');
+    if (pool !== String(relationship.poolId).toLowerCase().slice(String(route.chainId).length + 1)) return null;
+    const base = executionTokenDescriptor(market.baseToken, route.chainId);
+    const quote = executionTokenDescriptor(market.quoteToken, route.chainId);
+    const oriented = base.address === route.tokenAddress ? market : quote.address === route.tokenAddress
+      ? { ...market, baseToken: market.quoteToken, quoteToken: market.baseToken } : null;
+    if (!oriented || (route.inputAsset === 'native' && !executionTokenDescriptor(oriented.quoteToken, route.chainId).native)) return null;
+    return oriented;
+  }
+
+  async function openExecutionRoute() {
+    const hash = location.hash;
+    if (!hash.startsWith('#/trade/') || !state.board || state.execution.handoffHash === hash) return;
+    state.execution.handoffHash = hash;
+    const request = ++state.execution.handoffRequest;
+    try {
+      const route = parseExecutionRoute(hash);
+      toast('Finding this token’s hook and market…', 'info');
+      const response = await fetch(`/api/token-hooks?q=${encodeURIComponent(route.tokenAddress)}`, { headers: { Accept: 'application/json' }, cache: 'no-store' });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok || !Array.isArray(payload?.relationships)) throw new Error('Token relationships are unavailable. Open its hook profile and try again.');
+      const relationships = payload.relationships.filter((row) => relationshipMatchesTrade(row, route)).slice(0, 5);
+      for (const relationship of relationships) {
+        const item = state.board.items.find((candidate) => candidate.id === relationship.hookId.toLowerCase() && candidate.chainId === route.chainId);
+        if (!item) continue;
+        const indexedMarket = marketForTrade(item, { chainId: relationship.chainId,
+          pairAddress: relationship.poolId.slice(String(route.chainId).length + 1),
+          baseToken: relationship.baseToken, quoteToken: relationship.quoteToken }, relationship, route);
+        let markets = indexedMarket ? [indexedMarket] : [];
+        if (!indexedMarket) {
+          try { markets = await readHookMarkets(item, true); } catch (_) { continue; }
+        }
+        if (request !== state.execution.handoffRequest || location.hash !== hash) return;
+        const market = markets.map((candidate) => marketForTrade(item, candidate, relationship, route)).find(Boolean);
+        if (!market) continue;
+        state.boardSelectedId = item.id;
+        renderBoard(); renderBoardProfile();
+        openExecutionDialog(item, market, route);
+        return;
+      }
+      throw new Error(route.inputAsset === 'native'
+        ? 'No native-coin input market was verified on this chain. Open the hook profile to review the actual input asset. Nothing was quoted.'
+        : 'No indexed hook market was verified for this token on this chain. Nothing was quoted or signed.');
+    } catch (error) { if (request === state.execution.handoffRequest && location.hash === hash) toast(error.message, 'alert'); }
+  }
+
   function executionProvider() {
     const injected = globalThis.ethereum;
     if (!injected) return null;
@@ -320,8 +468,7 @@
     if (!raw || typeof raw !== 'object') return null;
     const symbol = cleanString(raw.symbol, 24) || 'TOKEN';
     const address = String(raw.address || '').trim().toLowerCase();
-    const native = address === ZERO_ADDRESS || address === NATIVE_TOKEN_ADDRESS
-      || (!/^0x[0-9a-f]{40}$/.test(address) && symbol.toUpperCase() === nativeSymbol(chainId));
+    const native = address === ZERO_ADDRESS || address === NATIVE_TOKEN_ADDRESS;
     if (!native && !/^0x[0-9a-f]{40}$/.test(address)) return null;
     return {
       address: native ? NATIVE_TOKEN_ADDRESS : address,
@@ -370,6 +517,15 @@
     node.className = `execution-message${kind ? ` ${kind}` : ''}`;
   }
 
+  function setExecutionBusy(busy) {
+    state.execution.busy = busy;
+    ['execution-amount', 'execution-slippage', 'execution-buy-presets', 'execution-sell-presets', 'execution-settings-save',
+      'execution-side-buy', 'execution-side-sell', 'execution-wallet', 'execution-switch-wallet', 'execution-disconnect', 'top-wallet']
+      .forEach((id) => { $(id).disabled = busy; });
+    $$('#execution-presets button').forEach((button) => { button.disabled = busy; });
+    if (!busy) renderWalletIdentity();
+  }
+
   async function loadExecutionCapability(chainId) {
     const response = await fetch(`/api/execution/status?chainId=${encodeURIComponent(chainId)}`, {
       headers: { Accept: 'application/json' },
@@ -411,6 +567,7 @@
 
   function resetExecutionQuote() {
     state.execution.quote = null;
+    state.execution.quoteContext = null;
     state.execution.receipt = null;
     state.execution.submittedHash = null;
     $('execution-quote').hidden = true;
@@ -420,8 +577,66 @@
     $('execution-fee').textContent = '1.00% gross';
     $('execution-cashback').textContent = '0.30% instant · 0.70% net';
     const submit = $('execution-submit');
-    submit.disabled = !state.execution.account || !$('execution-amount').value.trim() || state.execution.busy;
-    submit.textContent = state.execution.account ? 'Get quote' : 'Connect wallet';
+    submit.disabled = (!$('execution-amount').value.trim() && !state.execution.pendingSellPercent) || state.execution.busy;
+    submit.textContent = state.execution.account ? 'Get quote' : 'Connect to quote';
+  }
+
+  function executionQuoteContext() {
+    const pair = executionPair(state.execution.side);
+    return JSON.stringify([state.execution.item?.chainId, state.execution.item?.address, pair?.input.address,
+      pair?.output.address, state.execution.side, state.execution.account, $('execution-amount').value.trim(), executionSlippageBps()]);
+  }
+
+  function renderExecutionPresets() {
+    const execution = state.execution;
+    const preferences = execution.preferences || loadExecutionPreferences();
+    const pair = executionPair(execution.side);
+    const presets = $('execution-presets');
+    presets.replaceChildren();
+    const sell = execution.side === 'sell';
+    const values = sell ? preferences.sellPresets : pair?.input.native ? preferences.buyPresets : [];
+    values.forEach((value) => {
+      const button = makeElement('button', '', sell ? `${value}%` : `${value} ${pair.input.symbol}`);
+      button.type = 'button';
+      button.setAttribute('aria-label', sell ? `Read balance and use ${value}%` : `Use ${value} ${pair.input.symbol}`);
+      if (sell) button.setAttribute('aria-pressed', String(execution.pendingSellPercent === value));
+      button.disabled = execution.busy;
+      button.addEventListener('click', async () => {
+        if (execution.busy) return;
+        if (!sell) { $('execution-amount').value = value; execution.pendingSellPercent = null; resetExecutionQuote(); return; }
+        execution.pendingSellPercent = value; $('execution-amount').value = ''; resetExecutionQuote();
+        setExecutionBusy(true);
+        try { await applyExecutionSellPercent(value); }
+        catch (error) { setExecutionMessage(error.message || 'Wallet balance unavailable.', 'error'); }
+        finally { setExecutionBusy(false); renderExecutionPresets(); resetExecutionQuote(); }
+      });
+      presets.append(button);
+    });
+    $('execution-amount-help').textContent = execution.pendingSellPercent
+      ? `${execution.pendingSellPercent}% selected. Get quote reads your current ${pair?.input.symbol || 'token'} balance first.`
+      : sell ? 'Percentages read your wallet balance and round down to exact token units.'
+        : pair?.input.native ? `Amounts are in ${pair.input.symbol}. Review the fresh quote before signing.`
+          : `Enter an amount in ${pair?.input.symbol || 'the input token'}. Native-coin presets do not apply to this pair.`;
+  }
+
+  async function applyExecutionSellPercent(percent) {
+    const execution = state.execution;
+    if (execution.side !== 'sell' || !execution.item) throw new Error('Choose Sell before using a balance percentage.');
+    const item = execution.item, market = execution.market;
+    const { provider, account } = execution.account ? { provider: executionProvider(), account: execution.account } : await connectExecutionWallet();
+    if (!provider) throw new Error('Wallet provider unavailable.');
+    await ensureExecutionChain(provider, item.chainId);
+    const pair = await resolvedExecutionPair();
+    if (pair.input.native) throw new Error('Sell percentages apply to token balances, not gas balances.');
+    const raw = await provider.request({ method: 'eth_call', params: [{ to: pair.input.address, data: `0x70a08231${account.slice(2).padStart(64, '0')}` }, 'latest'] });
+    if (!/^0x[0-9a-fA-F]{64}$/.test(String(raw))) throw new Error('The wallet returned an invalid token balance.');
+    const chain = String(await provider.request({ method: 'eth_chainId' })).toLowerCase();
+    if (chain !== EXECUTION_CHAINS[item.chainId].chainId || execution.account !== account || execution.item !== item
+      || execution.market !== market || execution.side !== 'sell') throw new Error('Wallet or market changed. Read the balance again.');
+    $('execution-amount').value = exactBalancePercent(BigInt(raw).toString(), pair.input.decimals, percent);
+    execution.pendingSellPercent = null;
+    resetExecutionQuote(); renderExecutionPresets();
+    setExecutionMessage(`${percent}% of the current ${pair.input.symbol} balance, rounded down.`, 'success');
   }
 
   function renderExecutionPair() {
@@ -430,6 +645,7 @@
     $('execution-token').textContent = pair ? `${pair.input.symbol} / ${pair.output.symbol}` : 'PAIR UNAVAILABLE';
     $('execution-side-buy').setAttribute('aria-pressed', String(state.execution.side === 'buy'));
     $('execution-side-sell').setAttribute('aria-pressed', String(state.execution.side === 'sell'));
+    renderExecutionPresets();
     resetExecutionQuote();
   }
 
@@ -481,34 +697,33 @@
     setExecutionMessage(blockers, 'error');
   }
 
-  function openExecutionDialog(item, market) {
+  function openExecutionDialog(item, market, prefill = {}) {
     const execution = state.execution;
+    if (execution.busy) { toast('Finish the current wallet request before opening another trade.', 'alert'); return; }
+    if (!executionMarketReady(item, market)) { toast('This market is not ready for execution review.', 'alert'); return; }
     execution.item = item;
     execution.market = market;
-    execution.side = 'buy';
+    execution.side = prefill.side === 'sell' ? 'sell' : 'buy';
+    execution.preferences = loadExecutionPreferences();
+    execution.pendingSellPercent = prefill.sellPercent || null;
     execution.quote = null;
     execution.capability = null;
-    execution.busy = false;
+    setExecutionBusy(false);
     $('execution-chain').textContent = item.chainName.toUpperCase();
     $('execution-pool').textContent = market.pairAddress || market.poolId || '';
     $('execution-behavior').textContent = capabilitySentence(item);
-    $('execution-amount').value = '';
+    $('execution-amount').value = prefill.amount || '';
+    $('execution-slippage').value = String((prefill.slippageBps || execution.preferences.slippageBps) / 100);
+    $('execution-buy-presets').value = execution.preferences.buyPresets.join(', ');
+    $('execution-sell-presets').value = execution.preferences.sellPresets.join(', ');
+    $('execution-settings-status').textContent = prefill.slippageBps ? 'Link settings apply to this review only. Save to reuse them.' : 'Preferences are stored on this device only.';
+    $('execution-settings').open = Number(prefill.slippageBps) >= 500;
+    renderExecutionSettingsSummary();
     setExecutionMessage('', '');
-    const presets = $('execution-presets');
-    presets.replaceChildren();
-    ['0.01', '0.05', '0.1', '1'].forEach((amount) => {
-      const button = makeElement('button', '', amount);
-      button.type = 'button';
-      button.addEventListener('click', () => {
-        $('execution-amount').value = amount;
-        resetExecutionQuote();
-      });
-      presets.append(button);
-    });
     $('execution-wallet').textContent = execution.account ? shorten(execution.account, 7, 5) : 'Connect wallet';
     renderExecutionPair();
     const dialog = $('execution-dialog');
-    if (typeof dialog.showModal === 'function') dialog.showModal();
+    if (typeof dialog.showModal === 'function' && !dialog.open) dialog.showModal();
     void Promise.allSettled([executionModule(), loadExecutionCapability(item.chainId)]).then((results) => {
       if (results[1].status === 'rejected') setExecutionMessage(results[1].reason.message, 'error');
     });
@@ -521,9 +736,13 @@
     top.classList.toggle('connected', Boolean(account));
     top.title = account ? 'Disconnect wallet from Hookline' : 'Connect an EVM wallet';
     $('execution-wallet').textContent = account ? shorten(account, 7, 5) : 'Connect wallet';
+    $('execution-switch-wallet').disabled = !account;
+    $('execution-disconnect').disabled = !account;
+    $('execution-wallet-address').textContent = account || 'No wallet connected';
   }
 
   function disconnectExecutionWallet() {
+    if (state.execution.busy) { toast('Finish the current wallet request before disconnecting.', 'alert'); return; }
     state.execution.account = null;
     state.execution.quote = null;
     state.execution.receipt = null;
@@ -542,6 +761,15 @@
     renderWalletIdentity();
     resetExecutionQuote();
     return { provider, account: checked.address };
+  }
+
+  async function switchExecutionWallet() {
+    if (state.execution.busy) return;
+    const provider = executionProvider();
+    if (!provider?.request) throw new Error('Open Hookline in a browser with an EVM wallet.');
+    await provider.request({ method: 'wallet_requestPermissions', params: [{ eth_accounts: {} }] });
+    await connectExecutionWallet();
+    setExecutionMessage('Wallet updated. A fresh quote is required.', 'success');
   }
 
   async function restoreExecutionWallet() {
@@ -586,7 +814,7 @@
 
   async function requestExecutionQuote() {
     if (state.execution.busy) return;
-    state.execution.busy = true;
+    setExecutionBusy(true);
     const submit = $('execution-submit');
     submit.disabled = true;
     submit.textContent = 'Quoting…';
@@ -598,6 +826,7 @@
       if (!provider) throw new Error('Wallet provider unavailable.');
       const chainId = state.execution.item.chainId;
       await ensureExecutionChain(provider, chainId);
+      if (state.execution.pendingSellPercent) await applyExecutionSellPercent(state.execution.pendingSellPercent);
       const [pair, capability] = await Promise.all([
         resolvedExecutionPair(),
         state.execution.capability ? Promise.resolve(state.execution.capability) : loadExecutionCapability(chainId),
@@ -611,8 +840,9 @@
         inputToken: pair.input,
         outputToken: pair.output,
         amount: $('execution-amount').value,
-        slippageBps: Number($('execution-slippage').value),
+        slippageBps: executionSlippageBps(),
       });
+      const context = executionQuoteContext();
       const response = await fetch('/api/execution/quote', {
         method: 'POST',
         headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
@@ -627,14 +857,16 @@
       });
       const payload = await response.json().catch(() => null);
       if (!response.ok || !payload?.quote) throw new Error(String(payload?.error || 'Quote unavailable.').replaceAll('_', ' '));
+      if (context !== executionQuoteContext()) throw new Error('Trade settings changed. Get a fresh quote.');
       state.execution.quote = payload.quote;
+      state.execution.quoteContext = context;
       renderExecutionQuote(pair, payload.quote);
     } catch (error) {
       state.execution.quote = null;
       $('execution-quote').hidden = true;
       setExecutionMessage(error.message || 'Quote unavailable.', 'error');
     } finally {
-      state.execution.busy = false;
+      setExecutionBusy(false);
       if (!state.execution.quote) resetExecutionQuote();
     }
   }
@@ -717,8 +949,11 @@
   }
 
   async function advanceExecution() {
+    if (state.execution.busy) return;
     const quote = state.execution.quote;
     if (!quote) return requestExecutionQuote();
+    try { if (state.execution.quoteContext !== executionQuoteContext()) throw new Error('Trade settings changed. Get a fresh quote.'); }
+    catch (error) { resetExecutionQuote(); setExecutionMessage(error.message, 'error'); return; }
     if (state.execution.capability?.cashback_settlement_enabled !== true
       || state.execution.capability?.cashback_mode !== 'instant_fee_rebate'
       || Number(state.execution.capability?.effective_fee_bps) !== 70) return;
@@ -734,12 +969,13 @@
       setExecutionMessage('Wallet provider unavailable.', 'error');
       return;
     }
-    state.execution.busy = true;
+    setExecutionBusy(true);
     $('execution-submit').disabled = true;
     let approved = false;
     try {
       await ensureExecutionChain(provider, state.execution.item.chainId);
       const pair = await resolvedExecutionPair();
+      if (state.execution.quoteContext !== executionQuoteContext()) throw new Error('Trade settings changed. Get a fresh quote.');
       if (quote.allowance?.state === 'approval_required') approved = await approveExecutionToken(pair, quote);
       else await submitExecutionTransaction(quote);
     } catch (error) {
@@ -752,7 +988,7 @@
         $('execution-submit').disabled = false;
       }
     } finally {
-      state.execution.busy = false;
+      setExecutionBusy(false);
     }
     if (approved) await requestExecutionQuote();
   }
@@ -1787,6 +2023,7 @@
       node.querySelector('small').textContent = values[index][1];
     });
     $('board-updated').textContent = state.board.generatedAt ? relativeTime(state.board.generatedAt) : 'timestamp unavailable';
+    if (state.board.generatedAt) $('board-updated').dateTime = new Date(state.board.generatedAt).toISOString();
   }
 
   function populateBoardChains() {
@@ -1911,6 +2148,7 @@
     const description = $('hook-profile-description');
     description.textContent = project?.description || '';
     description.hidden = !description.textContent;
+    renderHookProjectLinks(item);
     $('hook-profile-pools').textContent = item.numberOfPools == null ? '—' : formatNumber(item.numberOfPools);
     $('hook-profile-swaps').textContent = item.numberOfSwaps == null ? '—' : formatNumber(item.numberOfSwaps);
     $('hook-profile-mask').textContent = item.address ? `0x${decodePermissions(item.address).value.toString(16).padStart(4, '0')}` : '—';
@@ -1962,6 +2200,52 @@
       : item.liveInspection ? 'Counts · v4.xyz snapshot   Contract · live RPC' : 'Counts · v4.xyz snapshot   Contract RPC · unavailable';
   }
 
+  // PoolKey.fee uses hundredths of a basis point. EXACTLY 0x800000 is
+  // the dynamic sentinel, not 838.8608%. Do not strip flags into a fee:
+  // 0x400000 is a beforeSwap override flag, not a valid PoolKey fee tier.
+  // https://github.com/Uniswap/v4-core/blob/main/src/libraries/LPFeeLibrary.sol
+  function poolFeePresentation(market) {
+    const missing = { kind: 'unavailable', label: 'Unavailable', rawUnits: null, detail: 'No pool fee tier is available.' };
+    const invalid = { kind: 'invalid', label: 'Invalid', rawUnits: null, detail: 'The indexed fee tier is not a valid v4 PoolKey fee.' };
+    const dynamic = { kind: 'dynamic', label: 'Dynamic', rawUnits: 0x800000,
+      detail: 'Dynamic-fee PoolKey flag (0x800000). The current LP fee has not been measured; this flag is not a fee percentage.' };
+    if (market?.feeMode === 'dynamic') return dynamic;
+    if (market?.feeMode === 'invalid') return invalid;
+    if (market?.feeMode === 'unavailable') return missing;
+    const raw = market?.poolKey?.fee ?? market?.poolFee?.rawUnits ?? market?.advertisedFeeUnits ?? market?.feeTier;
+    let units;
+    if (raw != null) {
+      if ((typeof raw !== 'string' && typeof raw !== 'number') || String(raw).length > 16 || !/^(?:\d+|0x[0-9a-f]+)$/i.test(String(raw))) return invalid;
+      const value = BigInt(String(raw));
+      if (value > 0xffffffn) return invalid;
+      units = Number(value);
+    } else {
+      // Compatibility for the current API and cached index rows, which exposed
+      // the tier as a percent parsed from the pool's source name.
+      const suffix = String(market?.poolName || '').match(/-\s*([+-]?[0-9]+(?:\.[0-9]+)?)%\s*$/);
+      const percent = market?.advertisedFeePercent ?? suffix?.[1];
+      if (percent == null) return missing;
+      if ((typeof percent !== 'string' && typeof percent !== 'number') || String(percent).length > 16 || !/^\d+(?:\.\d{1,4})?$/.test(String(percent))) return invalid;
+      const [whole, fraction = ''] = String(percent).split('.');
+      const value = BigInt(whole) * 10000n + BigInt(fraction.padEnd(4, '0'));
+      if (value > 0xffffffn) return invalid;
+      units = Number(value);
+    }
+    if (units === 0x800000) return market?.feeMode === 'static' ? invalid : dynamic;
+    if (units > 1000000) return invalid;
+    const padded = String(units).padStart(5, '0');
+    const fraction = padded.slice(-4).replace(/0+$/, '');
+    const percent = `${Number(padded.slice(0, -4))}${fraction ? `.${fraction}` : ''}`;
+    return { kind: 'static', label: `${percent}% advertised`, rawUnits: units,
+      detail: 'Index-reported static LP fee, not measured swap cost. Separate hook charges are not included.' };
+  }
+
+  function poolDisplayName(value) {
+    // Fee metadata is rendered separately with PoolKey-aware validation. Do
+    // not repeat a source's incorrectly formatted sentinel in the card title.
+    return cleanString(value, 140).replace(/\s+-\s*[+-]?[0-9]+(?:\.[0-9]+)?%\s*$/, '');
+  }
+
   function renderBoardMarkets(item) {
     const section = $('hook-profile-markets');
     const list = $('hook-profile-market-list');
@@ -1979,23 +2263,24 @@
       const head = makeElement('div', 'market-card-head');
       const identity = makeElement('div', 'market-identity');
       identity.append(
-        makeElement('strong', '', market.baseToken?.symbol ? `$${market.baseToken.symbol}` : market.poolName),
-        makeElement('span', '', market.baseToken?.name || market.poolName || 'Token market'),
+        makeElement('strong', '', market.baseToken?.symbol ? `$${market.baseToken.symbol}` : poolDisplayName(market.poolName)),
+        makeElement('span', '', market.baseToken?.name || poolDisplayName(market.poolName) || 'Token market'),
       );
       const change = finiteNumberOrNull(market.priceChange24h);
       const changeNode = makeElement('b', change != null ? (change > 0 ? 'positive' : change < 0 ? 'negative' : '') : '', change != null ? `${change > 0 ? '+' : ''}${change.toFixed(2)}%` : '—');
       head.append(identity, changeNode);
       const pair = makeElement('p', 'market-pair', `${market.baseToken?.symbol || '?'} / ${market.quoteToken?.symbol || '?'} · ${market.dexLabel || 'DEX'}`);
       const stats = makeElement('div', 'market-stats');
-      const advertisedFee = finiteNumberOrNull(market.advertisedFeePercent);
+      const advertisedFee = poolFeePresentation(market);
       [
         ['PRICE', formatUsd(market.priceUsd, false)],
         ['MKT CAP', formatUsd(market.marketCap, true)],
         ['LIQ', formatUsd(market.liquidityUsd, true)],
         ['VOL 24H', formatUsd(market.volume24h, true)],
-        ['POOL FEE', advertisedFee == null ? '—' : `${advertisedFee}% advertised`],
+        ['POOL FEE', advertisedFee.label],
       ].forEach(([label, value]) => {
         const stat = makeElement('div', '');
+        if (label === 'POOL FEE') { stat.title = advertisedFee.detail; stat.dataset.feeKind = advertisedFee.kind; }
         stat.append(makeElement('span', '', label), makeElement('strong', '', value));
         stats.append(stat);
       });
@@ -2305,6 +2590,7 @@
       renderBoard();
       renderBoardProfile();
       inspectProfileIfNeeded();
+      void openExecutionRoute();
     } catch (error) {
       $('board-result-count').textContent = 'Hook index unavailable';
       $('board-empty').hidden = false;
@@ -2388,6 +2674,677 @@
     $('observe-saved-count').textContent = formatNumber(totalObservations());
   }
 
+  // Project metadata, pinned observations, and events share one public API.
+  // Contribution receipts are private capabilities, kept only in this tab.
+  const PROJECT_RECEIPTS_KEY = 'hookline:project-receipts:v1';
+
+  function projectChainName(chainId) {
+    return CHAINS[Number(chainId)]?.name || state.board?.chains?.find((chain) => Number(chain.chainId) === Number(chainId))?.name || ({ 10: 'Optimism', 130: 'Unichain', 137: 'Polygon', 143: 'Monad', 146: 'Sonic', 480: 'World Chain', 1868: 'Soneium', 42220: 'Celo', 43114: 'Avalanche', 57073: 'Ink', 81457: 'Blast' })[Number(chainId)] || `Chain ${chainId}`;
+  }
+
+  function projectTime(value) {
+    if (value == null || value === '') return null;
+    const timestamp = typeof value === 'number' ? value : Date.parse(value);
+    return Number.isFinite(timestamp) ? timestamp : null;
+  }
+
+  function projectTimeNode(value, prefix = '') {
+    const timestamp = projectTime(value);
+    const node = makeElement('time', 'project-timestamp', timestamp == null ? 'Time unavailable' : `${prefix}${relativeTime(timestamp)}`);
+    if (timestamp != null) { node.dateTime = new Date(timestamp).toISOString(); node.title = formatDate(timestamp); }
+    return node;
+  }
+
+  function projectExternalLink(url, label, className = '') {
+    try {
+      const parsed = new URL(url);
+      if (parsed.protocol !== 'https:' || parsed.username || parsed.password) return null;
+      const link = makeElement('a', className, label);
+      link.href = parsed.href;
+      link.target = '_blank';
+      link.rel = 'noopener noreferrer';
+      return link;
+    } catch (_) { return null; }
+  }
+
+  function projectInternalLink(path, label, className = '') {
+    const link = makeElement('a', className, label);
+    link.href = path;
+    return link;
+  }
+
+  function projectButton(label, action, className = 'btn btn-secondary') {
+    const button = makeElement('button', className, label);
+    button.type = 'button';
+    button.addEventListener('click', action);
+    return button;
+  }
+
+  async function projectApi(path, options = {}) {
+    const response = await fetch(path, { ...options, signal: options.signal || AbortSignal.timeout(20000), headers: { Accept: 'application/json', ...(options.body ? { 'Content-Type': 'application/json' } : {}), ...options.headers } });
+    let body;
+    try { body = await response.json(); } catch (_) { throw new Error('The service returned an unreadable response. Please retry.'); }
+    if (!response.ok) throw new Error(cleanString(body?.error?.message || body?.message || (typeof body?.error === 'string' ? body.error : ''), 300) || `Request failed (${response.status}). Please retry.`);
+    return body;
+  }
+
+  function projectNotice(node, message, retry) {
+    node.replaceChildren();
+    node.hidden = !message;
+    if (!message) return;
+    node.append(makeElement('span', '', message));
+    if (retry) node.append(projectButton('Retry', retry, 'project-text-button'));
+  }
+
+  function projectRegistry() { return Array.isArray(state.projects.registry?.projects) ? state.projects.registry.projects : []; }
+
+  function projectDeployments(project) { return Array.isArray(project?.deployments) ? project.deployments : []; }
+
+  function projectCount(project, key) {
+    const count = project?.coverage?.[key];
+    return Number.isInteger(count) && count >= 0 ? count : key === 'linkedDeployments' ? projectDeployments(project).length : null;
+  }
+
+  function fillProjectSelect(node, entries, firstLabel) {
+    const value = node.value;
+    node.replaceChildren();
+    const first = makeElement('option', '', firstLabel);
+    first.value = node.id === 'project-contribution-project' ? '' : 'all';
+    node.append(first);
+    entries.forEach(([id, label]) => { const option = makeElement('option', '', label); option.value = id; node.append(option); });
+    if ([...node.options].some((option) => option.value === value)) node.value = value;
+  }
+
+  function syncProjectFilters() {
+    const projects = projectRegistry();
+    const categories = [...new Set(projects.map((project) => project.category).filter(Boolean))].sort();
+    const chains = [...new Set(projects.flatMap((project) => projectDeployments(project).map((deployment) => Number(deployment.chainId))))].filter(Number.isFinite).sort((a, b) => projectChainName(a).localeCompare(projectChainName(b)));
+    fillProjectSelect($('projects-category'), categories.map((category) => [category, category]), 'All mechanisms');
+    fillProjectSelect($('projects-chain'), chains.map((chainId) => [String(chainId), projectChainName(chainId)]), 'All chains');
+    const options = [...projects].sort((a, b) => String(a.name).localeCompare(String(b.name))).map((project) => [project.id, project.name]);
+    fillProjectSelect($('project-activity-filter'), options, 'All projects');
+    fillProjectSelect($('project-contribution-project'), options, 'Select a project');
+  }
+
+  async function loadProjects(force = false) {
+    if (state.projects.loading) return state.projects.loading;
+    if (state.projects.registry && !force) return state.projects.registry;
+    state.projects.loading = (async () => {
+      try {
+        const registry = await projectApi('/api/projects');
+        if (!Array.isArray(registry.projects)) throw new Error('Project records were incomplete. Please retry.');
+        state.projects.registry = registry;
+        state.projects.error = '';
+        syncProjectFilters();
+        renderProjectsBoard();
+        if (selectedBoardItem()) renderHookProjectLinks(selectedBoardItem());
+        return registry;
+      } catch (error) {
+        state.projects.error = error.message || 'Projects could not be loaded.';
+        projectNotice($('projects-error'), state.projects.error, () => void loadProjects(true));
+        if (!state.projects.registry) $('projects-count').textContent = 'Directory unavailable';
+        return null;
+      } finally { state.projects.loading = null; }
+    })();
+    return state.projects.loading;
+  }
+
+  function renderProjectsBoard() {
+    const query = $('projects-search').value.trim().toLowerCase();
+    const category = $('projects-category').value;
+    const chainId = $('projects-chain').value;
+    const projects = projectRegistry().filter((project) => {
+      const deployments = projectDeployments(project);
+      if (category !== 'all' && project.category !== category) return false;
+      if (chainId !== 'all' && !deployments.some((deployment) => String(deployment.chainId) === chainId)) return false;
+      return !query || [project.name, project.summary, project.category, ...deployments.flatMap((deployment) => [deployment.address, deployment.name, deployment.role, projectChainName(deployment.chainId)])].join(' ').toLowerCase().includes(query);
+    });
+    const sort = $('projects-sort').value;
+    projects.sort((left, right) => {
+      const difference = sort === 'deployments' ? projectCount(right, 'linkedDeployments') - projectCount(left, 'linkedDeployments') : sort === 'monitored' ? (projectCount(right, 'observedDeployments') ?? -1) - (projectCount(left, 'observedDeployments') ?? -1) : 0;
+      return difference || String(left.name).localeCompare(String(right.name));
+    });
+    const list = $('projects-list');
+    list.replaceChildren();
+    projects.forEach((project) => {
+      const card = makeElement('article', 'project-card');
+      const identity = makeElement('div', 'project-card-identity');
+      identity.append(makeElement('span', 'project-category', project.category || 'Mechanism unclassified'), projectInternalLink(`#/projects/${encodeURIComponent(project.id)}`, project.name, 'project-name'), makeElement('p', 'project-card-summary', project.summary || 'Project description not yet available.'));
+      const tags = makeElement('div', 'project-chain-tags');
+      const chains = [...new Set(projectDeployments(project).map((deployment) => deployment.chainId))];
+      chains.forEach((id) => tags.append(makeElement('span', '', projectChainName(id))));
+      if (!chains.length) tags.append(makeElement('span', '', 'Deployment links pending'));
+      identity.append(tags);
+      const coverage = makeElement('div', 'project-card-coverage');
+      [['Linked deployments', projectCount(project, 'linkedDeployments')], ['Observed deployments', projectCount(project, 'observedDeployments')]].forEach(([label, value]) => {
+        const metric = makeElement('div', '');
+        metric.append(makeElement('strong', value == null ? 'unavailable' : '', value == null ? 'Unavailable' : formatNumber(value)), makeElement('span', '', label));
+        coverage.append(metric);
+      });
+      const action = makeElement('div', 'project-card-action');
+      action.append(projectInternalLink(`#/projects/${encodeURIComponent(project.id)}`, 'Open project', 'project-open'), makeElement('small', '', project.metadataProvenance || project.provenance || 'Source-linked metadata'));
+      if (project.latestObservedAt) action.append(projectTimeNode(project.latestObservedAt, 'Observed '));
+      card.append(identity, coverage, action);
+      list.append(card);
+    });
+    $('projects-count').textContent = `${projects.length} of ${projectRegistry().length} projects`;
+    const generated = $('projects-generated');
+    generated.replaceChildren(projectTimeNode(state.projects.registry?.generatedAt, 'Registry updated '));
+    $('projects-empty').hidden = projects.length !== 0;
+    projectNotice($('projects-error'), state.projects.error, state.projects.error ? () => void loadProjects(true) : null);
+  }
+
+  function renderHookProjectLinks(item) {
+    const node = $('hook-profile-project-directory');
+    node.replaceChildren();
+    const projects = projectRegistry().filter((project) => projectDeployments(project).some((deployment) => Number(deployment.chainId) === Number(item.chainId) && String(deployment.address).toLowerCase() === String(item.address).toLowerCase()));
+    node.hidden = projects.length === 0;
+    projects.forEach((project) => {
+      node.append(projectInternalLink(`#/projects/${encodeURIComponent(project.id)}`, `Project: ${project.name}`), makeElement('small', '', projectDeployments(project).find((deployment) => Number(deployment.chainId) === Number(item.chainId) && String(deployment.address).toLowerCase() === String(item.address).toLowerCase())?.provenance || project.provenance || 'Source-linked relationship'));
+    });
+  }
+
+  function projectSection(title, subtitle) {
+    const section = makeElement('section', 'project-section');
+    const heading = makeElement('div', 'project-section-heading');
+    heading.append(makeElement('h2', '', title));
+    if (subtitle) heading.append(makeElement('p', '', subtitle));
+    section.append(heading);
+    return section;
+  }
+
+  function projectSourceLinks(project) {
+    const links = makeElement('div', 'project-source-links');
+    const seen = new Set();
+    [{ label: 'Website', url: project.website }, ...(Array.isArray(project.sources) ? project.sources : [])].forEach((source) => {
+      if (!source?.url || seen.has(source.url)) return;
+      const link = projectExternalLink(source.url, source.label || 'Source');
+      if (link) { links.append(link); seen.add(source.url); }
+    });
+    return links;
+  }
+
+  function projectDeploymentLink(deployment) {
+    const chainId = Number(deployment.chainId);
+    const address = validateAddress(deployment.address);
+    if (!address.ok) return null;
+    if (state.board?.items.some((item) => Number(item.chainId) === chainId && item.address === address.address)) return projectInternalLink(`#/board/${chainId}/${address.address}`, 'Open hook profile');
+    if (SUPPORTED_CHAINS.includes(chainId)) return projectButton('Inspect contract', () => {
+      $('inspect-chain').value = String(chainId);
+      $('inspect-address').value = address.address;
+      location.hash = '#/observatory';
+      $('inspect-form').requestSubmit();
+    }, 'project-text-button');
+    return projectExternalLink(explorerAddressUrl(chainId, address.address), 'Open explorer');
+  }
+
+  function renderProjectDeployments(project) {
+    const section = projectSection('Deployments', 'Relationship sources are attached to each contract. Index counts are cumulative snapshots, not interval activity.');
+    const deployments = projectDeployments(project);
+    if (!deployments.length) section.append(makeElement('p', 'projects-empty compact', 'No contract relationships have been linked yet.'));
+    deployments.forEach((deployment) => {
+      const row = makeElement('article', 'project-deployment');
+      const head = makeElement('div', 'project-deployment-head');
+      head.append(makeElement('strong', '', deployment.name || deployment.role || 'Contract'), makeElement('span', 'project-category', projectChainName(deployment.chainId)));
+      row.append(head, makeElement('code', 'project-address', deployment.address), makeElement('p', 'project-deployment-role', deployment.role || 'Deployment'));
+      const counts = [];
+      if (deployment.pools != null && Number.isFinite(Number(deployment.pools))) counts.push(`${Number(deployment.pools).toLocaleString()} pools`);
+      if (deployment.swaps != null && Number.isFinite(Number(deployment.swaps))) counts.push(`${Number(deployment.swaps).toLocaleString()} swaps`);
+      if (counts.length) { const metrics = makeElement('p', 'project-index-counts', `${counts.join(' · ')} · index snapshot`); if (deployment.indexedAt) metrics.append(' · ', projectTimeNode(deployment.indexedAt)); row.append(metrics); }
+      const links = makeElement('div', 'project-source-links');
+      const profile = projectDeploymentLink(deployment);
+      if (profile) links.append(profile);
+      const source = projectExternalLink(deployment.sourceUrl, 'Relationship source');
+      if (source) links.append(source);
+      row.append(links, makeElement('small', 'project-provenance', deployment.provenance || 'Relationship provenance unavailable'));
+      section.append(row);
+    });
+    return section;
+  }
+
+  function projectValue(value, meta = {}) {
+    if (value == null) return 'Unavailable';
+    if (meta.zeroLabel && (value === 0 || value === '0' || value === ZERO_ADDRESS || value === '0x0')) return String(meta.zeroLabel);
+    if (typeof value === 'boolean') return value ? 'Yes' : 'No';
+    if (meta.unit === 'bps' && /^\d{1,9}$/.test(String(value))) return `${Number(value) / 100}% (${value} bps)${meta.basis ? ` · ${meta.basis}` : ''}`;
+    if (meta.unit === 'wei' && meta.asset === 'ETH' && /^\d{1,80}$/.test(String(value))) {
+      const units = BigInt(value), whole = units / (10n ** 18n), raw = (units % (10n ** 18n)).toString().padStart(18, '0');
+      const fraction = raw.replace(/0+$/, '');
+      return `${whole.toLocaleString()}${fraction ? `.${fraction.slice(0, 8)}${fraction.length > 8 ? '…' : ''}` : ''} ETH`;
+    }
+    if (typeof value === 'number') return Number.isFinite(value) ? `${value.toLocaleString()}${meta.unit ? ` ${meta.unit}` : ''}` : 'Unavailable';
+    if (typeof value === 'object') return JSON.stringify(value);
+    return `${String(value)}${meta.unit ? ` ${meta.unit}` : ''}`;
+  }
+
+  function projectSourceLabel(source) {
+    return typeof source === 'string' ? source : source?.label || source?.name || source?.method || source?.type || 'Pinned chain observation';
+  }
+
+  function projectBlockLink(chainId, kind, value, label) {
+    const base = explorerAddressUrl(chainId, ZERO_ADDRESS);
+    if (!base || value == null) return null;
+    return projectExternalLink(base.replace(/\/address\/[^/]*$/, `/${kind}/${encodeURIComponent(value)}`), label);
+  }
+
+  function renderProjectObservations(observations) {
+    const section = projectSection('Observed state', 'Direct contract reads, pinned to a block. Configured allocations are not executed payouts.');
+    const latest = new Map();
+    observations.forEach((observation) => {
+      const key = `${observation.chainId}:${observation.address}`;
+      if (!latest.has(key) || (projectTime(observation.observedAt) ?? 0) > (projectTime(latest.get(key).observedAt) ?? 0)) latest.set(key, observation);
+    });
+    if (!latest.size) section.append(makeElement('p', 'projects-empty compact', 'No pinned observations available yet.'));
+    latest.forEach((observation) => {
+      const card = makeElement('article', 'project-observation');
+      const head = makeElement('div', 'project-observation-head');
+      head.append(makeElement('strong', '', projectChainName(observation.chainId)), projectTimeNode(observation.observedAt, 'Observed '));
+      card.append(head, makeElement('code', 'project-address', observation.address));
+      const timestamp = projectTime(observation.observedAt);
+      if (timestamp != null && Date.now() - timestamp > 60 * 60 * 1000) card.append(makeElement('p', 'project-stale', 'Stored observation · over one hour old'));
+      const fields = makeElement('dl', 'project-observation-fields');
+      const values = observation.fields && typeof observation.fields === 'object' ? observation.fields : {};
+      const keys = [...new Set([...Object.keys(values), ...Object.keys(observation.probes || {})])];
+      keys.forEach((key) => {
+        const meta = observation.fieldMeta?.[key] || {};
+        const row = makeElement('div', '');
+        const label = makeElement('dt', '', meta.label || key.replace(/([a-z])([A-Z])/g, '$1 $2'));
+        if (meta.classification) label.append(makeElement('small', '', String(meta.classification).replace(/_/g, ' ')));
+        const unavailable = observation.probes?.[key]?.status === 'unavailable';
+        const value = makeElement('dd', unavailable ? 'unavailable' : '', unavailable ? 'Unavailable' : projectValue(values[key], meta));
+        if (key === 'runtimeFingerprint' && values[key]) { value.textContent = shorten(values[key], 12, 10); value.title = values[key]; }
+        if (meta.description) label.title = String(meta.description);
+        row.append(label, value);
+        fields.append(row);
+      });
+      if (!keys.length) card.append(makeElement('p', '', 'Field data unavailable.'));
+      else card.append(fields);
+      const provenance = makeElement('div', 'project-evidence-links');
+      provenance.append(makeElement('span', '', projectSourceLabel(observation.source)));
+      if (observation.blockTimestamp) provenance.append(projectTimeNode(observation.blockTimestamp, 'Block time '));
+      if (observation.finality) provenance.append(makeElement('span', '', observation.finality));
+      const blockLink = projectBlockLink(observation.chainId, 'block', observation.blockNumber, `Block ${observation.blockNumber}`);
+      if (blockLink) provenance.append(blockLink);
+      if (observation.blockHash) { const blockHash = makeElement('code', '', shorten(observation.blockHash, 12, 10)); blockHash.title = observation.blockHash; provenance.append(blockHash); }
+      card.append(provenance);
+      section.append(card);
+    });
+    return section;
+  }
+
+  function renderProjectEvent(event, showProject = true) {
+    const card = makeElement('article', 'project-event');
+    const header = makeElement('div', 'project-event-meta');
+    if (showProject && event.projectId) header.append(projectInternalLink(`#/projects/${encodeURIComponent(event.projectId)}`, event.projectName || event.projectId));
+    if (event.chainId != null) header.append(makeElement('span', '', projectChainName(event.chainId)));
+    header.append(projectTimeNode(event.occurredAt || event.observedAt, event.occurredAt ? '' : 'Observed '));
+    card.append(header, makeElement('h3', '', event.title || 'Contract observation'));
+    const evidence = event.evidence && typeof event.evidence === 'object' ? event.evidence : {};
+    const scope = event.scope || evidence.scope;
+    if (scope) card.append(makeElement('p', 'project-event-scope', scope));
+    if (event.after && typeof event.after === 'object' && evidence.scope === 'contract event') {
+      const facts = makeElement('dl', 'project-observation-fields');
+      const candidates = [event.deploymentField,event.hookField,event.poolField,event.amountField,event.recipientField,event.assetField,
+        'tokenName','tokenSymbol','tokenAddress','token','hook','poolHook','mind','implementation','newOwner','recipient','to','eth','tag','version'];
+      const keys = [...new Set(candidates.filter((key) => key && event.after[key] != null))].slice(0, 6);
+      keys.forEach((key) => {
+        const row = makeElement('div', '');
+        const meta = key === event.amountField ? {unit:event.unit,asset:event.asset} : {};
+        const raw = event.after[key];
+        const label = key === event.recipientField ? 'Recipient' : key === event.amountField ? 'Amount' : key.replace(/([a-z])([A-Z])/g, '$1 $2');
+        const display = /^0x[0-9a-f]{40}$/i.test(String(raw)) ? projectExternalLink(explorerAddressUrl(event.chainId, raw), shorten(raw, 10, 8)) : makeElement('span', '', projectValue(raw, meta));
+        const value = makeElement('dd', ''); value.append(display || String(raw));
+        row.append(makeElement('dt', '', label), value); facts.append(row);
+      });
+      if (keys.length) card.append(facts);
+    } else if (event.before != null || event.after != null) {
+      const delta = makeElement('div', 'project-event-delta');
+      [['Before', event.before], ['After', event.after]].forEach(([label, value]) => {
+        const cell = makeElement('div', '');
+        cell.append(makeElement('span', '', label), makeElement('code', '', projectValue(value)));
+        delta.append(cell);
+      });
+      card.append(delta);
+    }
+    const links = makeElement('div', 'project-evidence-links');
+    const txHash = event.transactionHash || evidence.transactionHash;
+    const blockNumber = event.blockNumber ?? evidence.blockNumber;
+    const fromBlock = event.fromBlock ?? evidence.fromBlock ?? evidence.before?.blockNumber;
+    const toBlock = event.toBlock ?? evidence.toBlock ?? evidence.after?.blockNumber;
+    if (typeof txHash === 'string' && /^0x[0-9a-f]{64}$/i.test(txHash)) {
+      const link = projectBlockLink(event.chainId, 'tx', txHash, `Transaction ${shorten(txHash, 8, 6)}`);
+      if (link) links.append(link);
+    } else if (fromBlock != null || toBlock != null) {
+      links.append(makeElement('span', '', `Observation window: blocks ${fromBlock ?? 'unavailable'} to ${toBlock ?? 'unavailable'}`));
+    } else if (blockNumber != null) {
+      const link = projectBlockLink(event.chainId, 'block', blockNumber, `Block ${blockNumber}`);
+      if (link) links.append(link);
+    }
+    if (event.address) { const addressLink = projectExternalLink(explorerAddressUrl(event.chainId, event.address), shorten(event.address, 8, 6)); if (addressLink) links.append(addressLink); }
+    if (evidence.source || event.source) {
+      const source = projectSourceLabel(evidence.source || event.source);
+      links.append(projectExternalLink(source, 'Reader source') || makeElement('span', '', source));
+    }
+    card.append(links);
+    const receipt = makeElement('details', 'project-event-receipt');
+    receipt.append(makeElement('summary', '', 'Evidence record'), makeElement('pre', '', JSON.stringify({ id: event.id, kind: event.kind, chainId: event.chainId, address: event.address, observedAt: event.observedAt, before: event.before, after: event.after, evidence: event.evidence, transactionHash: event.transactionHash, blockNumber: event.blockNumber }, null, 2)));
+    card.append(receipt);
+    return card;
+  }
+
+  function renderProjectDetail(body) {
+    const project = body.project;
+    const root = $('project-detail');
+    root.replaceChildren();
+    root.append(projectInternalLink('#/projects', 'All projects', 'project-back-link'));
+    const hero = makeElement('header', 'projects-hero project-detail-hero');
+    const title = makeElement('div', '');
+    const heading = makeElement('h1', '', project.name);
+    heading.id = 'project-detail-title';
+    title.append(makeElement('p', 'eyebrow', project.category || 'HOOK PROJECT'), heading, makeElement('p', '', project.summary || 'Description unavailable.'), projectSourceLinks(project));
+    $('view-projects').setAttribute('aria-labelledby', 'project-detail-title');
+    const actions = makeElement('div', 'project-detail-actions');
+    actions.append(projectExternalLink(`https://t.me/HooklineTradeBot?start=project_${encodeURIComponent(project.id)}`, 'Follow in Telegram', 'btn btn-primary'));
+    actions.append(projectButton('Claim profile', () => openProjectContribution('claim', project.id)), projectButton('Suggest correction', () => openProjectContribution('correction', project.id), 'project-text-button'));
+    hero.append(title, actions);
+    root.append(hero, makeElement('p', 'project-provenance', `${project.metadataProvenance || project.provenance || 'Source-linked project metadata'} · Listing does not establish ownership or safety.`));
+    const layout = makeElement('div', 'project-detail-layout');
+    const primary = makeElement('div', 'project-detail-main');
+    primary.append(renderProjectObservations(Array.isArray(body.observations) ? body.observations : []));
+    const events = projectSection('Changes & activity', 'Baselines establish state. Changes carry a transaction or observation window.');
+    if (Array.isArray(body.monitoring?.targets) && body.monitoring.targets.length) {
+      const coverage = makeElement('details', 'project-event-receipt');
+      const behind = body.monitoring.targets.filter((target) => target.eventStatus !== 'caught_up').length;
+      coverage.append(makeElement('summary', '', behind ? `Event coverage · ${behind} target${behind === 1 ? '' : 's'} catching up or unavailable` : 'Event coverage · caught up to sampled finalized blocks'));
+      body.monitoring.targets.forEach((target) => {
+        const line = makeElement('p', 'project-provenance', `${projectChainName(target.chainId)}, ${shorten(target.address, 10, 8)}, ${target.eventStatus === 'caught_up' ? 'through block ' + target.eventCursorBlock : target.eventStatus === 'behind' ? Number(target.eventLagBlocks || 0).toLocaleString() + ' blocks behind sampled tip' : 'event read unavailable'}`);
+        if (target.eventThroughAt) line.append(' · block time ', projectTimeNode(target.eventThroughAt));
+        coverage.append(line);
+      });
+      events.append(coverage);
+    }
+    if (!body.events?.length) events.append(makeElement('p', 'projects-empty compact', 'No change records available yet. This does not establish that no changes occurred.'));
+    else body.events.slice(0, 30).forEach((event) => events.append(renderProjectEvent(event, false)));
+    primary.append(events);
+    const side = makeElement('aside', 'project-detail-side');
+    side.append(renderProjectDeployments(project));
+    if (body.related?.length) {
+      const related = projectSection('Explore related mechanisms', 'Shared category, not proof of affiliation or identical code.');
+      body.related.forEach((item) => {
+        const node = makeElement('div', 'project-related');
+        node.append(projectInternalLink(`#/projects/${encodeURIComponent(item.id)}`, item.name), makeElement('small', '', item.reason || 'Shared mechanism category'));
+        related.append(node);
+      });
+      side.append(related);
+    }
+    layout.append(primary, side);
+    root.append(layout);
+  }
+
+  async function renderProjectsRoute() {
+    const match = location.hash.match(/^#\/projects\/([a-z0-9-]+)$/i);
+    const id = match?.[1];
+    const request = ++state.projects.detailRequest;
+    $('projects-directory').hidden = Boolean(id);
+    $('project-detail').hidden = !id;
+    if (!id) { $('view-projects').setAttribute('aria-labelledby', 'projects-title'); await loadProjects(); if (viewFromHash() === 'projects' && !location.hash.match(/^#\/projects\//)) renderProjectsBoard(); return; }
+    const root = $('project-detail');
+    root.replaceChildren(projectInternalLink('#/projects', 'All projects', 'project-back-link'), makeElement('p', 'projects-empty', 'Loading project and evidence…'));
+    void loadProjects();
+    try {
+      const body = await projectApi(`/api/projects/${encodeURIComponent(id)}`);
+      if (request !== state.projects.detailRequest || viewFromHash() !== 'projects') return;
+      if (!body?.project?.id) throw new Error('Project not found.');
+      state.projects.detail = body;
+      renderProjectDetail(body);
+    } catch (error) {
+      if (request !== state.projects.detailRequest || viewFromHash() !== 'projects') return;
+      root.replaceChildren(projectInternalLink('#/projects', 'All projects', 'project-back-link'));
+      const notice = makeElement('div', 'projects-notice');
+      projectNotice(notice, error.message || 'Project evidence could not be loaded.', () => void renderProjectsRoute());
+      root.append(notice);
+    }
+  }
+
+  function renderProjectActivity() {
+    const filter = $('project-activity-filter').value;
+    const events = state.projects.events.filter((event) => filter === 'all' || event.projectId === filter);
+    const list = $('project-activity-list');
+    list.replaceChildren();
+    if (!events.length) list.append(makeElement('p', 'projects-empty', state.projects.activityLoaded ? 'No change records in this view yet. First observations establish the baseline.' : 'Loading observed activity…'));
+    else events.slice(0, 150).forEach((event) => list.append(renderProjectEvent(event)));
+    $('project-activity-generated').replaceChildren(projectTimeNode(state.projects.activityGeneratedAt, 'Feed updated '));
+  }
+
+  async function loadProjectActivity() {
+    const request = ++state.projects.activityRequest;
+    const button = $('project-activity-refresh');
+    button.disabled = true;
+    void loadProjects();
+    if (!state.projects.activityLoaded) renderProjectActivity();
+    try {
+      const body = await projectApi('/api/project-activity');
+      if (request !== state.projects.activityRequest) return;
+      if (!Array.isArray(body.events)) throw new Error('Activity records were incomplete.');
+      state.projects.events = body.events;
+      state.projects.activityLoaded = true;
+      state.projects.activityGeneratedAt = body.generatedAt;
+      projectNotice($('project-activity-status'), '');
+      renderProjectActivity();
+    } catch (error) {
+      if (request !== state.projects.activityRequest) return;
+      projectNotice($('project-activity-status'), `${error.message || 'Activity unavailable.'}${state.projects.activityLoaded ? ' Last loaded records are preserved.' : ''}`, () => void loadProjectActivity());
+    } finally { if (request === state.projects.activityRequest) button.disabled = false; }
+  }
+
+  function loadProjectReceipts() {
+    try {
+      const saved = JSON.parse(sessionStorage.getItem(PROJECT_RECEIPTS_KEY) || '[]');
+      state.projects.receipts = Array.isArray(saved) ? saved.filter((receipt) => typeof receipt.id === 'string' && typeof receipt.receiptToken === 'string').slice(0, 20) : [];
+    } catch (_) { state.projects.receipts = []; }
+  }
+
+  function saveProjectReceipts() {
+    try { sessionStorage.setItem(PROJECT_RECEIPTS_KEY, JSON.stringify(state.projects.receipts.slice(0, 20).map(({ busy, ...receipt }) => receipt))); return true; }
+    catch (_) { return false; }
+  }
+
+  function projectContributionMessage(message, error = false) {
+    const node = $('project-contribution-status');
+    node.textContent = message;
+    node.classList.toggle('error', error);
+  }
+
+  function updateProjectContributionFields() {
+    const kind = $('project-contribution-kind').value;
+    const newProject = kind === 'project';
+    $('project-contribution-existing').hidden = newProject;
+    $('project-contribution-project').required = !newProject;
+    $('project-contribution-project').disabled = newProject;
+    $('project-contribution-new-fields').hidden = !newProject;
+    ['name', 'website', 'description'].forEach((field) => {
+      $(`project-contribution-${field}`).required = newProject;
+      $(`project-contribution-${field}`).disabled = !newProject;
+    });
+    $('project-contribution-contracts').disabled = !newProject;
+    $('project-contribution-claim-help').hidden = kind !== 'claim';
+    $('project-contribution-message').required = kind === 'correction';
+    $('project-contribution-message-field').querySelector('label span').textContent = kind === 'correction' ? 'required' : 'optional';
+    $('project-contribution-send').textContent = ({ project: 'Submit project', claim: 'Request claim', correction: 'Submit correction' })[kind];
+  }
+
+  async function openProjectContribution(kind = 'project', projectId = '') {
+    const dialog = $('project-contribution-dialog');
+    const form = $('project-contribution-form');
+    form.hidden = kind === 'receipts';
+    projectContributionMessage('');
+    $('project-contribution-title').textContent = kind === 'receipts' ? 'Your private requests.' : 'Improve the directory.';
+    if (kind !== 'receipts') {
+      $('project-contribution-kind').value = kind;
+      updateProjectContributionFields();
+    }
+    renderProjectReceipts();
+    if (!dialog.open) dialog.showModal();
+    await loadProjects();
+    if (kind !== 'receipts' && projectId) $('project-contribution-project').value = projectId;
+    if (!projectRegistry().length && kind !== 'project' && kind !== 'receipts') projectContributionMessage('The project directory is unavailable. Retry loading it before submitting this request.', true);
+  }
+
+  function storeProjectReceipt(body, request) {
+    const receipt = { ...body, kind: body.kind || request.kind, projectId: body.projectId || request.projectId, title: request.name || projectRegistry().find((project) => project.id === request.projectId)?.name || 'Project request' };
+    const prior = state.projects.receipts.findIndex((item) => item.id === receipt.id);
+    if (prior >= 0) state.projects.receipts[prior] = receipt;
+    else state.projects.receipts.unshift(receipt);
+    state.projects.receipts = state.projects.receipts.slice(0, 20);
+    return saveProjectReceipts();
+  }
+
+  async function submitProjectContribution(event) {
+    event.preventDefault();
+    if (state.projects.contributionBusy) return;
+    const form = $('project-contribution-form');
+    if (!form.reportValidity()) return;
+    const body = Object.fromEntries(new FormData(form));
+    body.agreement = $('project-contribution-agreement').checked;
+    if (body.contact && !/^@[A-Za-z0-9_]{5,32}$/.test(body.contact.trim())) { projectContributionMessage('Use a Telegram handle such as @yourhandle, or leave contact blank.', true); $('project-contribution-contact').focus(); return; }
+    for (const field of ['website', 'proofUrl']) {
+      if (body[field] && !projectExternalLink(body[field], '')) { projectContributionMessage('Website and evidence links must use https://.', true); return; }
+    }
+    state.projects.contributionBusy = true;
+    $('project-contribution-send').disabled = true;
+    projectContributionMessage('Submitting privately…');
+    try {
+      const result = await projectApi('/api/project-submissions', { method: 'POST', body: JSON.stringify(body) });
+      if (!result.id || !result.receiptToken) throw new Error('The request response did not include a private receipt. Do not submit again immediately.');
+      const persisted = storeProjectReceipt(result, body);
+      form.reset();
+      updateProjectContributionFields();
+      form.hidden = true;
+      projectContributionMessage(`${result.message || 'Request received. Track verification and review below.'}${persisted ? '' : ' This browser could not save the receipt. Copy its access key before closing this page.'}`);
+      renderProjectReceipts();
+    } catch (error) { projectContributionMessage(error.message || 'Could not confirm submission. Please check your connection.', true); }
+    finally { state.projects.contributionBusy = false; $('project-contribution-send').disabled = false; }
+  }
+
+  async function updateProjectReceipt(receipt, action = '') {
+    if (receipt.busy) return;
+    receipt.busy = true;
+    projectContributionMessage(action === 'verify' ? 'Checking the project’s DNS proof…' : 'Loading private request status…');
+    renderProjectReceipts();
+    try {
+      const body = await projectApi(`/api/project-submissions/${encodeURIComponent(receipt.id)}${action ? `/${action}` : ''}`, { method: action ? 'POST' : 'GET', headers: { Authorization: `Bearer ${receipt.receiptToken}` } });
+      const previousVerification = receipt.verification;
+      Object.assign(receipt, body);
+      // Status responses deliberately omit the TXT value. Preserve only the current challenge.
+      if (body.verification && !body.verification.value && previousVerification?.expiresAt === body.verification.expiresAt) receipt.verification = { ...previousVerification, ...body.verification };
+      saveProjectReceipts();
+      projectContributionMessage(body.message || body.reason?.message || 'Request status updated.');
+    } catch (error) { projectContributionMessage(error.message || 'Request status unavailable.', true); }
+    finally { receipt.busy = false; renderProjectReceipts(); }
+  }
+
+  function renderOwnerMetadataForm(receipt) {
+    const details = makeElement('details', 'project-owner-editor');
+    details.append(makeElement('summary', '', 'Update your project profile'));
+    const form = makeElement('form', '');
+    const project = projectRegistry().find((item) => item.id === receipt.projectId);
+    [['name', 'Project name', project?.name || ''], ['website', 'Official website', project?.website || ''], ['description', 'Description', project?.summary || '']].forEach(([name, labelText, value]) => {
+      const field = makeElement('label', 'project-form-field');
+      field.append(makeElement('span', '', labelText));
+      const input = makeElement(name === 'description' ? 'textarea' : 'input', '');
+      input.name = name;
+      input.value = value;
+      input.required = true;
+      input.maxLength = name === 'description' ? 1200 : name === 'name' ? 100 : 500;
+      if (name === 'website') input.type = 'url';
+      field.append(input);
+      form.append(field);
+    });
+    const agreement = makeElement('label', 'project-agreement');
+    const checkbox = makeElement('input', '');
+    checkbox.type = 'checkbox'; checkbox.required = true; checkbox.name = 'agreement';
+    agreement.append(checkbox, makeElement('span', '', 'I’m authorized to update this profile. Contract evidence and historical records remain independent.'));
+    const submit = makeElement('button', 'btn btn-primary', 'Save profile update');
+    submit.type = 'submit';
+    form.append(agreement, submit);
+    form.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      if (!form.reportValidity()) return;
+      const payload = Object.fromEntries(new FormData(form)); payload.agreement = true;
+      if (!projectExternalLink(payload.website, '')) { projectContributionMessage('The official website must use https://.', true); return; }
+      submit.disabled = true;
+      try {
+        const body = await projectApi(`/api/project-submissions/${encodeURIComponent(receipt.id)}/metadata`, { method: 'POST', headers: { Authorization: `Bearer ${receipt.receiptToken}` }, body: JSON.stringify(payload) });
+        // The update has its own receipt. Keep the original claim capability intact.
+        if (body.id && body.receiptToken) storeProjectReceipt(body, { kind: 'correction', projectId: receipt.projectId, name: receipt.title });
+        projectContributionMessage(body.message || 'Profile update approved. Measured evidence is unchanged.');
+        await loadProjects(true);
+        renderProjectReceipts();
+        if (location.hash === `#/projects/${receipt.projectId}`) void renderProjectsRoute();
+      } catch (error) { projectContributionMessage(error.message || 'Profile update could not be saved.', true); }
+      finally { submit.disabled = false; }
+    });
+    details.append(makeElement('p', 'project-provenance', 'Domain control authorizes metadata only. Website changes must remain on the verified domain.'), form);
+    return details;
+  }
+
+  function renderProjectReceipts() {
+    const root = $('project-request-receipts');
+    root.replaceChildren();
+    if (!state.projects.receipts.length) {
+      if ($('project-contribution-form').hidden) root.append(makeElement('p', 'projects-empty compact', 'No request receipts in this tab yet.'), projectButton('Submit a project', () => openProjectContribution('project')));
+      return;
+    }
+    root.append(makeElement('h3', '', 'Private request receipts'), makeElement('p', 'project-receipt-warning', 'Saved only in this browser tab. Closing it can remove access. Your access key is a private credential: copy it for later API access, never post it publicly. No email notifications are sent.'));
+    state.projects.receipts.forEach((receipt) => {
+      const card = makeElement('article', 'project-request-receipt');
+      const head = makeElement('div', 'project-deployment-head');
+      head.append(makeElement('strong', '', receipt.title || receipt.projectId || 'Project request'), makeElement('span', 'project-category', String(receipt.status || 'pending_review').replace(/_/g, ' ')));
+      card.append(head, makeElement('code', 'project-address', receipt.id));
+      if (receipt.reason?.message || receipt.message) card.append(makeElement('p', '', receipt.reason?.message || receipt.message));
+      const controls = makeElement('div', 'project-source-links');
+      const statusButton = projectButton(receipt.busy ? 'Checking…' : 'Check status', () => void updateProjectReceipt(receipt), 'project-text-button');
+      statusButton.disabled = Boolean(receipt.busy);
+      controls.append(statusButton, projectButton('Copy access key', (event) => copyText(receipt.receiptToken, event.currentTarget), 'project-text-button'));
+      card.append(controls);
+      if (receipt.status === 'verified_owner') {
+        card.append(makeElement('p', 'project-verified-note', `Domain control verified${receipt.proof?.domain ? `: ${receipt.proof.domain}` : ''}. This is not a safety endorsement.`), renderOwnerMetadataForm(receipt));
+      } else if (receipt.kind === 'claim' && !['rejected', 'revoked', 'expired'].includes(receipt.status)) {
+        const proof = receipt.verification || receipt.challenge;
+        if (proof) {
+          const instructions = makeElement('div', 'project-dns-proof');
+          instructions.append(makeElement('strong', '', 'DNS TXT verification'), makeElement('p', '', 'Add this TXT record at the listed website’s DNS provider. Then check verification here.'));
+          [['Record name', proof.name], ['Record value', proof.value]].forEach(([label, value]) => {
+            if (!value) return;
+            const field = makeElement('div', '');
+            field.append(makeElement('span', '', label), makeElement('code', '', value), projectButton('Copy', (event) => copyText(value, event.currentTarget), 'project-text-button'));
+            instructions.append(field);
+          });
+          if (proof.expiresAt) instructions.append(makeElement('p', 'project-provenance', `Challenge expires ${formatDate(proof.expiresAt)}.`));
+          card.append(instructions);
+        }
+        const verificationButtons = makeElement('div', 'project-source-links');
+        [projectButton('Check DNS verification', () => void updateProjectReceipt(receipt, 'verify'), 'btn btn-secondary'), projectButton('Get a new DNS challenge', () => void updateProjectReceipt(receipt, 'challenge'), 'project-text-button')].forEach((button) => { button.disabled = Boolean(receipt.busy); verificationButtons.append(button); });
+        card.append(verificationButtons);
+      }
+      root.append(card);
+    });
+  }
+
+  function setupProjectEvents() {
+    $('projects-search').addEventListener('input', renderProjectsBoard);
+    ['projects-category', 'projects-chain', 'projects-sort'].forEach((id) => $(id).addEventListener('change', renderProjectsBoard));
+    $('projects-submit').addEventListener('click', () => openProjectContribution('project'));
+    $('projects-requests').addEventListener('click', () => openProjectContribution('receipts'));
+    $('project-activity-refresh').addEventListener('click', () => void loadProjectActivity());
+    $('project-activity-filter').addEventListener('change', renderProjectActivity);
+    $('project-contribution-close').addEventListener('click', () => $('project-contribution-dialog').close());
+    $('project-contribution-kind').addEventListener('change', updateProjectContributionFields);
+    $('project-contribution-form').addEventListener('submit', submitProjectContribution);
+    updateProjectContributionFields();
+    loadProjectReceipts();
+  }
+
   function viewFromHash() {
     const value = (location.hash.replace(/^#\/?/, '') || 'board').split('/')[0];
     return VIEWS.has(value) ? value : 'board';
@@ -2405,6 +3362,10 @@
   }
 
   function renderView() {
+    if (!location.hash.startsWith('#/trade/')) {
+      state.execution.handoffHash = null;
+      state.execution.handoffRequest += 1;
+    }
     const view = viewFromHash();
     $$('.view').forEach((section) => section.classList.toggle('active', section.id === 'view-' + view));
     $$('[data-view]').forEach((link) => {
@@ -2414,8 +3375,13 @@
       else link.removeAttribute('aria-current');
     });
     if (view === 'board') { syncBoardSelectionFromHash(); renderBoard(); renderBoardProfile(); inspectProfileIfNeeded(); }
+    else document.body.classList.remove('board-profile-open');
+    if (view === 'projects') void renderProjectsRoute();
+    else state.projects.detailRequest += 1;
+    if (view === 'activity') void loadProjectActivity();
     if (view === 'watchlists') renderWatchlists();
     if (view === 'network') renderTelemetry(state.metrics);
+    if (location.hash.startsWith('#/trade/')) void openExecutionRoute();
     window.scrollTo(0, 0);
   }
 
@@ -2541,7 +3507,7 @@
     });
     $('hook-profile-backdrop').addEventListener('click', () => $('hook-profile-close').click());
     document.addEventListener('keydown', (event) => {
-      if (event.key === 'Escape' && !$('execution-dialog').open && state.boardSelectedId) $('hook-profile-close').click();
+      if (event.key === 'Escape' && viewFromHash() === 'board' && !$('execution-dialog').open && !$('project-contribution-dialog').open && state.boardSelectedId) $('hook-profile-close').click();
     });
     $('hook-profile-copy').addEventListener('click', (event) => {
       const item = selectedBoardItem();
@@ -2552,16 +3518,29 @@
     $('hook-profile-share').addEventListener('click', (event) => copyText(location.href, event.currentTarget));
     $('execution-close').addEventListener('click', () => $('execution-dialog').close());
     $('execution-side-buy').addEventListener('click', () => {
+      if (state.execution.busy) return;
       state.execution.side = 'buy';
+      state.execution.pendingSellPercent = null;
+      $('execution-amount').value = '';
       renderExecutionPair();
     });
     $('execution-side-sell').addEventListener('click', () => {
+      if (state.execution.busy) return;
       state.execution.side = 'sell';
+      state.execution.pendingSellPercent = null;
+      $('execution-amount').value = '';
       renderExecutionPair();
     });
-    $('execution-amount').addEventListener('input', resetExecutionQuote);
-    $('execution-slippage').addEventListener('change', resetExecutionQuote);
+    $('execution-amount').addEventListener('input', () => { state.execution.pendingSellPercent = null; resetExecutionQuote(); });
+    $('execution-slippage').addEventListener('input', () => { renderExecutionSettingsSummary(); resetExecutionQuote(); });
+    $('execution-settings-save').addEventListener('click', saveExecutionPreferences);
+    $('execution-disconnect').addEventListener('click', disconnectExecutionWallet);
+    $('execution-switch-wallet').addEventListener('click', async () => {
+      try { await switchExecutionWallet(); }
+      catch (error) { setExecutionMessage(error.message || 'Choose another account in your wallet, then reconnect.', 'error'); }
+    });
     $('execution-wallet').addEventListener('click', async () => {
+      if (state.execution.busy) return;
       try {
         await connectExecutionWallet();
         setExecutionMessage('Wallet connected. Enter an amount for a live quote.', 'success');
@@ -2606,6 +3585,7 @@
     $('refresh-telemetry-btn').addEventListener('click', () => loadTelemetry(true));
     $$('[data-copy]').forEach((button) => button.addEventListener('click', (event) => copyText(button.dataset.copy, event.currentTarget)));
     window.addEventListener('hashchange', renderView);
+    setupProjectEvents();
   }
 
   function init() {
@@ -2615,6 +3595,7 @@
     renderWatchlists();
     renderView();
     loadBoard();
+    void loadProjects();
     setupWebMCP();
     restoreExecutionWallet();
     loadHealth();

@@ -1,0 +1,164 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-10-07T21:07:25.000Z",
+  "projects": [
+    {
+      "id": "clanker", "name": "Clanker",
+      "summary": "Token deployment and LP-fee infrastructure using static or dynamic-fee Uniswap v4 hooks, with configurable recipients and launch modules.",
+      "category": "Token launches", "website": "https://clanker.world/", "provenance": "researched project record",
+      "sources": [{"label": "Official v4 contracts and deployments", "url": "https://github.com/clanker-devco/v4-contracts"}],
+      "deployments": [
+        {"chainId": 8453, "address": "0xd60d6b218116cfd801e28f78d011a203d2b068cc", "role": "hook", "name": "Clanker dynamic fee v4.1", "provenance": "official deployment reference", "sourceUrl": "https://github.com/clanker-devco/v4-contracts", "monitor": true},
+        {"chainId": 8453, "address": "0xb429d62f8f3bffb98cdb9569533ea23bf0ba28cc", "role": "hook", "name": "Clanker static fee v4.1", "provenance": "official deployment reference", "sourceUrl": "https://github.com/clanker-devco/v4-contracts", "monitor": false},
+        {"chainId": 8453, "address": "0xe85a59c628f7d27878aceb4bf3b35733630083a9", "role": "factory", "name": "Clanker v4 factory", "provenance": "official deployment reference", "sourceUrl": "https://github.com/clanker-devco/v4-contracts", "monitor": true},
+        {"chainId": 42161, "address": "0xfd213be7883db36e1049dc42f5bd6a0ec66b68cc", "role": "hook", "name": "Clanker dynamic fee v4.0", "provenance": "official deployment reference", "sourceUrl": "https://github.com/clanker-devco/v4-contracts", "monitor": false},
+        {"chainId": 130, "address": "0x9b37a43422d7bbd4c8b231be11e50ad1ace828cc", "role": "hook", "name": "Clanker dynamic fee v4.0", "provenance": "official deployment reference", "sourceUrl": "https://github.com/clanker-devco/v4-contracts", "monitor": false}
+      ]
+    },
+    {
+      "id": "zora", "name": "Zora",
+      "summary": "Creator and content coin markets with a Uniswap v4 hook system and an onchain registry publishing hook versions and registrations.",
+      "category": "Creator markets", "website": "https://zora.co/", "provenance": "researched project record",
+      "sources": [{"label": "Official hook registry", "url": "https://docs.zora.co/coins/contracts/hook-registry"}, {"label": "Hook system", "url": "https://docs.zora.co/coins/contracts/hook"}],
+      "deployments": [
+        {"chainId": 8453, "address": "0x777777c4c14b133858c3982d41dbf02509fc18d7", "role": "registry", "name": "ZoraHookRegistry", "provenance": "official deployment reference", "sourceUrl": "https://docs.zora.co/coins/contracts/hook-registry", "monitor": true}
+      ]
+    },
+    {
+      "id": "doppler", "name": "Doppler",
+      "summary": "Token issuance and liquidity bootstrapping infrastructure, with auction, initialization, and migration modules deployed across several chains.",
+      "category": "Token launches", "website": "https://doppler.lol/", "provenance": "researched project record",
+      "sources": [{"label": "Canonical deployment directory", "url": "https://docs.doppler.lol/reference/contract-addresses"}],
+      "deployments": [
+        {"chainId": 8453, "address": "0xbdf938149ac6a781f94faa0ed45e6a0e984c6544", "role": "hook", "name": "DopplerHookInitializer", "provenance": "official deployment reference", "sourceUrl": "https://docs.doppler.lol/reference/contract-addresses", "monitor": true},
+        {"chainId": 4663, "address": "0x4e3468951d49f2eea976ed0d6e75ffcb44a9a544", "role": "hook", "name": "DopplerHookInitializer", "provenance": "official deployment reference", "sourceUrl": "https://docs.doppler.lol/reference/contract-addresses", "monitor": true},
+        {"chainId": 1, "address": "0xbdf938149ac6a781f94faa0ed45e6a0e984c6544", "role": "hook", "name": "DopplerHookInitializer", "provenance": "official deployment reference", "sourceUrl": "https://docs.doppler.lol/reference/contract-addresses", "monitor": false},
+        {"chainId": 42161, "address": "0xaa7f809bb3752f715fa2e418230667c382a56544", "role": "hook", "name": "DopplerHookInitializer", "provenance": "official deployment reference", "sourceUrl": "https://docs.doppler.lol/reference/contract-addresses", "monitor": false},
+        {"chainId": 8453, "address": "0x660eaaedebc968f8f3694354fa8ec0b4c5ba8d12", "role": "factory", "name": "Airlock", "provenance": "official deployment reference", "sourceUrl": "https://docs.doppler.lol/reference/contract-addresses", "monitor": false},
+        {"chainId": 4663, "address": "0xeb7c034704ef8dcd2d32324c1545f62fb4ad0862", "role": "factory", "name": "Airlock", "provenance": "official deployment reference", "sourceUrl": "https://docs.doppler.lol/reference/contract-addresses", "monitor": false}
+      ]
+    },
+    {
+      "id": "flaunch", "name": "Flaunch",
+      "summary": "Token-launch infrastructure whose PositionManager hook coordinates fair launches, trading fees, creator revenue, and configurable buybacks.",
+      "category": "Token launches", "website": "https://flaunch.gg/", "provenance": "researched project record",
+      "sources": [{"label": "PositionManager hook documentation", "url": "https://docs.flaunch.gg/references/hooks"}, {"label": "Creator revenue", "url": "https://docs.flaunch.gg/features/creator-revenue"}, {"label": "Community directory relationship", "url": "https://www.v4.xyz/"}],
+      "deployments": [
+        {"chainId": 8453, "address": "0x51bba15255406cfe7099a42183302640ba7dafdc", "role": "hook", "name": "Flaunch community-linked hook", "provenance": "community directory relationship", "sourceUrl": "https://www.v4.xyz/", "monitor": false}
+      ]
+    },
+    {
+      "id": "pons", "name": "Pons",
+      "summary": "Robinhood Chain launch infrastructure that graduates bonding curves into hooked Uniswap v4 pools, with per-launch creator fees and optional buybacks.",
+      "category": "Token launches", "website": "https://ponsfamily.com/", "provenance": "researched project record",
+      "sources": [{"label": "Pons v2 specification and deployments", "url": "https://docs.ponsfamily.com/v2"}],
+      "deployments": [
+        {"chainId": 4663, "address": "0xe5e702641ea86f4ae6cc3cdaed2b886f976be044", "role": "hook", "name": "Pons v2 meme hook", "provenance": "official deployment reference", "sourceUrl": "https://docs.ponsfamily.com/v2", "monitor": true},
+        {"chainId": 4663, "address": "0x7ed598bcef8bd9edd8c97a195c6d13f40801ec7e", "role": "factory", "name": "Pons v2 factory", "provenance": "official deployment reference", "sourceUrl": "https://docs.ponsfamily.com/v2", "monitor": true}
+      ]
+    },
+    {
+      "id": "angstrom", "name": "Angstrom",
+      "summary": "Sorella Labs' hook-based exchange infrastructure, with an Ethereum auction and sequencing stack and separate priority-fee-indexed L2 hooks.",
+      "category": "MEV and execution", "website": "https://angstrom.xyz/", "provenance": "researched project record",
+      "sources": [{"label": "Official deployments", "url": "https://docs.angstrom.xyz/contracts/deployments"}, {"label": "Contract architecture", "url": "https://docs.angstrom.xyz/contracts/"}],
+      "deployments": [
+        {"chainId": 1, "address": "0x0000000aa232009084bd71a5797d089aa4edfad4", "role": "hook", "name": "Angstrom L1", "provenance": "official deployment reference", "sourceUrl": "https://docs.angstrom.xyz/contracts/deployments", "monitor": true},
+        {"chainId": 8453, "address": "0x02c17501e53fbb7eb0e243c74afc6a9e01c265cf", "role": "hook", "name": "Angstrom L2 ETH/USDC", "provenance": "official deployment reference", "sourceUrl": "https://docs.angstrom.xyz/contracts/deployments", "monitor": true},
+        {"chainId": 8453, "address": "0x9abcca2ee3dfbfb79c9c8ef11c77655dca1365cf", "role": "hook", "name": "Angstrom L2 ETH/cbBTC", "provenance": "official deployment reference", "sourceUrl": "https://docs.angstrom.xyz/contracts/deployments", "monitor": false},
+        {"chainId": 8453, "address": "0x00000000a9b8c6f8e2693cef534e16ed414fc4a7", "role": "factory", "name": "AngstromL2Factory", "provenance": "official deployment reference", "sourceUrl": "https://docs.angstrom.xyz/contracts/deployments", "monitor": false}
+      ]
+    },
+    {
+      "id": "alphix", "name": "Alphix",
+      "summary": "Dynamic-fee and unified-yield liquidity infrastructure with documented hook deployments for stablecoin and ETH markets on Base and Arbitrum.",
+      "category": "Liquidity", "website": "https://alphix.fi/", "provenance": "researched project record",
+      "sources": [{"label": "Official active pools and hooks", "url": "https://alphix.gitbook.io/docs/tech/smart-contracts"}, {"label": "Protocol documentation", "url": "https://alphix.gitbook.io/docs"}],
+      "deployments": [
+        {"chainId": 8453, "address": "0x831cfdf7c0e194f5369f204b3dd2481b843d60c0", "role": "hook", "name": "Alphix ETH/USDC", "provenance": "official deployment reference", "sourceUrl": "https://alphix.gitbook.io/docs/tech/smart-contracts", "monitor": true},
+        {"chainId": 42161, "address": "0x5e645c3d580976ca9e3fe77525d954e73a0ce0c0", "role": "hook", "name": "Alphix USDC/USDT", "provenance": "official deployment reference", "sourceUrl": "https://alphix.gitbook.io/docs/tech/smart-contracts", "monitor": true},
+        {"chainId": 8453, "address": "0x0e4b892df7c5bcf5010faf4aa106074e555660c0", "role": "hook", "name": "Alphix USDS/USDC", "provenance": "official deployment reference", "sourceUrl": "https://alphix.gitbook.io/docs/tech/smart-contracts", "monitor": false}
+      ]
+    },
+    {
+      "id": "arrakis", "name": "Arrakis",
+      "summary": "Liquidity-management infrastructure whose Uniswap v4 hook applies dynamically managed fees and supports price convergence for token-issuer vaults.",
+      "category": "Liquidity", "website": "https://arrakis.finance/", "provenance": "researched project record",
+      "sources": [{"label": "Dynamic-fee hook documentation", "url": "https://docs.arrakis.finance/dynamic-fees"}, {"label": "Arrakis Pro", "url": "https://docs.arrakis.finance/arrakis-pro"}],
+      "deployments": []
+    },
+    {
+      "id": "uniswap-labs", "name": "Uniswap Labs",
+      "summary": "Public v4 hook implementations for token wrapping and stable-pair dynamic fees, with published deployment versions and source code.",
+      "category": "Infrastructure", "website": "https://uniswap.org/", "provenance": "researched project record",
+      "sources": [{"label": "Official public hook contracts", "url": "https://github.com/Uniswap/v4-hooks-public"}],
+      "deployments": [
+        {"chainId": 1, "address": "0x0000113dcf4add69999fad8f20f2b63f979bfcc0", "role": "hook", "name": "StablePairHook proxy", "provenance": "official deployment reference", "sourceUrl": "https://github.com/Uniswap/v4-hooks-public", "monitor": true},
+        {"chainId": 1, "address": "0x57991106cb7aa27e2771beda0d6522f68524a888", "role": "hook", "name": "WETHHook", "provenance": "official deployment reference", "sourceUrl": "https://github.com/Uniswap/v4-hooks-public", "monitor": false},
+        {"chainId": 8453, "address": "0xb08211d57032dd10b1974d4b876851a7f7596888", "role": "hook", "name": "WETHHook", "provenance": "official deployment reference", "sourceUrl": "https://github.com/Uniswap/v4-hooks-public", "monitor": false},
+        {"chainId": 1, "address": "0xcdde8f9c3414a00f804e5c565eed9949ad17e888", "role": "hook", "name": "WstETHHook", "provenance": "official deployment reference", "sourceUrl": "https://github.com/Uniswap/v4-hooks-public", "monitor": false}
+      ]
+    },
+    {
+      "id": "claus", "name": "CLAUS",
+      "summary": "A token project with upgradeable hook behavior for project revenue, buybacks, burns, liquidity, NFT rewards, and other configurable mechanisms.",
+      "category": "Programmable token", "website": "https://claus.si/", "provenance": "researched project record",
+      "sources": [{"label": "Project hook documentation", "url": "https://claus.si/read/Hooks"}, {"label": "Published board deployment references", "url": "https://ikaxbt.com/claus/data.json"}],
+      "deployments": [
+        {"chainId": 1, "address": "0x37bfb8ac7c960e558657871d41ca70e07e7dbfff", "role": "hook", "name": "CLAUS published hook proxy", "provenance": "published project deployment reference", "sourceUrl": "https://ikaxbt.com/claus/data.json", "monitor": true},
+        {"chainId": 1, "address": "0x1b54e762aa34cf6e28e9c082f2848e28e45da6b8", "role": "token", "name": "CLAUS token", "provenance": "published project deployment reference", "sourceUrl": "https://ikaxbt.com/claus/data.json", "monitor": false}
+      ]
+    },
+    {
+      "id": "engram", "name": "ENGRAM",
+      "summary": "A token and launch framework using a replaceable onchain model to select LP fees, with separate hook-fee accounting and trainer incentives.",
+      "category": "Adaptive fees", "website": "https://engramv4.xyz/", "provenance": "researched project record",
+      "sources": [{"label": "Published deployment configuration", "url": "https://engramv4.xyz/config.json"}, {"label": "Mechanism and model", "url": "https://engramv4.xyz/mind.html"}, {"label": "Published contract ABIs, build ff8860ba", "url": "https://engramv4.xyz/assets/baked.js"}],
+      "deployments": [
+        {"chainId": 1, "address": "0x0ee851f1fe2f4bdba79fee78969e329c136ca0cc", "role": "hook", "name": "ENGRAM Hippocampus", "provenance": "official deployment reference", "sourceUrl": "https://engramv4.xyz/config.json", "monitor": true},
+        {"chainId": 1, "address": "0xc0fcb8633a87c7cbdca021774beb43d25527e193", "role": "factory", "name": "Neurogenesis", "provenance": "official deployment reference", "sourceUrl": "https://engramv4.xyz/config.json", "monitor": false},
+        {"chainId": 1, "address": "0x56c915d92e24255fdc52eb114a31399c432b7cc6", "role": "token", "name": "ENGRAM token", "provenance": "official deployment reference", "sourceUrl": "https://engramv4.xyz/config.json", "monitor": false}
+      ]
+    },
+    {
+      "id": "bunni", "name": "Bunni",
+      "summary": "A hook-based AMM design with programmable liquidity-density functions, rebalancing, and fee mechanisms. Listed deployments use the documentation's v1.2.1 release labels.",
+      "category": "Liquidity", "website": "https://bunni.xyz/", "provenance": "researched project record",
+      "sources": [{"label": "Bunni v2 mechanism overview", "url": "https://docs.bunni.xyz/docs/v2/overview/"}, {"label": "Published v1.2.1 deployment directory", "url": "https://docs.bunni.xyz/docs/v2/technical/deployments/"}],
+      "deployments": [
+        {"chainId": 1, "address": "0x000052423c1db6b7ff8641b85a7eefc7b2791888", "role": "hook", "name": "BunniHook v1.2.1", "provenance": "official deployment reference", "sourceUrl": "https://docs.bunni.xyz/docs/v2/technical/deployments/", "monitor": true},
+        {"chainId": 8453, "address": "0x000052423c1db6b7ff8641b85a7eefc7b2791888", "role": "hook", "name": "BunniHook v1.2.1", "provenance": "official deployment reference", "sourceUrl": "https://docs.bunni.xyz/docs/v2/technical/deployments/", "monitor": false},
+        {"chainId": 42161, "address": "0x0000eb22c45bdb564f985ace0b4d05a64fa71888", "role": "hook", "name": "BunniHook v1.2.1", "provenance": "official deployment reference", "sourceUrl": "https://docs.bunni.xyz/docs/v2/technical/deployments/", "monitor": false},
+        {"chainId": 56, "address": "0x000052423c1db6b7ff8641b85a7eefc7b2791888", "role": "hook", "name": "BunniHook v1.2.1", "provenance": "official deployment reference", "sourceUrl": "https://docs.bunni.xyz/docs/v2/technical/deployments/", "monitor": false}
+      ]
+    },
+    {
+      "id": "eulerswap", "name": "EulerSwap",
+      "summary": "AMM infrastructure connecting swaps to Euler lending vaults, with a documented Uniswap v4 hook integration alongside standalone deployment options.",
+      "category": "Lending and liquidity", "website": "https://euler.finance/", "provenance": "researched project record",
+      "sources": [{"label": "EulerSwap architecture", "url": "https://euler.finance/blog/eulerswap"}, {"label": "Official contract source", "url": "https://github.com/euler-xyz/euler-swap"}],
+      "deployments": []
+    },
+    {
+      "id": "openzeppelin", "name": "OpenZeppelin",
+      "summary": "Developer libraries for Uniswap v4 hooks, including custom accounting, fee policies, asynchronous swaps, custom curves, and reusable protection mechanisms.",
+      "category": "Developer tools", "website": "https://openzeppelin.com/", "provenance": "researched project record",
+      "sources": [{"label": "Uniswap Hooks library", "url": "https://docs.openzeppelin.com/uniswap-hooks"}, {"label": "Official source repository", "url": "https://github.com/OpenZeppelin/uniswap-hooks"}],
+      "deployments": []
+    },
+    {
+      "id": "cork-protocol", "name": "Cork Protocol",
+      "summary": "Onchain risk and redemption-liquidity markets for pegged and yield-bearing assets. Hook relationships are tracked separately from its broader current protocol design.",
+      "category": "Risk markets", "website": "https://cork.tech/", "provenance": "researched project record",
+      "sources": [{"label": "Current protocol overview", "url": "https://docs.cork.tech/overview/readme"}],
+      "deployments": []
+    },
+    {
+      "id": "tenor-finance", "name": "Tenor Finance",
+      "summary": "Fixed-rate, fixed-term lending infrastructure. Current documentation describes Morpho-based markets; historical hook relationships are not a claim that all current markets use v4.",
+      "category": "Lending", "website": "https://tenor.finance/", "provenance": "researched project record",
+      "sources": [{"label": "Current Tenor documentation", "url": "https://www.docs.tenor.finance/"}, {"label": "Historical hook integration audit", "url": "https://www.guardian.security/portfolio/tenor/lending-protocol-2025-05-12/"}],
+      "deployments": []
+    }
+  ]
+}

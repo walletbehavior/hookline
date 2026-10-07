@@ -37,6 +37,10 @@ import { ExactEvmScheme } from '@x402/evm/exact/server';
 import { facilitator as payAiFacilitator } from '@payai/facilitator';
 import { handleTelegramUpdate, verifyWebhookSecret } from '../bot/index.js';
 import { runAlertScan } from '../bot/alert-runner.js';
+import { handleProjectsApi, canonicalProjectRegistry, projectContext } from '../projects/api.js';
+import { runProjectScan, deliverProjectEvents } from '../projects/evidence.js';
+import { TelegramClient } from '../bot/bot-api.js';
+import { digest as projectDigest } from '../projects/evidence.js';
 
 'use strict';
 
@@ -58,7 +62,8 @@ const CHAIN_CONFIG = Object.freeze({
   1: {
     name: 'Ethereum',
     code: 'ETH',
-    upstream: 'https://eth.drpc.org',
+    upstream: 'https://ethereum-rpc.publicnode.com',
+    fallbackUpstreams: Object.freeze(['https://eth.drpc.org']),
   },
   56: {
     name: 'BNB Chain',
@@ -68,8 +73,8 @@ const CHAIN_CONFIG = Object.freeze({
   8453: {
     name: 'Base',
     code: 'BASE',
-    upstream: 'https://base-rpc.publicnode.com',
-    fallbackUpstreams: Object.freeze(['https://mainnet.base.org']),
+    upstream: 'https://mainnet.base.org',
+    fallbackUpstreams: Object.freeze(['https://base-rpc.publicnode.com']),
   },
   42161: {
     name: 'Arbitrum One',
@@ -80,7 +85,8 @@ const CHAIN_CONFIG = Object.freeze({
   4663: {
     name: 'Robinhood Chain',
     code: 'RHB',
-    upstream: 'https://robinhood.drpc.org',
+    upstream: 'https://rpc.mainnet.chain.robinhood.com',
+    fallbackUpstreams: Object.freeze(['https://robinhood.drpc.org']),
   },
 });
 
@@ -166,6 +172,27 @@ function indexedHook(chainId, address) {
 function staticTokenIndex() {
   if (!tokenIndexSnapshot) tokenIndexSnapshot = JSON.parse(ASSETS.tokenHooks);
   return tokenIndexSnapshot;
+}
+
+export function resolveIndexedAlertIdentity(chainId,address,targetType='hook') {
+  const normalized=String(address || '').toLowerCase();
+  if(!EVM_ADDRESS_RE.test(normalized) || !Number.isSafeInteger(Number(chainId))) return null;
+  if(targetType==='hook') {
+    const hook=indexedHook(Number(chainId),normalized);
+    const name=hook?.project?.name || hook?.verifiedContract?.name;
+    if(typeof name==='string' && name.trim()) return {name:name.trim().slice(0,100),kind:'hook',
+      source:hook?.project?.name?hook.project.provenance:hook.verifiedContract.provenance};
+  }
+  for(const relationship of staticTokenIndex().relationships || []) {
+    if(Number(relationship.chainId)!==Number(chainId)) continue;
+    if(targetType==='hook' && relationship.hookAddress?.toLowerCase()===normalized && relationship.hookNamed && relationship.hookName)
+      return {name:String(relationship.hookName).slice(0,100),kind:'hook',source:'indexed hook identity'};
+    if(targetType==='token') for(const token of [relationship.baseToken,relationship.quoteToken]) {
+      if(token?.address?.toLowerCase()===normalized && (token.name || token.symbol))
+        return {name:String(token.name || token.symbol).slice(0,100),symbol:String(token.symbol || '').slice(0,24),kind:'token',source:'indexed token identity'};
+    }
+  }
+  return null;
 }
 
 // ---------------------------------------------------------------------------
@@ -570,11 +597,12 @@ async function callUpstream(upstream, payload, timeoutMs) {
   }
 }
 
-async function callChainUpstream(config, payload, timeoutMs) {
+async function callChainUpstream(config, payload, timeoutMs, onFailure=null) {
   const upstreams = [config.upstream, ...(config.fallbackUpstreams || [])];
   let last = null;
   for (const upstream of upstreams) {
     const result = await callUpstream(upstream, payload, timeoutMs);
+    if(result.error && onFailure) onFailure(result.error,upstream);
     last = { ...result, upstream };
     if (!result.error || !result.error.retryable) return last;
   }
@@ -1069,9 +1097,13 @@ function marketProjectLink(info, type) {
     : safeExternalUrl(candidate?.url, ['x.com', 'www.x.com', 'twitter.com', 'www.twitter.com']);
 }
 
-function advertisedPoolFeePercent(poolName) {
+export function advertisedPoolFeeMetadata(poolName) {
   const match = String(poolName || '').match(/-\s*([0-9]+(?:\.[0-9]+)?)%\s*$/);
-  return match ? finiteMarketNumber(match[1]) : null;
+  const percent=match ? finiteMarketNumber(match[1]) : null;
+  // v4's 0x800000 PoolKey sentinel is a dynamic-fee flag, not 838.8608%.
+  // This is indexed configuration, never a read of the current swap fee.
+  const feeMode=percent===838.8608?'dynamic':percent!==null && percent>=0 && percent<=100?'static':percent===null?'unavailable':'invalid';
+  return {advertisedFeePercent:feeMode==='static'?percent:null,feeMode,feeSource:'indexed pool name'};
 }
 
 async function resolveHookMarkets(chainId, address) {
@@ -1130,7 +1162,7 @@ async function resolveHookMarkets(chainId, address) {
     return {
       poolId: typeof pool.id === 'string' ? pool.id : null,
       poolName: typeof pool.name === 'string' ? pool.name.slice(0, 140) : null,
-      advertisedFeePercent: advertisedPoolFeePercent(pool.name),
+      ...advertisedPoolFeeMetadata(pool.name),
       pairAddress: addressKey,
       baseToken: tokenShape(pair?.baseToken) || tokenShape(persistent?.baseToken) || indexedBase || { address: null, name: fallbackBase || null, symbol: fallbackBase || null },
       quoteToken: tokenShape(pair?.quoteToken) || tokenShape(persistent?.quoteToken) || indexedQuote || { address: null, name: fallbackQuote || null, symbol: fallbackQuote || null },
@@ -1847,6 +1879,40 @@ async function readExecutionTokenMetadata(chainId, address, env) {
 // Main entry point.
 // ---------------------------------------------------------------------------
 
+async function collectProjectEvidence(env) {
+  const providerFailures=[];
+  const lastRequest=new Map();
+  const rpc=async(chainId,method,params)=>{
+    const config=CHAIN_CONFIG[chainId]; if (!config) throw new Error('chain_not_supported');
+    // The free public providers have burst limits. Pace the collector instead
+    // of making every project compete for the same egress allowance at once.
+    const pause=Math.max(0,150-(Date.now()-(lastRequest.get(chainId) || 0)));
+    if(pause) await new Promise(resolve=>setTimeout(resolve,pause));
+    lastRequest.set(chainId,Date.now());
+    // Robinhood's public node serves logs but not finalized historical state.
+    // dRPC serves the exact pinned state, but restricts broad log ranges.
+    // Keep the requested block unchanged, never silently fall back to latest.
+    const stateRead=['eth_getCode','eth_getStorageAt','eth_call'].includes(method);
+    const projectConfig=chainId===4663
+      ? {...config,upstream:stateRead?'https://robinhood.drpc.org':'https://rpc.mainnet.chain.robinhood.com',fallbackUpstreams:[]}
+      :chainId===8453
+        ? {...config,upstream:stateRead?'https://base.gateway.tenderly.co':'https://base-rpc.publicnode.com',
+          fallbackUpstreams:stateRead?['https://base-mainnet.g.alchemy.com/public']:[]}:config;
+    const result=await callChainUpstream(projectConfig,{jsonrpc:'2.0',id:1,method,params},UPSTREAM_TIMEOUT_MS,(error,provider)=>{
+      if(['eth_getLogs','eth_getCode'].includes(method) && providerFailures.length<8)
+        providerFailures.push({chainId,method,provider,reason:String(error.message || 'request_failed').replace(/[\r\n\t]/g,' ').slice(0,160)});
+    });
+    if(result?.error || result?.result===undefined) {
+      const detail=String(result?.error?.message || 'missing result').replace(/[\r\n\t]/g,' ').slice(0,160);
+      if(method==='eth_getLogs' && /HTTP error 429|rate.?limit|too many requests/i.test(detail))
+        throw new Error('event_rate_limited');
+      throw new Error(`project_rpc_failed:${method}:${detail}`);
+    }
+    return result.result;
+  };
+  return {...await runProjectScan(env,{registry:canonicalProjectRegistry(ASSETS),rpc}),providerFailures};
+}
+
 export default {
   // Scheduled scanner entry point (10-minute cron). Fails closed when the DB
   // binding is absent so a misconfigured deployment never starts scanning
@@ -1857,7 +1923,12 @@ export default {
       if (result?.type) throw new Error(result.message || 'hook inspection failed');
       return result;
     };
-    const scan = runAlertScan(env, { resolveHookMarkets, inspectHook });
+    const projects = async () => {
+      const result=await collectProjectEvidence(env);
+      if(env.TELEGRAM_BOT_TOKEN) await deliverProjectEvents(env,{send:(chatId,text,options)=>new TelegramClient(env.TELEGRAM_BOT_TOKEN).sendMessage(chatId,text,options)});
+      return result;
+    };
+    const scan = Promise.allSettled([runAlertScan(env, { resolveHookMarkets, inspectHook }), projects()]);
     ctx.waitUntil(scan);
     return scan;
   },
@@ -1878,6 +1949,47 @@ export default {
         status: 204,
         headers: makeCORSHeaders(),
       });
+    }
+
+    if (url.pathname.startsWith('/api/project')) {
+      if(url.pathname==='/api/project-maintenance/bot-status') {
+        const configured=typeof env.PROJECT_REVIEW_TOKEN==='string' && env.PROJECT_REVIEW_TOKEN.length>=32;
+        const candidate=(request.headers.get('authorization') || '').replace(/^Bearer /,'');
+        if(method!=='GET') return Response.json({error:'method_not_allowed'},{status:405,headers:{'Cache-Control':'no-store'}});
+        if(!configured || !candidate || await projectDigest(candidate)!==await projectDigest(env.PROJECT_REVIEW_TOKEN)) return Response.json({error:'operator_access_required'},{status:403,headers:{'Cache-Control':'no-store'}});
+        try {
+          const client=new TelegramClient(env.TELEGRAM_BOT_TOKEN);
+          const [me,info]=await Promise.all([client.getMe(),client.request('/getWebhookInfo')]);
+          const registered=info.url?new URL(info.url):null;
+          return Response.json({username:me.username,webhookOrigin:registered?.origin || null,
+            canonicalWebhook:registered?.href==='https://hookline.world/telegram/webhook',
+            webhookPath:registered && ['/tg/webhook','/telegram/webhook'].includes(registered.pathname)?registered.pathname:'other',
+            pendingUpdates:info.pending_update_count || 0,lastErrorAt:info.last_error_date || null},
+            {headers:{'Cache-Control':'private, no-store'}});
+        } catch {return Response.json({error:'bot_status_unavailable'},{status:503,headers:{'Cache-Control':'private, no-store'}});}
+      }
+      if(url.pathname==='/api/project-maintenance/scan') {
+        const configured=typeof env.PROJECT_REVIEW_TOKEN==='string' && env.PROJECT_REVIEW_TOKEN.length>=32;
+        const candidate=(request.headers.get('authorization') || '').replace(/^Bearer /,'');
+        if(method!=='POST') return Response.json({error:'method_not_allowed'},{status:405,headers:{'Cache-Control':'no-store'}});
+        if(!configured || !candidate || await projectDigest(candidate)!==await projectDigest(env.PROJECT_REVIEW_TOKEN)) return Response.json({error:'operator_access_required'},{status:403,headers:{'Cache-Control':'no-store'}});
+        try {return Response.json(await collectProjectEvidence(env),{headers:{'Cache-Control':'private, no-store'}});}
+        catch {return Response.json({error:'project_scan_failed'},{status:503,headers:{'Cache-Control':'private, no-store'}});}
+      }
+      // Private receipts and moderation never enter an edge cache. Shared GET
+      // snapshots amortize database reads across visitors, not across identities.
+      const cacheable=method==='GET' && !request.headers.has('authorization') &&
+        (url.pathname==='/api/projects' || /^\/api\/projects\/[a-z0-9-]{1,60}$/.test(url.pathname) || url.pathname==='/api/project-activity');
+      const projectKey=cacheable?new Request(`https://hookline.world/__project-cache/1${url.pathname}${url.pathname==='/api/project-activity' && url.searchParams.has('project')?'?project='+encodeURIComponent(url.searchParams.get('project')):''}`):null;
+      if(projectKey && globalThis.caches?.default) {
+        const cached=await caches.default.match(projectKey);
+        if(cached) return cached;
+      }
+      const projectResponse=await handleProjectsApi(request,env,ASSETS);
+      if(projectResponse) {
+        if(projectKey && projectResponse.ok && globalThis.caches?.default) ctx.waitUntil(caches.default.put(projectKey,projectResponse.clone()));
+        return projectResponse;
+      }
     }
 
     // Static assets.
@@ -1902,6 +2014,7 @@ export default {
 
       const canonicalAddress = canonicalIndexedHookAddress(chainId, address);
       const cacheUrl = new URL('/api/v3/hook-markets', url.origin);
+      cacheUrl.searchParams.set('feeFormat','2');
       cacheUrl.searchParams.set('chainId', String(chainId));
       cacheUrl.searchParams.set('address', address.toLowerCase());
       cacheUrl.searchParams.set('schema', MARKET_CACHE_SCHEMA_VERSION);
@@ -2191,6 +2304,8 @@ export default {
       const result = await handleTelegramUpdate(update, env, {
         resolveTokenHooks,
         resolveHookMarkets,
+        resolveAlertIdentity:resolveIndexedAlertIdentity,
+        projects:projectContext(ASSETS,env),
       });
       return new Response(JSON.stringify(result), {
         status: 200,

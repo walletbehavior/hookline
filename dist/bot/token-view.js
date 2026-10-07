@@ -9,6 +9,7 @@
 
 import { getChain } from './chains.js';
 import { KEYS, buyPresets, sellPresets } from './keys.js';
+import { markdownText,menuButton } from './navigation.js';
 
 const MAX_MARKETS = 4;
 
@@ -29,7 +30,7 @@ export function renderTokenCard(token, chainId, hookInfo, markets) {
   let hookLine = 'Hook: none indexed';
   let hookButton = null;
   if (hookInfo) {
-    hookLine = `Hook: ${hookInfo.hookName || 'v4 hook'} • ${hookInfo.hookAddress.slice(2, 10)}...${hookInfo.hookAddress.slice(-6)}`;
+    hookLine = `Hook: ${markdownText(hookInfo.hookName || 'Unnamed hook')} • ${hookInfo.hookAddress.slice(2, 10)}...${hookInfo.hookAddress.slice(-6)}`;
     hookButton = KEYS.hook(chainId, hookInfo.hookAddress);
   }
 
@@ -45,7 +46,7 @@ export function renderTokenCard(token, chainId, hookInfo, markets) {
   const lines = [
     `🪝 *Hookline* • *Token*`,
     ``,
-    `*${token.symbol}* ${token.name ? `(${token.name})` : ''}`,
+    `*${markdownText(token.symbol || 'TOKEN')}* ${token.name ? `(${markdownText(token.name)})` : ''}`,
     ``,
     `${chain ? `Chain: ${chain.name} (${chain.code}) • ${chainId}` : `Chain: ${chainId}`}`,
     `Address: \`${token.address}\``,
@@ -53,7 +54,7 @@ export function renderTokenCard(token, chainId, hookInfo, markets) {
     priceLine,
     marketsLine,
     ``,
-    'Trade preview available. No transaction is submitted.',
+    'Trade review opens on Hookline. Your wallet signs and submits.',
   ].filter(Boolean);
 
   const inlineKeyboard = [
@@ -66,10 +67,11 @@ export function renderTokenCard(token, chainId, hookInfo, markets) {
   }
   inlineKeyboard.push([KEYS.related(chainId, hookInfo?.hookAddress || token.address)]);
   inlineKeyboard.push([
-    { text: 'Buy preview', callback_data: `tg:buy:${chainId}:${token.address}` },
-    { text: 'Sell preview', callback_data: `tg:sell:${chainId}:${token.address}` },
+    { text: 'Buy', callback_data: `tg:buy:${chainId}:${token.address}` },
+    { text: 'Sell', callback_data: `tg:sell:${chainId}:${token.address}` },
   ]);
-  inlineKeyboard.push([KEYS.back()]);
+  if(hookInfo?.hookAddress) inlineKeyboard.push([{text:'Follow this hook',callback_data:`tg:as:${chainId}:${hookInfo.hookAddress}`}]);
+  inlineKeyboard.push([menuButton('My alerts','alerts'),KEYS.back()]);
 
   return {
     text: lines.join('\n'),
@@ -86,7 +88,7 @@ export function renderTokenCard(token, chainId, hookInfo, markets) {
 export function renderPresetGrid(chainId, token, side) {
   const buttons = side === 'buy' ? buyPresets(chainId, token.address) : sellPresets(chainId, token.address);
   return {
-    text: `💰 *${side === 'buy' ? 'Buy' : 'Sell'} preset* ${token.symbol} (${token.address.slice(2, 10)}...)`,
+    text: `💰 *${side === 'buy' ? 'Buy' : 'Sell'} preset* ${markdownText(token.symbol)} (${token.address.slice(2, 10)}...)`,
     parse_mode: 'Markdown',
     reply_markup: {
       inline_keyboard: [buttons, [KEYS.back()]],

@@ -1,0 +1,92 @@
+# Projects and mechanism evidence
+
+## Release contract
+
+Hooks and Tokens remain open discovery views. Projects is a separate, searchable
+ecosystem view, not a replacement for the address-level board. Projects may have
+multiple deployments and no token. Metadata and deployment relationships retain
+their individual provenance. A name or runtime match is never proof of affiliation.
+
+The project registry, pinned-block observations, and change records feed the same
+public pages, API, and Telegram subscriptions. Chain reads happen on a bounded
+schedule per deployment, never once per visitor or subscriber.
+
+### Public API
+
+- `GET /api/projects` returns `{schemaVersion:1, generatedAt, projects:[]}`.
+- `GET /api/projects/:id` returns `{project, observations:[], events:[], related:[]}`.
+- `GET /api/project-activity?project=:id` returns `{events:[], generatedAt}`.
+- `POST /api/project-submissions` accepts free new-project, claim, and correction
+  requests. It returns HTTP 201 `{id,status,receiptToken,message}`. Claims include
+  an expiring DNS challenge; other requests begin at `pending_review`. Never
+  publish private contact information or proof correspondence.
+
+Project objects have `id`, `name`, `summary`, `category`, `website`, `sources`
+(`{label,url}`), `provenance`, `deployments`, and `coverage`. Deployments have
+`chainId`, `address`, `role`, `name`, `provenance`, `sourceUrl`, optional indexed
+`pools`, `swaps`, and `indexedAt`. Counts are community-index snapshots, not
+measured interval activity. Coverage is `{linkedDeployments,monitoredDeployments,
+observedDeployments}`. Scheduled monitoring is not a completed observation.
+
+An observation has `id`, `projectId`, `chainId`, `address`, `blockNumber`,
+`blockHash`, `observedAt`, `source`, `fields`, and `status`. Fields contain direct
+runtime fingerprint/length, optional implementation and owner, and versioned
+project-reader configuration. Failed probes are unavailable, never zero. Failed
+refreshes preserve the last successful observation. Reads are pinned to one block.
+
+Events have `id`, `projectId`, `projectName`, `kind`, `title`, `observedAt`,
+`chainId`, `address`, `before`, `after`, `evidence`, and optional `transactionHash`.
+Poll-detected changes identify their observation interval; they do not invent an
+exact transaction or time. A first read is a baseline, not a change alert.
+
+### Contribution request
+
+```json
+{
+  "kind": "project",
+  "projectId": "",
+  "name": "",
+  "website": "",
+  "description": "",
+  "contracts": "",
+  "contact": "",
+  "proofUrl": "",
+  "message": "",
+  "agreement": true,
+  "websiteTrap": ""
+}
+```
+
+`kind` is `project`, `claim`, or `correction`. Claims require an existing project
+and a researched canonical domain. Ownership requires its DNS TXT challenge;
+a proof URL alone cannot establish ownership. Contact is optional and should be a Telegram handle, not
+an email address. No email is required and no email is sent. Corrections require an existing project
+and a message. Submission is not ownership verification. Approval is an operator
+review with evidence, not a paid badge. An agent handles ordinary listing and
+correction reviews through the authenticated API. Teams can propose metadata updates but
+cannot edit measured data. Requests are bounded, rate limited, and private.
+
+## Scope and boundaries
+
+- Free submissions, claims, corrections, and basic profiles. No token gate.
+- No paid placements or HKLN entitlements in this release.
+- Clear distinction between researched metadata, community relationships, direct
+  observations, configured fees, and measured payouts.
+- Project readers enrich shared records. Project-specific dashboards are not
+  required for basic coverage.
+- Existing wallet execution is reused only on supported routes. A project being
+  listed does not establish that all its markets can be traded through Hookline.
+- Fee extraction and payout totals require receipt/log reconciliation. Do not
+  infer these from permissions, configured percentages, or aggregate swap counts.
+- Browsing performs no chain writes. Telegram holds no signing authority.
+
+## Acceptance
+
+1. Broad registry, searchable by project, mechanism category, chain, or address.
+2. Profiles link source records and exact chain-aware deployment pages.
+3. Shared, timestamped observation and change history with bounded persistence.
+4. Project follows use the same event records as the website.
+5. Free forms persist private requests and explicitly show pending review.
+6. No missing metric appears as zero, no failed scan erases evidence.
+7. Repeated events are deduplicated; source-block conflicts invalidate evidence.
+8. Mobile profiles and forms are usable without scrolling beneath the board.

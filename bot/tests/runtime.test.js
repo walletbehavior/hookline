@@ -94,8 +94,8 @@ function memoryAlerts() {
   const rows = [];
   return {
     rows,
-    async listUserAlerts(userId) {
-      return rows.filter((row) => row.telegram_user_id === String(userId) && row.enabled);
+    async listUserAlerts(userId,{includePaused=false}={}) {
+      return rows.filter((row) => row.telegram_user_id === String(userId) && (includePaused || row.enabled));
     },
     async createOrEnableAlert({ userId, chatId, chainId, address }) {
       const existing = rows.find((row) =>
@@ -244,7 +244,7 @@ test('keeps fee disclosure in about instead of the start screen', async () => {
   assert.match(sent.text, /Effective fee: 0\.7%/);
 });
 
-test('navigates hook and buy preview callbacks by editing in place', async () => {
+test('navigates hook and real trade handoffs by editing in place, including legacy callbacks', async () => {
   const ctx = { env: { TELEGRAM_BOT_TOKEN: BOT_TOKEN }, services };
   await handleUpdate(command(`/token ${TOKEN}`), ctx);
   MockTelegramClient.calls = [];
@@ -256,16 +256,17 @@ test('navigates hook and buy preview callbacks by editing in place', async () =>
 
   MockTelegramClient.calls = [];
   const grid = await handleUpdate(callback(`tg:buy:1:${TOKEN}`), ctx);
-  assert.equal(grid.kind, 'preset_grid');
+  assert.equal(grid.kind, 'trade_handoff');
   const edit = MockTelegramClient.calls.find((item) => item.type === 'edit');
-  assert.match(edit.text, /Buy preset/);
+  assert.match(edit.text, /Buy review/);
+  assert.ok(edit.options.reply_markup.inline_keyboard.flat().some(button=>button.url?.includes('#/trade/1/')));
 
   MockTelegramClient.calls = [];
   const preview = await handleUpdate(callback(`tg:bp:1:${TOKEN}:100`), ctx);
-  assert.equal(preview.kind, 'preview');
+  assert.equal(preview.kind, 'trade_handoff');
   const previewText = MockTelegramClient.calls.find((item) => item.type === 'edit').text;
-  assert.match(previewText, /Instant cashback \(0\.3%\)/);
-  assert.match(previewText, /Effective fee \(0\.7%\)/);
+  assert.match(previewText, /old USD preset was not applied/);
+  assert.doesNotMatch(previewText, /minimum received|minimum output|simulated|\$100/i);
 });
 
 test('confirms, enables, lists and disables a hook alert', async () => {
@@ -318,13 +319,14 @@ test('alert runner seeds silently, then delivers liquidity and runtime events', 
   let liquidityUsd = 100;
   let runtimeFingerprint = 'a'.repeat(64);
   const resolveHookMarkets = async () => ({
+    profile:{verifiedContract:{name:'Observed Hook'}},
     markets: [{ pairAddress: `0x${'ab'.repeat(32)}`, liquidityUsd }],
   });
   const inspectHook = async () => ({
     runtimeFingerprint: { algorithm: 'SHA-256', fingerprint: runtimeFingerprint },
     codeByteLength: 512,
   });
-  const sendMessage = async (chatId, text) => sent.push({ chatId, text });
+  const sendMessage = async (chatId, text,options) => sent.push({ chatId, text,options });
 
   const seeded = await runAlertScan({}, { store, resolveHookMarkets, inspectHook, sendMessage, now: 1 });
   assert.equal(seeded.seeded, 1);
@@ -335,6 +337,10 @@ test('alert runner seeds silently, then delivers liquidity and runtime events', 
   assert.equal(delivered.delivered, 1);
   assert.match(sent[0].text, /rose 12\.0%/);
   assert.match(sent[0].text, /Indexed liquidity/);
+  assert.match(sent[0].text,/Observed Hook/);
+  assert(sent[0].text.includes(`<code>${HOOK}</code>`));
+  assert.equal(sent[0].options.parse_mode,'HTML');
+  assert(sent[0].options.reply_markup.inline_keyboard.flat().some(button=>button.callback_data===`tg:ad:8453:${HOOK}`));
 
   runtimeFingerprint = 'b'.repeat(64);
   const runtimeChanged = await runAlertScan({}, { store, resolveHookMarkets, inspectHook, sendMessage, now: 3 });
@@ -344,4 +350,14 @@ test('alert runner seeds silently, then delivers liquidity and runtime events', 
     { poolIds: ['a'], aggregateLiquidityUsd: 100 },
     { poolIds: ['a', 'b'], aggregateLiquidityUsd: 100 },
   )[0].kind, 'new_pool');
+});
+
+test('liquidity alerts require complete measurements of the same indexed pool set',()=>{
+  const before={poolIds:['a'],aggregateLiquidityUsd:100,liquidityComplete:true};
+  const after={poolIds:['a'],aggregateLiquidityUsd:120,liquidityComplete:true};
+  assert.equal(alertEvents(before,after)[0].kind,'liquidity');
+  assert.equal(alertEvents(before,{...after,liquidityComplete:false}).length,0);
+  assert.equal(alertEvents({...before,liquidityComplete:undefined},after).length,0);
+  assert.ok(!alertEvents(before,{...after,poolIds:['b']}).some(event=>event.kind==='liquidity'));
+  assert.ok(!alertEvents(before,{...after,poolIds:[],aggregateLiquidityUsd:0,liquidityComplete:false}).length);
 });

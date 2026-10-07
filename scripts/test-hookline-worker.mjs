@@ -319,7 +319,15 @@ globalThis.fetch = async (url, init = {}) => {
   });
 };
 
-const { default: worker } = await import(artifactUrl.href);
+const { default: worker,resolveIndexedAlertIdentity,advertisedPoolFeeMetadata } = await import(artifactUrl.href);
+assert.deepEqual(advertisedPoolFeeMetadata('TOKEN / ETH - 838.8608%'),{advertisedFeePercent:null,feeMode:'dynamic',feeSource:'indexed pool name'});
+assert.equal(advertisedPoolFeeMetadata('TOKEN / ETH - 0%').advertisedFeePercent,0);
+assert.equal(advertisedPoolFeeMetadata('TOKEN / ETH - 100%').advertisedFeePercent,100);
+assert.equal(advertisedPoolFeeMetadata('TOKEN / ETH - 419.4304%').feeMode,'invalid');
+assert.equal(advertisedPoolFeeMetadata('TOKEN / ETH').advertisedFeePercent,null);
+assert.equal(resolveIndexedAlertIdentity(8453,'0x5e5d19d22c85a4aef7c1fdf25fb22a5a38f71040')?.name,'CreatorCoinHook');
+assert.equal(resolveIndexedAlertIdentity(1,'0x5e5d19d22c85a4aef7c1fdf25fb22a5a38f71040'),null);
+assert.equal(resolveIndexedAlertIdentity(8453,'not-an-address'),null);
 assert.equal(typeof worker?.fetch, 'function', 'worker must export default.fetch');
 
 let nextIp = 1;
@@ -349,6 +357,12 @@ function envelope(method, params, id = 1) {
 }
 
 try {
+  for(const path of ['/api/project-maintenance/bot-status','/api/project-maintenance/scan']) {
+    const response=await request(path,{method:path.endsWith('/scan')?'POST':'GET'});
+    assert.equal(response.status,403);assert.equal(response.headers.get('cache-control'),'no-store');
+  }
+  assert.equal((await request('/api/project-maintenance/bot-status',{method:'POST'})).status,405);
+  assert.equal((await request('/api/project-maintenance/bot-status',{headers:{authorization:'Bearer wrong'}},{PROJECT_REVIEW_TOKEN:'a'.repeat(40)})).status,403);
   const wwwRedirect = await worker.fetch(
     new Request('https://www.hookline.world/network?source=www'),
     {},

@@ -17,6 +17,7 @@
     "dev:hookline": "npm run build:hookline && wrangler dev",
     "deploy:hookline": "npm run build:hookline && wrangler deploy",
     "test:hookline": "node scripts/test-hookline-worker.mjs",
+    "test:projects": "node scripts/test-reader-definitions.mjs && node scripts/test-project-evidence.mjs && node scripts/test-project-contributions.mjs && node scripts/test-projects-api.mjs && node scripts/test-projects-ui.mjs",
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",
     "db:generate": "drizzle-kit generate"
   },
@@ -49,6 +50,7 @@
     "sonner": "^2.0.8",
     "tailwind-merge": "3.6.0",
     "vaul": "^1.1.2",
+    "viem": "2.57.3",
     "zod": "^3.25.76"
   },
   "devDependencies": {

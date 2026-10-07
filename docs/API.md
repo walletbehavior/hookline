@@ -77,6 +77,22 @@ Hookline uses JSON-RPC error envelopes. Important codes include:
 
 Upstream failures are returned as explicit errors and are not converted into successful evidence.
 
+## Projects and contributions
+
+| Route | Response |
+| --- | --- |
+| `GET /api/projects` | Registry, metadata provenance, sourced deployments, linked/monitored/observed counts |
+| `GET /api/projects/{id}` | Project, latest pinned observations, retained events, per-target monitoring status, related categories |
+| `GET /api/project-activity?project={id}` | Optional project-scoped canonical event feed, excluding orphaned evidence |
+| `GET /api/project-comparison?ids=clanker,pons` | Two to four known project records and observations using the same schema |
+| `POST /api/project-submissions` | Private listing, suggestion, correction, or domain-claim receipt |
+
+Project observations expose chain/address, source block/hash, observation time, field values, and probe status. Null means unavailable, not zero. Configurations, decoded contract events, and outcomes must not be conflated. Comparisons preserve each chain and block; they are not normalized performance rankings. Coverage is bounded, not exhaustive. `generatedAt` on an API envelope is not the timestamp of every observation inside it.
+
+Public snapshots are briefly cached. Private receipt, DNS verification, owner-metadata, and agent-review routes are authenticated and `no-store`. Receipt credentials belong in an authorization header, never in a URL. See [the full contribution API](PROJECT_CONTRIBUTIONS.md) for request bodies, limits, proof expiry, and review decisions.
+
+`GET /api/v3/hook-markets?chainId={chainId}&address={hook}` resolves indexed pools and available market readings. Fee metadata contains `feeMode` (`static`, `dynamic`, `invalid`, or `unavailable`), a nullable `advertisedFeePercent`, and `feeSource`. A dynamic flag has no numeric current fee. These fields do not measure hook extraction.
+
 ## Reviewed execution routes
 
 `GET /api/execution/status` returns current per-chain quote, fee, instant-rebate, and wallet-handoff capability.

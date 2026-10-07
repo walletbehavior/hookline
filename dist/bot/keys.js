@@ -54,8 +54,8 @@ export const KEYS = Object.freeze({
     callback_data: `${TG}:refresh:${chainId}:${address.toLowerCase()}`,
   }),
   back: () => ({
-    text: '⬅️ Back',
-    callback_data: `${TG}:back`,
+    text: 'Main menu',
+    callback_data: `${TG}:menu:main`,
   }),
   sibling: (chainId, tokenAddress, label = '') => ({
     text: label ? String(label).slice(0, 18) : tokenAddress.slice(2, 10),

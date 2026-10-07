@@ -4,13 +4,14 @@
 
 Hookline is a multichain evidence and analytics desk for programmable-liquidity contracts. It gives researchers, builders, and agents a consistent way to inspect deployed hook code, decode permissions, preserve observations, compare contracts, monitor network health, and consume the same evidence through an API.
 
-[Live desk](https://hookline.world) · [RPC documentation](https://hookline.world/rpc) · [X](https://x.com/_hookline)
+[Live desk](https://hookline.world) · [Projects](https://hookline.world/#/projects) · [Activity](https://hookline.world/#/activity) · [Documentation](https://hookline.world/#/docs) · [X](https://x.com/_hookline)
 
 ## What works today
 
 - Live contract inspection on Ethereum, BNB Chain, Base, Arbitrum One, and Robinhood Chain
 - Cross-chain hook board with 1,000+ active hook identities across 10+ chains
-- Searchable community project directory with explicit source labels
+- Broad Projects board with source-linked deployments, coverage labels, shared observations, and selected mechanism events
+- Private API submissions, suggestions, DNS domain claims, and metadata-only profile updates
 - Aggregate indexed pool and swap counts with snapshot timestamps
 - Shareable hook profile URLs, filtered JSON exports, and inline live inspection
 - Deployed-bytecode size and SHA-256 runtime fingerprints
@@ -20,14 +21,19 @@ Hookline is a multichain evidence and analytics desk for programmable-liquidity 
 - Named local watchlists with bounded evidence history
 - Same-chain contract and permission comparisons
 - Live upstream health, block height, and latency telemetry
-- Persistent Telegram alerts for runtime changes, new indexed pool relationships, and 10% indexed liquidity moves
+- Persistent Telegram alerts for runtime changes, new indexed pool relationships, and 10% liquidity moves across an unchanged, fully measured indexed pool set
+- Saved website slippage and buy/sell presets, with exact balance-percentage sizing
 - Non-custodial reviewed EVM execution on supported markets with browser-wallet signing
 - 1% gross execution fee, 0.3% instant cashback, and 0.7% effective fee bound into the route
 - Independently reconciled execution receipts stored without keys, signatures, or signed transactions
 - Free, allowlisted JSON-RPC access
 - x402-protected capacity at 0.01 USDC per request on Base
 
-The board's discovery and aggregate counts come from a timestamped v4.xyz community-indexer snapshot. Project descriptions are community-curated, project-submitted, or Hookline-researched and labeled in the interface. Direct live evidence still comes from Hookline's configured RPC endpoints. Telegram alerts monitor direct runtime evidence and resolved market-index movement on a bounded 10-minute schedule. First-party event indexing and long-range history remain roadmap work.
+The board's discovery and aggregate counts come from a timestamped v4.xyz community-indexer snapshot. Project descriptions are community-curated, team-authored, agent-reviewed, or Hookline-researched and labeled in the interface. Projects has its own broad registry, source-linked deployments, block-pinned observations, selected mechanism event readers, shared activity, and Telegram follows. The bounded scanner rotates targets on the existing 10-minute schedule; each profile reports its actual scan progress. Complete pool/swap indexing and fee/payout reconciliation remain roadmap work.
+
+The October 7 Projects release starts with 39 records, including tokenized projects, launch infrastructure, liquidity mechanisms, and developer tooling. Ten projects have explicitly selected monitoring targets. A listed project is not automatically a monitored or verified deployment. [Release notes and current boundaries](docs/RELEASE_2026-10-07.md) distinguish what is measured from what remains planned.
+
+Project suggestions, domain claims, and corrections are free through the API, website, or Telegram. No email or HKLN holding is required. Domain verification permits descriptive metadata updates only. [Contribution API](docs/PROJECT_CONTRIBUTIONS.md) and [project architecture](docs/PROJECTS_ARCHITECTURE.md) describe the private receipts, automated DNS checks, and authenticated review-agent workflow.
 
 ## Quick start
 
@@ -90,6 +96,11 @@ See [Product documentation](docs/PRODUCT.md), [API reference](docs/API.md), [Whi
 | `GET /health` | Service status |
 | `GET /metrics` | Current chain health, height, and latency |
 | `GET /data/hooks.json` | Timestamped cross-chain hook-board snapshot |
+| `GET /api/projects` | Project registry, sources, and actual observed coverage |
+| `GET /api/projects/{id}` | Deployment state, selected event history, and scan progress |
+| `GET /api/project-activity` | Shared project change feed |
+| `GET /api/project-comparison?ids={ids}` | Two to four projects using a common evidence schema |
+| `POST /api/project-submissions` | Private suggestions, listings, corrections, and domain claims |
 | `GET /api/execution/status` | Current reviewed-execution capability by chain |
 | `POST /api/execution/quote` | Short-lived, wallet-bound route and opaque intent |
 | `POST /api/execution/receipt` | Verify and reconcile a confirmed wallet transaction |

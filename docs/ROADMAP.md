@@ -8,11 +8,18 @@ Status: operating in production.
 
 - Live contract inspection on five chains
 - Cross-chain hook board and project directory
+- Broad Projects board with source-linked, chain-aware deployment relationships
+- Shared pinned-state observations and selected project mechanism event readers
+- Source-linked project activity, scan-coverage disclosure, and Telegram follows
+- Free API, website, and Telegram submissions, corrections, and DNS domain claims
+- Metadata-only team updates, private receipts, and agent review with audit history
 - Timestamped indexed pool and swap aggregates
 - Permission decoding and runtime fingerprints
 - Owner-probe status
 - Named local watchlists and evidence history
 - Telegram alerts for direct runtime changes, new indexed pool relationships, and 10% indexed liquidity changes
+- Named alert cards, full copyable contract addresses, and button-first navigation
+- Saved slippage and amount preferences; exact current-balance percentage sizing
 - Same-chain comparisons
 - Chain telemetry
 - Free JSON-RPC and x402 paid capacity
@@ -21,6 +28,10 @@ Status: operating in production.
 - 1% gross fee, 0.3% instant cashback, and 0.7% effective collection
 - Independently reconciled, idempotent execution receipts
 - Public product, API, architecture, and data-provenance documentation
+
+Saved priority-fee references and TP/SL profiles are configuration only, not
+transaction overrides or active orders. Monitoring coverage and current
+limitations are listed in the [October 7 release notes](RELEASE_2026-10-07.md).
 
 Acceptance criteria:
 
@@ -60,6 +71,18 @@ Acceptance criteria:
 - Add saved-search, runtime-family, and watchlist alerts
 - Provide activity, change, and dependency timelines
 - Add CSV and JSON dataset exports
+- Extend the shared execution interface with reviewed funding and bridging flows
+- Add limit and TP/SL execution only after order lifecycle, cancellation,
+  trigger pricing, and explicit user-controlled signing permissions are implemented
+
+The intended automated-order design is a user-owned smart account. The user
+retains owner and recovery control; any automation permission must be explicit,
+revocable, time-limited, and restricted by chain, router, assets, recipient,
+spend limits, and transaction parameters. A saved Telegram profile grants no
+permission. Withdrawals, bridges, owner changes, and arbitrary contract calls
+are outside a trading permission. Provider, chain, recovery, and policy support
+must be verified before this becomes an active product capability. There is no
+unrestricted bot-owned wallet or automatic order service in the current release.
 
 Acceptance criteria:
 
@@ -70,11 +93,11 @@ Acceptance criteria:
 ## Professional layer
 
 - Account-backed watchlists and team workspaces
-- Email, webhook, and agent-delivered alerts
+- Webhook and agent-delivered alerts
 - Longer retention and bulk history
 - Higher API capacity and API keys
 - Service-health history and status communication
-- Signed project manifests and claimable profiles
+- Signed contract/deployment manifests beyond the shipped domain-controlled profiles
 
 Acceptance criteria:
 

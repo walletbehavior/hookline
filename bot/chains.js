@@ -18,6 +18,7 @@
 
 const RAW_CHAIN_CONFIG = {
   1: { name: 'Ethereum', code: 'ETH', upstream: 'https://eth.drpc.org' },
+  56: { name: 'BNB Chain', code: 'BNB', upstream: 'https://bsc-dataseed.bnbchain.org' },
   8453: { name: 'Base', code: 'BASE', upstream: 'https://base-rpc.publicnode.com' },
   42161: { name: 'Arbitrum One', code: 'ARB', upstream: 'https://arb1.arbitrum.io/rpc' },
   4663: { name: 'Robinhood Chain', code: 'RHB', upstream: 'https://robinhood.drpc.org' },

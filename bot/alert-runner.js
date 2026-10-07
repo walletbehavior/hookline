@@ -3,6 +3,7 @@
 import { TelegramClient } from './bot-api.js';
 import { CHAIN_CONFIG } from './chains.js';
 import { resolveHookMarkets as fallbackResolver } from './market.js';
+import { alertHtml,cleanLabel,alertNavigationRows } from './navigation.js';
 import {
   ALERT_CHECK_INTERVAL_MS,
   AlertStorageUnavailableError,
@@ -33,6 +34,7 @@ function marketBaseline(result, inspection = null) {
   return {
     poolIds,
     aggregateLiquidityUsd,
+    liquidityComplete:markets.length>0 && markets.every(market=>market?.liquidityUsd!=null && Number.isFinite(Number(market.liquidityUsd)) && Number(market.liquidityUsd)>=0),
     runtimeFingerprint: runtimeFingerprintOf(inspection),
     codeByteLength: Number.isSafeInteger(Number(inspection?.codeByteLength)) ? Number(inspection.codeByteLength) : null,
   };
@@ -46,6 +48,7 @@ function parseBaseline(value) {
     return {
       poolIds: parsed.poolIds.map((item) => String(item).toLowerCase()).sort(),
       aggregateLiquidityUsd: Number(parsed.aggregateLiquidityUsd) || 0,
+      liquidityComplete:parsed.liquidityComplete===true,
       runtimeFingerprint: typeof parsed.runtimeFingerprint === 'string' && /^[0-9a-f]{64}$/i.test(parsed.runtimeFingerprint)
         ? parsed.runtimeFingerprint.toLowerCase()
         : null,
@@ -54,11 +57,6 @@ function parseBaseline(value) {
   } catch {
     return null;
   }
-}
-
-function shortAddress(value) {
-  const address = String(value || '');
-  return `${address.slice(0, 6)}...${address.slice(-6)}`;
 }
 
 function money(value) {
@@ -99,7 +97,8 @@ export function alertEvents(previous, current) {
       eventKey: `new_pool:${stableHash(newPools.join(','))}`,
     });
   }
-  if (previous.aggregateLiquidityUsd > 0) {
+  const samePools=previous.poolIds.length===current.poolIds.length && current.poolIds.every(id=>knownPools.has(id));
+  if (samePools && previous.liquidityComplete===true && current.liquidityComplete===true && previous.aggregateLiquidityUsd > 0) {
     const delta = current.aggregateLiquidityUsd - previous.aggregateLiquidityUsd;
     const ratio = Math.abs(delta) / previous.aggregateLiquidityUsd;
     if (ratio >= LIQUIDITY_CHANGE_THRESHOLD) {
@@ -113,7 +112,7 @@ export function alertEvents(previous, current) {
   return events;
 }
 
-function formatNotification(alert, event, previous, current) {
+function formatNotification(alert, event, previous, current,result) {
   const chainName = CHAIN_CONFIG[Number(alert.chain_id)]?.name || `Chain ${alert.chain_id}`;
   const change = event.kind === 'runtime_change'
     ? 'Runtime bytecode changed'
@@ -122,22 +121,23 @@ function formatNotification(alert, event, previous, current) {
       : `Indexed liquidity ${event.ratio >= 0 ? 'rose' : 'fell'} ${Math.abs(event.ratio * 100).toFixed(1)}%`;
   const lines = [
     'Hookline alert',
-    `${chainName}, ${shortAddress(alert.target_address)}`,
+    cleanLabel(result?.profile?.project?.name || result?.profile?.verifiedContract?.name || result?.profile?.verifiedContract?.contractName || result?.hookName || 'Unnamed hook'),
+    `${chainName} · Hook changes`,
+    {address:alert.target_address},
     change,
   ];
   if (event.kind === 'runtime_change') {
     lines.push(`Runtime: ${event.previousFingerprint.slice(0, 10)}..., ${event.currentFingerprint.slice(0, 10)}...`);
-  } else {
+  } else if(previous.liquidityComplete && current.liquidityComplete) {
     lines.push(`Indexed liquidity: ${money(previous.aggregateLiquidityUsd)}, ${money(current.aggregateLiquidityUsd)}`);
   }
-  lines.push(`https://hookline.world/#/board/${alert.chain_id}/${alert.target_address}`);
-  return lines.join('\n');
+  return alertHtml(lines);
 }
 
-async function defaultSend(env, chatId, text) {
+async function defaultSend(env, chatId, text,options) {
   if (!env?.TELEGRAM_BOT_TOKEN) throw new Error('Telegram bot token is unavailable');
   const client = new TelegramClient(env.TELEGRAM_BOT_TOKEN);
-  return client.sendMessage(chatId, text, { disable_web_page_preview: true });
+  return client.sendMessage(chatId, text, options);
 }
 
 export async function runAlertScan(env, options = {}) {
@@ -152,7 +152,7 @@ export async function runAlertScan(env, options = {}) {
 
   const resolveHookMarkets = options.resolveHookMarkets || fallbackResolver;
   const inspectHook = options.inspectHook || null;
-  const sendMessage = options.sendMessage || ((chatId, text) => defaultSend(env, chatId, text));
+  const sendMessage = options.sendMessage || ((chatId, text,sendOptions) => defaultSend(env, chatId, text,sendOptions));
   const due = await store.listDueAlerts({
     now,
     limit: SCAN_CAP_PER_RUN,
@@ -172,6 +172,12 @@ export async function runAlertScan(env, options = {}) {
       ]);
       const previous = parseBaseline(alert.baseline_json);
       const current = marketBaseline(result, inspection);
+      // Empty/failed market coverage is not evidence that the old pools vanished.
+      // Preserve identities for recovery; no liquidity alert uses this read.
+      if(previous && !current.poolIds.length) {
+        current.poolIds=previous.poolIds;
+        current.aggregateLiquidityUsd=previous.aggregateLiquidityUsd;
+      }
       if (!previous) {
         await store.updateBaseline({ id: alert.id, baseline: current, now });
         seeded += 1;
@@ -181,7 +187,10 @@ export async function runAlertScan(env, options = {}) {
 
       for (const event of alertEvents(previous, current)) {
         if (await store.hasDelivery(alert.id, event.eventKey)) continue;
-        await sendMessage(String(alert.chat_id), formatNotification(alert, event, previous, current));
+        await sendMessage(String(alert.chat_id), formatNotification(alert, event, previous, current,result),{
+          parse_mode:'HTML',disable_web_page_preview:true,
+          reply_markup:{inline_keyboard:[[{text:'Details',url:`https://hookline.world/#/board/${alert.chain_id}/${alert.target_address}`},{text:'Pause alert',callback_data:`tg:ad:${alert.chain_id}:${alert.target_address}`}],...alertNavigationRows()]},
+        });
         await store.recordDelivery(alert.id, event.eventKey, now);
         delivered += 1;
       }

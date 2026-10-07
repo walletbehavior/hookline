@@ -34,6 +34,8 @@ const outDir = join(dist, 'server');
 const out = join(outDir, 'index.js');
 const botSrcDir = join(root, 'bot');
 const botOutDir = join(dist, 'bot');
+const projectSrcDir = join(root, 'projects');
+const projectOutDir = join(dist, 'projects');
 
 // --- Read required inputs ---------------------------------------------------
 
@@ -44,9 +46,10 @@ const executionRailPath = join(dist, 'execution-rail.js');
 const hooksPath = join(dist, 'hooks.json');
 const tokenHooksPath = join(dist, 'token-hooks.json');
 const runtimeFamiliesPath = join(dist, 'runtime-families.json');
+const projectsPath = join(root, 'data', 'project-seeds.json');
 
 const missing = [];
-for (const p of [htmlPath, cssPath, appPath, executionRailPath, hooksPath, tokenHooksPath, runtimeFamiliesPath]) {
+for (const p of [htmlPath, cssPath, appPath, executionRailPath, hooksPath, tokenHooksPath, runtimeFamiliesPath, projectsPath]) {
   try {
     readFileSync(p, 'utf8');
   } catch {
@@ -64,6 +67,7 @@ const executionRail = readFileSync(executionRailPath, 'utf8');
 const hooks = readFileSync(hooksPath, 'utf8');
 const tokenHooks = readFileSync(tokenHooksPath, 'utf8');
 const runtimeFamilies = readFileSync(runtimeFamiliesPath, 'utf8');
+const projects = readFileSync(projectsPath, 'utf8');
 const runtime = readFileSync(workerSrc, 'utf8');
 
 const assetVersion = createHash('sha256')
@@ -73,6 +77,7 @@ const assetVersion = createHash('sha256')
   .update(hooks)
   .update(tokenHooks)
   .update(runtimeFamilies)
+  .update(projects)
   .digest('hex')
   .slice(0, 12);
 const versionedHtml = html
@@ -101,6 +106,7 @@ for (const [name, content] of [
   ['hooks.json', hooks],
   ['token-hooks.json', tokenHooks],
   ['runtime-families.json', runtimeFamilies],
+  ['project-seeds.json', projects],
 ]) {
   const inlineScriptRe = /<\s*script\b(?![^>]*\bsrc\s*=)/;
   if (inlineScriptRe.test(content)) {
@@ -126,6 +132,7 @@ const assetsBlock =
   `  hooks: ${JSON.stringify(hooks)},\n` +
   `  tokenHooks: ${JSON.stringify(tokenHooks)},\n` +
   `  runtimeFamilies: ${JSON.stringify(runtimeFamilies)},\n` +
+  `  projects: ${JSON.stringify(projects)},\n` +
   `});\n`;
 
 const emitted = runtime.replace(/\/\* @ASSETS-INJECT \*\/\s*\n?/s, () => assetsBlock);
@@ -141,6 +148,10 @@ mkdirSync(botOutDir, { recursive: true });
 for (const name of readdirSync(botSrcDir)) {
   if (!name.endsWith('.js') || name === 'server.js') continue;
   copyFileSync(join(botSrcDir, name), join(botOutDir, name));
+}
+mkdirSync(projectOutDir, { recursive: true });
+for (const name of readdirSync(projectSrcDir)) {
+  if (name.endsWith('.js')) copyFileSync(join(projectSrcDir,name),join(projectOutDir,name));
 }
 
 // --- Sanity check: the artifact must parse as valid ESM --------------------

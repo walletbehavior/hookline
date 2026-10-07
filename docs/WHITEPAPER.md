@@ -1,6 +1,6 @@
 # Hookline: an evidence and coordination layer for onchain hooks
 
-Version 0.1, October 2026
+Version 0.2, October 7, 2026
 
 ## Abstract
 
@@ -57,6 +57,12 @@ The Worker centralizes supported upstreams, validates JSON-RPC envelopes, applie
 
 The x402 route separates machine-payable capacity from public access. Payment terms are advertised in a standard HTTP 402 challenge and settle in Base USDC.
 
+The Projects release adds a broad sourced registry, shared block-pinned observations, selected contract-event readers, and a common change feed. Deployment coverage is explicit. A project may represent a launch platform, liquidity mechanism, tokenized experiment, or developer tool; it need not have a token. Readers attach factory, implementation, fee, recipient, model, and distribution observations to common objects rather than inventing a separate dashboard for every integration.
+
+Private submissions and expiring DNS domain claims support team-authored metadata without granting control over observations. A scheduled authenticated reviewer can process ordinary requests against primary sources. Claims, paid services, and execution volume do not rank or alter the evidence feed.
+
+The configured monitoring targets rotate through the existing 10-minute trigger. Retained event windows, cursor lag, unavailable RPC responses, and reorganization handling are visible. This shared layer is shipped; complete PoolManager indexing, extracted-fee attribution, refusal-rate measurement, and outcome reconciliation are still planned.
+
 ## 4. The event-backed system of record
 
 Point-in-time contract evidence is necessary but insufficient for analytics. Hookline's next layer indexes official PoolManager events into a normalized graph:
@@ -100,11 +106,11 @@ A human workstation for inspection, history, comparisons, activity, dependency v
 
 A block-range feed of hook-mediated execution behavior. Tape rows separate the pool-advertised fee from measurable hook deltas and token flows, report refused swap attempts and hook gas where trace evidence exists, identify recipients when they can be proven, and link every claim to its source transaction, logs, traces, and derivation version.
 
-Runtime fingerprints group identical deployments into behavior families. A newly deployed copy of known bytecode is a family event; a runtime change is a distinct event even when the project name stays the same.
+Runtime fingerprints group byte-identical deployments into runtime families. Identical code alone does not establish identical configuration, common ownership, or a new launch. Proxy implementation and model-address reads are separate identity signals. The planned tape combines those signals without treating a family badge as a measured behavior.
 
 ### Monitoring and alerts
 
-Hook profiles can already create bounded Telegram alerts for direct runtime changes, new indexed pool relationships, and material indexed-liquidity movement. The monitoring layer expands next into ownership, permission, dependency, activity, and upstream-health changes.
+Hook profiles support bounded Telegram alerts for direct runtime changes, newly indexed pool relationships, and material indexed-liquidity movement across a stable, fully measured pool set. Project follows use the shared configuration-change and decoded-event feed. Backfill is not promoted to newly occurring activity. Deeper outcome, dependency, family, and upstream-health subscriptions remain planned.
 
 ### Reviewed execution
 
