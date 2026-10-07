@@ -1535,11 +1535,15 @@
       includeMarkets ? readHookMarkets(item, Boolean(settings.forceMarkets)) : Promise.resolve(null),
     ]);
     const next = { ...previous };
-    if (contract.status === 'fulfilled' && contract.value) next.result = contract.value;
+    if (contract.status === 'fulfilled' && contract.value) {
+      next.result = contract.value;
+      delete next.error;
+    }
     if (contract.status === 'rejected') next.error = contract.reason?.message || 'RPC read failed.';
     if (markets.status === 'fulfilled' && markets.value) {
       next.markets = markets.value;
       next.marketObservedAt = marketCacheEntry(item, false)?.observedAt || Date.now();
+      delete next.marketError;
     }
     if (markets.status === 'rejected') next.marketError = markets.reason?.message || 'Market lookup failed.';
     state.boardEvidence.set(item.id, next);

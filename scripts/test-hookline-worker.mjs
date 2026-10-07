@@ -251,6 +251,8 @@ try {
   assert.match(appSource, /api\/token-hooks/);
   assert.match(appSource, /board-profile-open/);
   assert.match(appSource, /boardVelocity/);
+  assert.match(appSource, /delete next\.error/);
+  assert.match(appSource, /delete next\.marketError/);
   assert.doesNotMatch(appSource, /FEE_WALLET|strip-copy-fee/);
   assert.doesNotMatch(appSource, /\.innerHTML\s*=/);
 
