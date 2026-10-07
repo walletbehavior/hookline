@@ -53,7 +53,7 @@ Hookline methods are:
 
 The public proxy uses an explicit allowlist and rejects transaction submission, account access, administrative methods, debug methods, trace methods, batches, oversized bodies, and oversized upstream responses. Requests time out after eight seconds. Public POST routes use a best-effort per-isolate limit of 60 requests per IP per minute.
 
-The paid route uses the official x402 Hono middleware, PayAI facilitator, `eip155:8453`, Base USDC, and settlement wallet `0x69e73F4B54ED92939D48B5472894179BF3292DD3`. Facilitator initialization is lazy because Cloudflare Workers do not permit network activity during module initialization.
+The paid route uses the official x402 Hono middleware, PayAI facilitator, `eip155:8453`, and Base USDC. Its settlement address is supplied at runtime through the encrypted `X402_PAY_TO` Worker secret and is not stored in source. Facilitator initialization is lazy because Cloudflare Workers do not permit network activity during module initialization.
 
 ## WebMCP
 

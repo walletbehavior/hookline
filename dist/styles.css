@@ -214,6 +214,33 @@ select:focus-visible {
 .btn:hover { background: var(--obsidian); border-color: var(--bone-dim); }
 .btn:disabled { opacity: 0.45; cursor: not-allowed; }
 .btn-compact { padding: var(--space-1) var(--space-3); font-size: 0.75rem; }
+.copy-icon-btn {
+  position: relative;
+  width: 32px;
+  height: 30px;
+  flex: 0 0 32px;
+  border: var(--border);
+  background: var(--obsidian-3);
+  color: var(--bone-dim);
+  cursor: pointer;
+}
+.copy-icon-btn:hover,
+.copy-icon-btn.copied { border-color: var(--lime); color: var(--lime); }
+.copy-icon {
+  position: absolute;
+  inset: 0;
+}
+.copy-icon::before,
+.copy-icon::after {
+  content: '';
+  position: absolute;
+  width: 11px;
+  height: 13px;
+  border: 1px solid currentColor;
+  background: var(--obsidian-3);
+}
+.copy-icon::before { left: 8px; top: 7px; }
+.copy-icon::after { left: 12px; top: 10px; }
 .btn-primary {
   border-color: var(--lime);
   color: var(--obsidian);
@@ -874,7 +901,7 @@ progress::-moz-progress-bar { background: var(--cyan); }
   max-width: 1400px;
   margin: 0 auto;
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: 1.1fr 2fr 0.9fr;
   gap: var(--space-4);
 }
 .token-intro { grid-column: span 1; }
@@ -884,6 +911,8 @@ progress::-moz-progress-bar { background: var(--cyan); }
 .token-col > span { color: var(--bone-mute); font-size: 0.688rem; letter-spacing: 0.06em; text-transform: uppercase; }
 .token-label { font-size: 0.688rem; color: var(--bone-mute); text-transform: uppercase; letter-spacing: 0.06em; }
 .token-col code { font-size: 0.813rem; color: var(--bone-dim); font-family: var(--font-mono); }
+.contract-line { display: flex; align-items: center; gap: var(--space-2); min-width: 0; }
+.contract-line code { min-width: 0; }
 .token-col code a { color: var(--cyan); }
 .token-text { color: var(--bone-dim); font-size: 0.813rem; }
 .token-link { color: var(--bone-dim); font-size: 0.813rem; }

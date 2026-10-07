@@ -16,7 +16,6 @@
     'afterAddLiquidityReturnDelta', 'afterRemoveLiquidityReturnDelta',
   ]);
   const TOKEN_CA = '0x11672C8cD5CB3F17364339244826B110Bac0AC91';
-  const FEE_WALLET = '0x69e73F4B54ED92939D48B5472894179BF3292DD3';
   const WATCHLISTS_KEY = 'hookline:watchlists:v3';
   const WATCHLISTS_V2_KEY = 'hookline:watchlist:v2';
   const MAX_LISTS = 20;
@@ -997,7 +996,12 @@
         document.execCommand('copy');
         area.remove();
       }
-      if (button) {
+      if (button && button.classList.contains('copy-icon-btn')) {
+        const originalLabel = button.getAttribute('aria-label');
+        button.setAttribute('aria-label', 'Copied');
+        button.classList.add('copied');
+        setTimeout(() => { button.setAttribute('aria-label', originalLabel); button.classList.remove('copied'); }, 1400);
+      } else if (button) {
         const original = button.textContent;
         button.textContent = 'Copied';
         button.classList.add('copied');
@@ -1085,7 +1089,6 @@
     $('refresh-telemetry-btn').addEventListener('click', () => loadTelemetry(true));
     $('top-copy-ca').addEventListener('click', (event) => copyText(TOKEN_CA, event.currentTarget));
     $('strip-copy-ca').addEventListener('click', (event) => copyText(TOKEN_CA, event.currentTarget));
-    $('strip-copy-fee').addEventListener('click', (event) => copyText(FEE_WALLET, event.currentTarget));
     $$('[data-copy]').forEach((button) => button.addEventListener('click', (event) => copyText(button.dataset.copy, event.currentTarget)));
     window.addEventListener('hashchange', renderView);
   }

@@ -75,9 +75,9 @@ const UPSTREAM_TIMEOUT_MS = 8000;
 const MAX_BODY_BYTES = 32 * 1024; // 32 KiB (request body cap)
 const MAX_UPSTREAM_RESPONSE_BYTES = 2 * 1024 * 1024; // 2 MiB (upstream response cap)
 const X402_NETWORK = 'eip155:8453';
-const X402_PAY_TO = '0x69e73F4B54ED92939D48B5472894179BF3292DD3';
 const X402_USDC_ASSET = '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913';
 const X402_AMOUNT_ATOMIC = '10000';
+const EVM_ADDRESS_RE = /^0x[0-9a-fA-F]{40}$/;
 
 // ---------------------------------------------------------------------------
 // Rate limiting (per-isolate, best effort): 60 POST RPC requests per minute
@@ -958,7 +958,6 @@ function jsonDocsBody(request) {
       amountAtomic: X402_AMOUNT_ATOMIC,
       priceUsd: '0.01',
       token: 'USDC',
-      payTo: X402_PAY_TO,
       facilitator: 'https://facilitator.payai.network',
       rateLimit: 'paid requests bypass the public per-IP limit after verification',
     },
@@ -992,9 +991,9 @@ function sendStaticAsset(path, type, content) {
       'Content-Type': type,
       'Content-Length': String(new TextEncoder().encode(content).byteLength),
       'Cache-Control':
-        path === '/'
-          ? 'no-cache, must-revalidate'
-          : 'public, max-age=300, must-revalidate',
+        path.startsWith('/assets/')
+          ? 'public, max-age=31536000, immutable'
+          : 'no-store, max-age=0',
       'Access-Control-Allow-Origin': '*',
       'Access-Control-Allow-Credentials': 'false',
     },
@@ -1004,7 +1003,9 @@ function sendStaticAsset(path, type, content) {
 }
 
 function handleStaticAsset(path) {
-  const route = STATIC_ROUTES[path];
+  const versionedAsset = path.match(/^\/assets\/[a-f0-9]{12}\/(styles\.css|app\.js)$/);
+  const routePath = versionedAsset ? `/${versionedAsset[1]}` : path;
+  const route = STATIC_ROUTES[routePath];
   if (!route) return undefined;
   const content = ASSETS[route.key];
   if (content === undefined) {
@@ -1033,9 +1034,10 @@ function sendNotFound() {
 // ---------------------------------------------------------------------------
 
 let paidRpcApp;
+let paidRpcPayTo;
 
-function getPaidRpcApp() {
-  if (paidRpcApp) return paidRpcApp;
+function getPaidRpcApp(payTo) {
+  if (paidRpcApp && paidRpcPayTo === payTo) return paidRpcApp;
 
   // Cloudflare Workers forbid network I/O during module initialization. Build
   // the x402 server on the first paid request so facilitator capability sync
@@ -1052,7 +1054,7 @@ function getPaidRpcApp() {
           accepts: {
             scheme: 'exact',
             network: X402_NETWORK,
-            payTo: X402_PAY_TO,
+            payTo,
             price: {
               asset: X402_USDC_ASSET,
               amount: X402_AMOUNT_ATOMIC,
@@ -1085,6 +1087,7 @@ function getPaidRpcApp() {
   });
 
   paidRpcApp = app;
+  paidRpcPayTo = payTo;
   return paidRpcApp;
 }
 
@@ -1167,7 +1170,14 @@ export default {
           parsed.message
         );
       }
-      const paidResponse = await getPaidRpcApp().fetch(request, env, ctx);
+      const payTo = typeof env?.X402_PAY_TO === 'string' ? env.X402_PAY_TO.trim() : '';
+      if (!EVM_ADDRESS_RE.test(payTo)) {
+        return new Response(
+          JSON.stringify({ error: 'paid capacity is temporarily unavailable' }),
+          { status: 503, headers: baseJsonHeaders({ 'Cache-Control': 'no-store' }) }
+        );
+      }
+      const paidResponse = await getPaidRpcApp(payTo).fetch(request, env, ctx);
       return withPaidResponseHeaders(paidResponse);
     }
 

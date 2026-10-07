@@ -9,6 +9,7 @@ artifactUrl.searchParams.set('test', String(Date.now()));
 const originalFetch = globalThis.fetch;
 const upstreamCalls = [];
 const expectedOwner = `0x${'ab'.repeat(20)}`;
+const testX402PayTo = `0x${'ef'.repeat(20)}`;
 let failedUpstream = null;
 
 function upstreamChainId(url) {
@@ -74,7 +75,7 @@ let nextIp = 1;
 async function request(path, options = {}) {
   return worker.fetch(
     new Request(`https://hookline.example${path}`, options),
-    {},
+    { X402_PAY_TO: testX402PayTo },
     { waitUntil() {}, passThroughOnException() {} }
   );
 }
@@ -115,15 +116,22 @@ try {
   assert.match(rootHtml, /github\.com\/walletbehavior\/hookline/);
   assert.match(rootHtml, /POST \/rpc\/paid/);
   assert.match(rootHtml, /0x11672C8cD5CB3F17364339244826B110Bac0AC91/);
+  assert.match(rootHtml, /copy-icon-btn/);
+  assert.match(rootHtml, /\/assets\/[a-f0-9]{12}\/app\.js/);
+  assert.match(rootHtml, /\/assets\/[a-f0-9]{12}\/styles\.css/);
+  assert.doesNotMatch(rootHtml, /capacity wallet/i);
   assert.doesNotMatch(rootHtml, /read[- ]only/i);
   assert.doesNotMatch(rootHtml, /\b(beta|sample|demo|simulated)\b/i);
 
-  const appResponse = await request('/app.js');
+  const versionedAppPath = rootHtml.match(/\/assets\/[a-f0-9]{12}\/app\.js/)[0];
+  const appResponse = await request(versionedAppPath);
   assert.equal(appResponse.status, 200);
+  assert.match(appResponse.headers.get('cache-control'), /immutable/);
   const appSource = await appResponse.text();
   assert.match(appSource, /hookline:watchlists:v3/);
   assert.match(appSource, /Promise\.all\(\[worker\(\), worker\(\)\]\)/);
   assert.match(appSource, /fetch\('\/metrics'/);
+  assert.doesNotMatch(appSource, /FEE_WALLET|strip-copy-fee/);
   assert.doesNotMatch(appSource, /\.innerHTML\s*=/);
 
   const healthResponse = await request('/health');
@@ -160,6 +168,7 @@ try {
   assert.equal(docs.routes.paidRpc, '/rpc/paid');
   assert.equal(docs.paidAccess.amountAtomic, '10000');
   assert.equal(docs.paidAccess.network, 'eip155:8453');
+  assert.equal('payTo' in docs.paidAccess, false);
 
   const unpaidResponse = await request('/rpc/paid', {
     method: 'POST',
@@ -181,10 +190,7 @@ try {
     '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913'
   );
   assert.equal(paymentRequired.accepts[0].amount, '10000');
-  assert.equal(
-    paymentRequired.accepts[0].payTo,
-    '0x69e73F4B54ED92939D48B5472894179BF3292DD3'
-  );
+  assert.equal(paymentRequired.accepts[0].payTo, testX402PayTo);
 
   const malformedPaid = await request('/rpc/paid', {
     method: 'POST',

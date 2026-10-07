@@ -61,8 +61,8 @@ const assetVersion = createHash('sha256')
   .digest('hex')
   .slice(0, 12);
 const versionedHtml = html
-  .replace('href="styles.css"', `href="/styles.css?v=${assetVersion}"`)
-  .replace('src="app.js"', `src="/app.js?v=${assetVersion}"`);
+  .replace('href="styles.css"', `href="/assets/${assetVersion}/styles.css"`)
+  .replace('src="app.js"', `src="/assets/${assetVersion}/app.js"`);
 
 if (versionedHtml === html) {
   throw new Error('index.html is missing the expected stylesheet and script references');

@@ -63,8 +63,6 @@ Constraints:
 | Network | `eip155:8453` |
 | Asset | Base USDC |
 | Amount | `10000` atomic units, or 0.01 USDC |
-| Settlement | `0x69e73F4B54ED92939D48B5472894179BF3292DD3` |
-
 An unpaid, valid request receives HTTP `402` and a `Payment-Required` header. Malformed JSON-RPC is rejected before a payment challenge is created.
 
 ## Errors

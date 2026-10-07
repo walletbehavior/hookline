@@ -2,7 +2,7 @@
 
 Status: live on Base.
 
-Hookline launched gas-free through Flaunch on Base with an ETH pairing and 0% auto buyback. The sole 100% creator-earnings recipient is `0x69e73F4B54ED92939D48B5472894179BF3292DD3`.
+Hookline launched gas-free through Flaunch on Base with an ETH pairing and 0% auto buyback. Creator-earnings routing was configured during launch and remains verifiable through the venue and onchain activity.
 
 Contract address: `0x11672C8cD5CB3F17364339244826B110Bac0AC91`
 
