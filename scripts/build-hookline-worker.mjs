@@ -21,6 +21,7 @@
 
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { dirname, join, resolve } from 'node:path';
 
@@ -54,6 +55,19 @@ const css = readFileSync(cssPath, 'utf8');
 const app = readFileSync(appPath, 'utf8');
 const runtime = readFileSync(workerSrc, 'utf8');
 
+const assetVersion = createHash('sha256')
+  .update(css)
+  .update(app)
+  .digest('hex')
+  .slice(0, 12);
+const versionedHtml = html
+  .replace('href="styles.css"', `href="/styles.css?v=${assetVersion}"`)
+  .replace('src="app.js"', `src="/app.js?v=${assetVersion}"`);
+
+if (versionedHtml === html) {
+  throw new Error('index.html is missing the expected stylesheet and script references');
+}
+
 if (!runtime.includes('/* @ASSETS-INJECT */')) {
   throw new Error('worker/index.js is missing the @ASSETS-INJECT injection marker');
 }
@@ -86,7 +100,7 @@ for (const [name, content] of [
 // signals that the embedded assets are immutable.
 const assetsBlock =
   `const ASSETS = Object.freeze({\n` +
-  `  html: ${JSON.stringify(html)},\n` +
+  `  html: ${JSON.stringify(versionedHtml)},\n` +
   `  css: ${JSON.stringify(css)},\n` +
   `  app: ${JSON.stringify(app)},\n` +
   `});\n`;
@@ -109,4 +123,5 @@ try {
 }
 
 console.log(`✓ Built Cloudflare Worker artifact: ${out}`);
-console.log(`  embedded static assets: index.html (${html.length} bytes), styles.css (${css.length} bytes), app.js (${app.length} bytes)`);
+console.log(`  embedded static assets: index.html (${versionedHtml.length} bytes), styles.css (${css.length} bytes), app.js (${app.length} bytes)`);
+console.log(`  asset version: ${assetVersion}`);
