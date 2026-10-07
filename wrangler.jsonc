@@ -8,6 +8,18 @@
   ],
   "workers_dev": true,
   "preview_urls": true,
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "hookline-alerts",
+      "database_id": "426c029a-ec4e-46d5-956a-e5bd5e6e97ea"
+    }
+  ],
+  "triggers": {
+    "crons": [
+      "*/10 * * * *"
+    ]
+  },
   "routes": [
     {
       "pattern": "hookline.ravenos.xyz",

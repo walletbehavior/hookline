@@ -135,7 +135,7 @@
                 <button id="hook-profile-inspect" class="btn btn-primary" type="button">Inspect live</button>
                 <button id="hook-profile-watch" class="btn btn-secondary" type="button">Add to watchlist</button>
                 <a id="hook-profile-telegram" class="btn btn-secondary" href="https://t.me/HooklineTradeBot" target="_blank" rel="noopener noreferrer">Open in Telegram</a>
-                <a id="hook-profile-alert" class="btn btn-ghost" href="https://t.me/HooklineTradeBot" target="_blank" rel="noopener noreferrer">Telegram alerts</a>
+                <a id="hook-profile-alert" class="btn btn-ghost" href="https://t.me/HooklineTradeBot" target="_blank" rel="noopener noreferrer">Set alert</a>
                 <button id="hook-profile-share" class="btn btn-ghost" type="button">Copy profile link</button>
                 <a id="hook-profile-explorer" class="btn btn-ghost" href="#" target="_blank" rel="noopener noreferrer">Explorer</a>
               </div>
@@ -376,7 +376,7 @@
             <div class="doc-card"><strong>Monitor</strong><p>Save named local watchlists, refresh evidence intentionally, preserve successful history, and surface failures without erasing prior state.</p></div>
             <div class="doc-card"><strong>Build</strong><p>Consume the same evidence through constrained JSON-RPC and a machine-payable x402 capacity route.</p></div>
           </div>
-          <p class="doc-boundary"><strong>Current boundary:</strong> The board uses a timestamped community-indexer snapshot for discovery and aggregate counts. Live inspection remains direct RPC evidence. Time-series analytics, alerts, and long-range event history are planned work.</p>
+          <p class="doc-boundary"><strong>Current boundary:</strong> The board uses a timestamped community-indexer snapshot for discovery and aggregate counts. Live inspection remains direct RPC evidence. Telegram can monitor a hook for new pools and material liquidity changes. Long-range event history is planned work.</p>
         </section>
 
         <section id="docs-data" class="doc-section">
@@ -450,7 +450,7 @@
             <details><summary>Where does Hookline data come from?</summary><p>The hook board uses a timestamped v4.xyz community-indexer snapshot for discovery and aggregate pool and swap counts. Names and descriptions are community-curated or project-submitted. Live contract evidence comes directly from configured Ethereum, Base, Arbitrum One, and Robinhood Chain RPC endpoints.</p></details>
             <details><summary>Is Hookline already indexing volume and liquidity?</summary><p>Yes. Open a hook profile to resolve related markets. When DexScreener has the pool, Hookline shows price, market cap, liquidity, 24-hour volume, and change alongside the indexed hook relationship.</p></details>
             <details><summary>What does Velocity mean?</summary><p>Velocity ranks the current indexed activity density of each hook or token relationship. It is a discovery ranking, not a promise of future performance.</p></details>
-            <details><summary>What does the Telegram bot do?</summary><p>Send it a token or hook address to navigate hook relationships, related tokens, markets, and trade previews. Alerts and user-owned Privy signing are the next production connections.</p></details>
+            <details><summary>What does the Telegram bot do?</summary><p>Send it a token or hook address to navigate hook relationships, related tokens, markets, and trade previews. A hook profile can enable a Telegram alert for new pools or an aggregate liquidity move of 10% or more. Checks run every 10 minutes. User-owned wallet signing is not connected yet.</p></details>
             <details><summary>What will Telegram trading cost?</summary><p>Hookline’s planned execution fee is 1% of trade notional, with 0.3% of trade notional returned to the user as cashback. Execution remains inactive until user-owned wallet signing is connected.</p></details>
             <details><summary>What do the 14 permission flags prove?</summary><p>They identify which Uniswap v4 callback permissions are encoded in the hook address. They do not explain the complete runtime behavior and do not establish that a contract is safe.</p></details>
             <details><summary>Is this a smart-contract audit?</summary><p>No. Hookline is an evidence and monitoring product, not an audit, legal opinion, or trading recommendation.</p></details>

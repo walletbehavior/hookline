@@ -6,7 +6,7 @@ import {
   parseMessage,
   TelegramClient,
 } from './bot-api.js';
-import { SUPPORTED_CHAINS } from './chains.js';
+import { CHAIN_CONFIG, SUPPORTED_CHAINS } from './chains.js';
 import {
   resolveHookMarkets as resolveHookMarketsFallback,
   resolveTokenHooks as resolveTokenHooksFallback,
@@ -15,6 +15,11 @@ import { normalizeTokenIdentity, validateEvmAddress } from './wallets.js';
 import { renderTokenCard, renderPresetGrid } from './token-view.js';
 import { renderHookView } from './hook-view.js';
 import { renderTradePreview } from './preview.js';
+import {
+  AlertStorageUnavailableError,
+  makeD1AlertStore,
+  MAX_ALERTS_PER_USER,
+} from './alerts-store.js';
 
 const SESSIONS = new Map();
 
@@ -106,15 +111,16 @@ function sessionForRelationship(address, relationship, relationships) {
 }
 
 async function editCard(client, callbackQuery, card) {
-  await client.answer(callbackQuery.id);
   const chatId = callbackQuery.message?.chat?.id;
   const messageId = callbackQuery.message?.message_id;
-  if (chatId == null || messageId == null) return;
-  await client.edit(chatId, messageId, card.text, {
-    parse_mode: card.parse_mode || 'Markdown',
-    reply_markup: card.reply_markup,
-    disable_web_page_preview: true,
-  });
+  if (chatId != null && messageId != null) {
+    await client.edit(chatId, messageId, card.text, {
+      parse_mode: card.parse_mode || 'Markdown',
+      reply_markup: card.reply_markup,
+      disable_web_page_preview: true,
+    });
+  }
+  await client.answer(callbackQuery.id);
 }
 
 export async function handleUpdate(update, ctx = {}) {
@@ -136,7 +142,7 @@ async function handleMessage(message, ctx, userId) {
     if (command === 'start') return startCommand(client, parsed, ctx, userId);
     if (command === 'help') return helpCommand(client, parsed);
     if (command === 'about' || command === 'fees') return aboutCommand(client, parsed);
-    if (command === 'alerts' || command === 'alert') return alertsCommand(client, parsed);
+    if (command === 'alerts' || command === 'alert') return alertsCommand(client, parsed, ctx, userId);
     if (command === 'wallet') return walletCommand(client, parsed);
     if (command === 'positions') return positionsCommand(client, parsed);
     if (command === 'settings') return settingsCommand(client, parsed);
@@ -172,7 +178,7 @@ async function startCommand(client, parsed, ctx, userId) {
     return alertsCommand(client, {
       ...parsed,
       args: `${deepLink[2]}:${address}`,
-    });
+    }, ctx, userId);
   }
   const text = [
     '🪝 *Hookline*',
@@ -233,13 +239,86 @@ async function promptForAddress(client, chatId, command) {
   return { handled: true, found: false, messageId: reply?.message_id };
 }
 
-async function alertsCommand(client, parsed) {
-  const reply = await client.reply(
-    parsed.chatId,
-    '*Telegram alerts*\n\nAlert creation is the next production connection. Browse the live board now and send any token or hook address here for inspection.\n\nhttps://hookline.world/#/board',
-    { parse_mode: 'Markdown', disable_web_page_preview: true }
-  );
-  return { handled: true, messageId: reply?.message_id };
+function alertsStore(ctx) {
+  return ctx.services?.alerts || makeD1AlertStore(ctx.env);
+}
+
+function alertTarget(chainId, address) {
+  const chain = CHAIN_CONFIG[Number(chainId)]?.name || `Chain ${chainId}`;
+  return `${chain}, ${address.slice(0, 6)}...${address.slice(-6)}`;
+}
+
+async function alertsCommand(client, parsed, ctx, userId) {
+  const args = String(parsed.args || '').trim();
+  const argMatch = args.match(/^(\d+):(0x[0-9a-fA-F]{40})$/i);
+
+  if (argMatch) {
+    const chainId = Number(argMatch[1]);
+    const address = argMatch[2].toLowerCase();
+    if (!SUPPORTED_CHAINS.includes(chainId)) {
+      const reply = await client.reply(
+        parsed.chatId,
+        `Unsupported chain ${chainId}. Supported: ${SUPPORTED_CHAINS.join(', ')}`,
+      );
+      return { handled: true, messageId: reply?.message_id };
+    }
+    const reply = await client.reply(
+      parsed.chatId,
+      [
+        '*Enable hook alert?*',
+        '',
+        alertTarget(chainId, address),
+        'Checks every 10 minutes for new pools or a liquidity move of 10% or more.',
+      ].join('\n'),
+      {
+        parse_mode: 'Markdown',
+        reply_markup: {
+          inline_keyboard: [[
+            { text: 'Enable', callback_data: `tg:ae:${chainId}:${address}` },
+            { text: 'Cancel', callback_data: `tg:ac:${chainId}:${address}` },
+          ]],
+        },
+      },
+    );
+    return { handled: true, messageId: reply?.message_id };
+  }
+
+  try {
+    const list = await alertsStore(ctx).listUserAlerts(userId);
+    if (!list.length) {
+      const reply = await client.reply(
+        parsed.chatId,
+        '*Your alerts*\n\nNo alerts enabled. Open a hook on hookline.world and tap Telegram alerts.',
+        { parse_mode: 'Markdown' },
+      );
+      return { handled: true, messageId: reply?.message_id };
+    }
+    const lines = ['*Your alerts*', ''];
+    const keyboard = [];
+    for (const alert of list) {
+      lines.push(alertTarget(alert.chain_id, alert.target_address));
+      keyboard.push([{
+        text: `Disable ${alert.target_address.slice(0, 6)}...${alert.target_address.slice(-4)}`,
+        callback_data: `tg:ad:${alert.chain_id}:${alert.target_address}`,
+      }]);
+    }
+    lines.push('', `${list.length} of ${MAX_ALERTS_PER_USER} alert slots used.`);
+    const reply = await client.reply(parsed.chatId, lines.join('\n'), {
+      parse_mode: 'Markdown',
+      reply_markup: { inline_keyboard: keyboard },
+    });
+    return { handled: true, messageId: reply?.message_id };
+  } catch (error) {
+    const unavailable = error instanceof AlertStorageUnavailableError;
+    const reply = await client.reply(
+      parsed.chatId,
+      unavailable
+        ? '*Alerts are temporarily unavailable*\n\nHook and token lookup still works.'
+        : '*Alerts could not load*\n\nTry again in a moment.',
+      { parse_mode: 'Markdown' },
+    );
+    return { handled: true, messageId: reply?.message_id };
+  }
 }
 
 async function walletCommand(client, parsed) {
@@ -263,7 +342,7 @@ async function positionsCommand(client, parsed) {
 async function settingsCommand(client, parsed) {
   const reply = await client.reply(
     parsed.chatId,
-    '*Settings*\n\nCurrent mode: discovery and trade preview\nExecution: off\nAlerts: not connected\nWallet: not connected\n\nFee details: /about',
+    '*Settings*\n\nCurrent mode: discovery and trade preview\nExecution: off\nAlerts: live\nWallet: not connected\n\nFee details: /about',
     { parse_mode: 'Markdown' }
   );
   return { handled: true, messageId: reply?.message_id };
@@ -364,6 +443,41 @@ async function handleCallback(callbackQuery, ctx, userId) {
 
   const [, action, p1, p2, p3] = match;
   const session = getSession(userId);
+
+  if (action === 'ac') {
+    await editCard(client, callbackQuery, { text: 'Alert setup cancelled.', parse_mode: undefined });
+    return { handled: true, answered: true, kind: 'alert_cancelled' };
+  }
+
+  if (action === 'ae' || action === 'ad') {
+    const chainId = Number(p1);
+    const address = validateEvmAddress(p2);
+    if (!SUPPORTED_CHAINS.includes(chainId) || !address) {
+      return invalidCallback(client, callbackQuery, 'Invalid alert target');
+    }
+    try {
+      if (action === 'ae') {
+        const chatId = callbackQuery.message?.chat?.id;
+        if (chatId == null) return invalidCallback(client, callbackQuery);
+        await alertsStore(ctx).createOrEnableAlert({ userId, chatId, chainId, address });
+        await editCard(client, callbackQuery, {
+          text: `*Alert enabled*\n\n${alertTarget(chainId, address)}\nNew pools and liquidity moves of 10% or more.`,
+        });
+        return { handled: true, answered: true, kind: 'alert_enabled' };
+      }
+      const disabled = await alertsStore(ctx).disableAlert({ userId, chainId, address });
+      await editCard(client, callbackQuery, {
+        text: disabled ? `*Alert disabled*\n\n${alertTarget(chainId, address)}` : 'That alert was already disabled.',
+      });
+      return { handled: true, answered: true, kind: 'alert_disabled' };
+    } catch (error) {
+      const text = error instanceof AlertStorageUnavailableError
+        ? '*Alerts are temporarily unavailable*\n\nHook and token lookup still works.'
+        : `*Alert not changed*\n\n${error instanceof Error ? error.message : 'Try again in a moment.'}`;
+      await editCard(client, callbackQuery, { text });
+      return { handled: true, answered: true, kind: 'alert_error' };
+    }
+  }
 
   if (action === 'hook') {
     const chainId = Number(p1);

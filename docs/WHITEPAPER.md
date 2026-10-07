@@ -98,7 +98,7 @@ A human workstation for inspection, history, comparisons, activity, dependency v
 
 ### Monitoring and alerts
 
-User-defined alerts for code, ownership, permission, dependency, activity, and upstream-health changes.
+Hook profiles can already create bounded Telegram alerts for new pools and material liquidity changes. The monitoring layer expands next into code, ownership, permission, dependency, activity, and upstream-health changes.
 
 ### Developer infrastructure
 

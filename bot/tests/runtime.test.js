@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { handleUpdate } from '../index.js';
+import { alertEvents, runAlertScan } from '../alert-runner.js';
 import { parseMessage, verifyWebhookSecret } from '../bot-api.js';
 import { feeMicros, cashbackMicros } from '../fees.js';
 import { buyPresets, sellPresets, KEYS } from '../keys.js';
@@ -88,6 +89,43 @@ const services = {
     markets: relationships,
   }),
 };
+
+function memoryAlerts() {
+  const rows = [];
+  return {
+    rows,
+    async listUserAlerts(userId) {
+      return rows.filter((row) => row.telegram_user_id === String(userId) && row.enabled);
+    },
+    async createOrEnableAlert({ userId, chatId, chainId, address }) {
+      const existing = rows.find((row) =>
+        row.telegram_user_id === String(userId)
+        && row.chat_id === String(chatId)
+        && row.chain_id === Number(chainId)
+        && row.target_address === address.toLowerCase());
+      if (existing) existing.enabled = 1;
+      else rows.push({
+        id: rows.length + 1,
+        telegram_user_id: String(userId),
+        chat_id: String(chatId),
+        chain_id: Number(chainId),
+        target_address: address.toLowerCase(),
+        enabled: 1,
+        baseline_json: null,
+      });
+      return { created: !existing };
+    },
+    async disableAlert({ userId, chainId, address }) {
+      const row = rows.find((item) =>
+        item.telegram_user_id === String(userId)
+        && item.chain_id === Number(chainId)
+        && item.target_address === address.toLowerCase());
+      if (!row || !row.enabled) return false;
+      row.enabled = 0;
+      return true;
+    },
+  };
+}
 
 test.beforeEach(() => {
   MockTelegramClient.calls = [];
@@ -225,4 +263,71 @@ test('navigates hook and buy preview callbacks by editing in place', async () =>
   const preview = await handleUpdate(callback(`tg:bp:1:${TOKEN}:100`), ctx);
   assert.equal(preview.kind, 'preview');
   assert.match(MockTelegramClient.calls.find((item) => item.type === 'edit').text, /Cashback \(0\.3%\)/);
+});
+
+test('confirms, enables, lists and disables a hook alert', async () => {
+  const alerts = memoryAlerts();
+  const ctx = { env: { TELEGRAM_BOT_TOKEN: BOT_TOKEN }, services: { ...services, alerts } };
+  const setup = await handleUpdate(command(`/start alert_8453_${HOOK.slice(2)}`), ctx);
+  assert.equal(setup.handled, true);
+  const card = MockTelegramClient.calls.find((item) => item.type === 'send');
+  assert.match(card.text, /Enable hook alert/);
+  assert.equal(card.options.reply_markup.inline_keyboard[0][0].callback_data, `tg:ae:8453:${HOOK}`);
+  assert.ok(Buffer.byteLength(card.options.reply_markup.inline_keyboard[0][0].callback_data) <= 64);
+
+  MockTelegramClient.calls = [];
+  const enabled = await handleUpdate(callback(`tg:ae:8453:${HOOK}`), ctx);
+  assert.equal(enabled.kind, 'alert_enabled');
+  assert.equal(alerts.rows.length, 1);
+  assert.equal(MockTelegramClient.calls[0].type, 'edit');
+  assert.equal(MockTelegramClient.calls[1].type, 'answer');
+
+  MockTelegramClient.calls = [];
+  await handleUpdate(command('/alerts'), ctx);
+  const list = MockTelegramClient.calls.find((item) => item.type === 'send');
+  assert.match(list.text, /Base/);
+  assert.match(list.text, /1 of 10/);
+
+  MockTelegramClient.calls = [];
+  const disabled = await handleUpdate(callback(`tg:ad:8453:${HOOK}`), ctx);
+  assert.equal(disabled.kind, 'alert_disabled');
+  assert.equal(alerts.rows[0].enabled, 0);
+});
+
+test('alert runner seeds silently, then delivers a deduplicated liquidity event', async () => {
+  const alert = {
+    id: 1,
+    telegram_user_id: '7',
+    chat_id: '7',
+    chain_id: 8453,
+    target_address: HOOK,
+    baseline_json: null,
+  };
+  const deliveries = new Set();
+  const sent = [];
+  const store = {
+    async listDueAlerts() { return [alert]; },
+    async updateBaseline({ baseline }) { alert.baseline_json = JSON.stringify(baseline); },
+    async reschedule() {},
+    async hasDelivery(_id, key) { return deliveries.has(key); },
+    async recordDelivery(_id, key) { deliveries.add(key); },
+  };
+  let liquidityUsd = 100;
+  const resolveHookMarkets = async () => ({
+    markets: [{ pairAddress: `0x${'ab'.repeat(32)}`, liquidityUsd }],
+  });
+  const sendMessage = async (chatId, text) => sent.push({ chatId, text });
+
+  const seeded = await runAlertScan({}, { store, resolveHookMarkets, sendMessage, now: 1 });
+  assert.equal(seeded.seeded, 1);
+  assert.equal(sent.length, 0);
+
+  liquidityUsd = 112;
+  const delivered = await runAlertScan({}, { store, resolveHookMarkets, sendMessage, now: 2 });
+  assert.equal(delivered.delivered, 1);
+  assert.match(sent[0].text, /rose 12\.0%/);
+  assert.equal(alertEvents(
+    { poolIds: ['a'], aggregateLiquidityUsd: 100 },
+    { poolIds: ['a', 'b'], aggregateLiquidityUsd: 100 },
+  )[0].kind, 'new_pool');
 });

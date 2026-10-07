@@ -12,6 +12,7 @@ Status: operating in production.
 - Permission decoding and runtime fingerprints
 - Owner-probe status
 - Named local watchlists and evidence history
+- Telegram alerts for new hook pools and 10% aggregate liquidity changes
 - Same-chain comparisons
 - Chain telemetry
 - Free JSON-RPC and x402 paid capacity
@@ -44,7 +45,7 @@ Acceptance criteria:
 - Index swaps, liquidity modifications, and donations
 - Add explicit block-range activity metrics
 - Detect runtime, owner, permission, and dependency changes
-- Add saved-search and watchlist alerts
+- Add saved-search, code-change, and watchlist alerts
 - Provide activity, change, and dependency timelines
 - Add CSV and JSON dataset exports
 

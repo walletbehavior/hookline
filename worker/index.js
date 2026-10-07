@@ -35,6 +35,7 @@ import {
 import { ExactEvmScheme } from '@x402/evm/exact/server';
 import { facilitator as payAiFacilitator } from '@payai/facilitator';
 import { handleTelegramUpdate, verifyWebhookSecret } from '../bot/index.js';
+import { runAlertScan } from '../bot/alert-runner.js';
 
 'use strict';
 
@@ -1450,6 +1451,15 @@ function withPaidResponseHeaders(response) {
 // ---------------------------------------------------------------------------
 
 export default {
+  // Scheduled scanner entry point (10-minute cron). Fails closed when the DB
+  // binding is absent so a misconfigured deployment never starts scanning
+  // alerts while the rest of the site and RPC keep working.
+  async scheduled(_controller, env, ctx) {
+    const scan = runAlertScan(env, { resolveHookMarkets });
+    ctx.waitUntil(scan);
+    return scan;
+  },
+
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
     const method = request.method.toUpperCase();
