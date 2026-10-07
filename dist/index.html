@@ -86,7 +86,7 @@
         <div class="hook-board-grid">
           <div class="hook-table-wrap">
             <table class="hook-table" aria-label="Indexed hooks">
-              <thead><tr><th>#</th><th><div class="identity-mode" aria-label="Board identity mode"><button id="board-mode-hook" type="button" aria-pressed="true">HOOK</button><span>/</span><button id="board-mode-token" type="button" aria-pressed="false">TOKEN</button></div></th><th>Chain</th><th>Encoded behavior</th><th id="board-pools-heading" class="number">Pools</th><th id="board-swaps-heading" class="number">Swaps</th><th>Coverage</th></tr></thead>
+              <thead><tr><th>#</th><th><div class="identity-mode" aria-label="Board identity mode"><button id="board-mode-hook" type="button" aria-pressed="true">HOOK</button><span>/</span><button id="board-mode-token" type="button" aria-pressed="false">TOKEN</button></div></th><th>Chain</th><th>Capability</th><th id="board-pools-heading" class="number">Pools</th><th id="board-swaps-heading" class="number">Swaps</th><th>Coverage</th></tr></thead>
               <tbody id="hook-board-body"></tbody>
             </table>
             <div id="board-empty" class="board-empty" hidden>No hooks match these filters.</div>
@@ -438,7 +438,7 @@
           <ol class="roadmap">
             <li class="current"><span>NOW</span><div><h3>Dependable evidence desk</h3><p>Live inspection, permission decoding, watchlists, comparisons, telemetry, free RPC, and x402 capacity.</p></div></li>
             <li><span>NEXT</span><div><h3>Hook Tape and runtime families</h3><p>PoolManager event ingestion, fee and refusal evidence, recipient flows, block-range tape rows, and bytecode-family alerts.</p></div></li>
-            <li><span>AFTER</span><div><h3>Route checks and user-owned execution</h3><p>Pool quote, hook-adjusted result, complete fee stack, cashback, and explicit browser signing from Telegram.</p></div></li>
+            <li><span>AFTER</span><div><h3>Route checks and user-owned execution</h3><p>Pool quote, hook-adjusted result, complete fee stack, cashback, and explicit wallet signing from the site or Telegram.</p></div></li>
             <li><span>LATER</span><div><h3>Professional and ecosystem layers</h3><p>Team workspaces, webhooks, longer retention, signed manifests, contributed research, and additional programmable-liquidity systems.</p></div></li>
           </ol>
           <a class="doc-link" href="https://github.com/walletbehavior/hookline/blob/main/docs/ROADMAP.md" target="_blank" rel="noopener noreferrer">See roadmap acceptance criteria</a>
@@ -453,7 +453,7 @@
             <details><summary>What does Velocity mean?</summary><p>Velocity ranks the current indexed activity density of each hook or token relationship. It is a discovery ranking, not a promise of future performance.</p></details>
             <details><summary>What is the Hook Tape?</summary><p>It is the planned block-range feed for what hooked pools advertised and what the available transaction evidence shows happened. Tape rows will separate pool fees from measurable hook deltas, report refused swaps and recipients only when supported, and link to the underlying evidence.</p></details>
             <details><summary>What does the Telegram bot do?</summary><p>Send it a token or hook address to navigate hook relationships, related tokens, markets, and trade previews. A hook profile can enable a Telegram alert for new pools or an aggregate liquidity move of 10% or more. Checks run every 10 minutes. User-owned wallet signing is not connected yet.</p></details>
-            <details><summary>What will Telegram trading cost?</summary><p>Hookline’s planned execution fee is 1% of trade notional, with 0.3% of trade notional returned to the user as cashback. Execution remains inactive until user-owned wallet signing is connected.</p></details>
+            <details><summary>What does Hookline execution cost?</summary><p>The execution fee is 1% of trade notional. Confirmed fills earn 0.3% of trade notional as cashback once the settlement ledger is active. The public RPC never submits a transaction. A reviewed route opens in the user’s wallet, and that wallet submits only after approval.</p></details>
             <details><summary>What do the 14 permission flags prove?</summary><p>They identify which Uniswap v4 callback permissions are encoded in the hook address. They do not explain the complete runtime behavior and do not establish that a contract is safe.</p></details>
             <details><summary>Is this a smart-contract audit?</summary><p>No. Hookline is an evidence and monitoring product, not an audit, legal opinion, or trading recommendation.</p></details>
             <details><summary>Why can’t I compare live state across chains?</summary><p>An address is not a complete identity, and block heights on separate chains do not share state or time semantics. Hookline limits direct comparisons to one chain.</p></details>
@@ -469,6 +469,50 @@
       </article>
     </section>
   </main>
+
+  <dialog id="execution-dialog" class="execution-dialog" aria-labelledby="execution-title">
+    <div class="execution-shell">
+      <header class="execution-head">
+        <div>
+          <p class="panel-kicker">EXECUTION RAIL</p>
+          <h2 id="execution-title">Review trade</h2>
+        </div>
+        <button id="execution-close" class="profile-close" type="button" aria-label="Close trade review">×</button>
+      </header>
+      <div class="execution-context">
+        <div><span id="execution-chain">CHAIN</span><strong id="execution-token">TOKEN</strong></div>
+        <code id="execution-pool"></code>
+        <p id="execution-behavior"></p>
+      </div>
+      <div class="execution-side" aria-label="Trade side">
+        <button id="execution-side-buy" type="button" aria-pressed="true">BUY</button>
+        <button id="execution-side-sell" type="button" aria-pressed="false">SELL</button>
+      </div>
+      <label class="execution-amount-label" for="execution-amount">You pay</label>
+      <div class="execution-amount-row">
+        <input id="execution-amount" type="text" inputmode="decimal" autocomplete="off" placeholder="0.00" aria-describedby="execution-amount-help">
+        <strong id="execution-input-symbol">TOKEN</strong>
+      </div>
+      <div id="execution-presets" class="execution-presets" aria-label="Amount presets"></div>
+      <div class="execution-controls">
+        <label for="execution-slippage">Max slippage</label>
+        <select id="execution-slippage"><option value="50">0.5%</option><option value="100">1.0%</option><option value="200">2.0%</option><option value="500">5.0%</option></select>
+      </div>
+      <p id="execution-amount-help" class="execution-help">A fresh route and fee stack are shown before the wallet opens.</p>
+      <section id="execution-quote" class="execution-quote" hidden>
+        <div><span>Expected output</span><strong id="execution-output">—</strong></div>
+        <div><span>Minimum received</span><strong id="execution-minimum">—</strong></div>
+        <div><span>Hookline fee</span><strong id="execution-fee">1.00%</strong></div>
+        <div><span>Cashback</span><strong id="execution-cashback">0.30%</strong></div>
+      </section>
+      <p id="execution-message" class="execution-message" role="status" aria-live="polite"></p>
+      <div class="execution-actions">
+        <button id="execution-wallet" class="btn btn-secondary" type="button">Connect wallet</button>
+        <button id="execution-submit" class="btn btn-primary" type="button" disabled>Enter an amount</button>
+      </div>
+      <p class="execution-boundary">Your wallet signs and submits. Hookline never receives a private key or seed phrase.</p>
+    </div>
+  </dialog>
 
   <footer class="site-footer">
     <span>HOOKLINE / MULTICHAIN HOOKS ANALYTICS DESK</span>

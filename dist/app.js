@@ -35,10 +35,19 @@
     42220: 'celo', 43114: 'avalanche', 57073: 'ink', 81457: 'blast',
   });
   const MARKET_RESOLVER_VERSION = '3';
-  const MARKET_CACHE_KEY = 'hookline:market-cache:v1';
+  const MARKET_CACHE_KEY = 'hookline:market-cache:v2';
   const MARKET_CACHE_FRESH_MS = 10 * 60 * 1000;
   const MARKET_CACHE_STALE_MS = 24 * 60 * 60 * 1000;
   const MARKET_CACHE_MAX_ENTRIES = 80;
+  const NATIVE_TOKEN_ADDRESS = '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee';
+  const ZERO_ADDRESS = '0x0000000000000000000000000000000000000000';
+  const EXECUTION_CHAIN_IDS = new Set([1, 56, 4663, 8453]);
+  const EXECUTION_CHAINS = Object.freeze({
+    1: { chainId: '0x1', chainName: 'Ethereum', nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 }, rpcUrls: ['https://eth.drpc.org'], blockExplorerUrls: ['https://etherscan.io'] },
+    56: { chainId: '0x38', chainName: 'BNB Chain', nativeCurrency: { name: 'BNB', symbol: 'BNB', decimals: 18 }, rpcUrls: ['https://bsc-dataseed.bnbchain.org'], blockExplorerUrls: ['https://bscscan.com'] },
+    4663: { chainId: '0x1237', chainName: 'Robinhood Chain', nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 }, rpcUrls: ['https://rpc.mainnet.chain.robinhood.com'], blockExplorerUrls: ['https://explorer.mainnet.chain.robinhood.com'] },
+    8453: { chainId: '0x2105', chainName: 'Base', nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 }, rpcUrls: ['https://mainnet.base.org'], blockExplorerUrls: ['https://basescan.org'] },
+  });
 
   const $ = (id) => document.getElementById(id);
   const $$ = (selector) => Array.from(document.querySelectorAll(selector));
@@ -63,6 +72,18 @@
     tokenSearchTimer: null,
     boardEvidence: new Map(),
     boardLoading: new Set(),
+    execution: {
+      module: null,
+      modulePromise: null,
+      item: null,
+      market: null,
+      side: 'buy',
+      account: null,
+      quote: null,
+      capability: null,
+      busy: false,
+      tokenCache: new Map(),
+    },
   };
 
   function makeId(prefix) {
@@ -224,6 +245,7 @@
     return false;
   }
 
+
   function explorerAddressUrl(chainId, address) {
     const origins = {
       1: 'https://etherscan.io/address/',
@@ -259,6 +281,391 @@
     if (compact && Math.abs(number) >= 1000) return '$' + compactNumber(number);
     const digits = Math.abs(number) < 0.01 ? 8 : Math.abs(number) < 1 ? 5 : 2;
     return '$' + number.toLocaleString(undefined, { maximumFractionDigits: digits });
+  }
+
+  function executionModule() {
+    if (state.execution.module) return Promise.resolve(state.execution.module);
+    if (!state.execution.modulePromise) {
+      state.execution.modulePromise = import('/execution-rail.js').then((module) => {
+        state.execution.module = module;
+        return module;
+      });
+    }
+    return state.execution.modulePromise;
+  }
+
+  function executionProvider() {
+    const injected = globalThis.ethereum;
+    if (!injected) return null;
+    if (Array.isArray(injected.providers)) return injected.providers.find((provider) => provider?.isMetaMask) || injected.providers[0] || null;
+    return injected;
+  }
+
+  function nativeSymbol(chainId) {
+    return EXECUTION_CHAINS[chainId]?.nativeCurrency?.symbol || 'ETH';
+  }
+
+  function executionTokenDescriptor(raw, chainId) {
+    if (!raw || typeof raw !== 'object') return null;
+    const symbol = cleanString(raw.symbol, 24) || 'TOKEN';
+    const address = String(raw.address || '').trim().toLowerCase();
+    const native = address === ZERO_ADDRESS || address === NATIVE_TOKEN_ADDRESS
+      || (!/^0x[0-9a-f]{40}$/.test(address) && symbol.toUpperCase() === nativeSymbol(chainId));
+    if (!native && !/^0x[0-9a-f]{40}$/.test(address)) return null;
+    return {
+      address: native ? NATIVE_TOKEN_ADDRESS : address,
+      name: cleanString(raw.name, 64) || symbol,
+      symbol: native ? nativeSymbol(chainId) : symbol,
+      decimals: native ? 18 : null,
+      native,
+    };
+  }
+
+  function executionPair(side) {
+    const execution = state.execution;
+    const base = executionTokenDescriptor(execution.market?.baseToken, execution.item?.chainId);
+    const quote = executionTokenDescriptor(execution.market?.quoteToken, execution.item?.chainId);
+    if (!base || !quote) return null;
+    return side === 'sell' ? { input: base, output: quote } : { input: quote, output: base };
+  }
+
+  function executionMarketReady(item, market) {
+    if (!item || !market || !EXECUTION_CHAIN_IDS.has(item.chainId)) return false;
+    const base = executionTokenDescriptor(market.baseToken, item.chainId);
+    const quote = executionTokenDescriptor(market.quoteToken, item.chainId);
+    return Boolean(base && quote && base.address !== quote.address);
+  }
+
+  function formatBaseUnits(value, decimals, maximumFractionDigits) {
+    const raw = String(value || '0');
+    if (!/^\d+$/.test(raw) || !Number.isInteger(decimals) || decimals < 0 || decimals > 36) return '—';
+    const padded = raw.padStart(decimals + 1, '0');
+    const whole = decimals ? padded.slice(0, -decimals) : padded;
+    const fraction = decimals ? padded.slice(-decimals).replace(/0+$/, '') : '';
+    const shown = fraction.slice(0, maximumFractionDigits == null ? 8 : maximumFractionDigits).replace(/0+$/, '');
+    const groupedWhole = whole.replace(/^0+(?=\d)/, '').replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+    return groupedWhole + (shown ? `.${shown}` : '');
+  }
+
+  function decimalToHexQuantity(value) {
+    const raw = String(value || '0');
+    if (!/^\d+$/.test(raw)) throw new Error('Transaction value is invalid.');
+    return `0x${BigInt(raw).toString(16)}`;
+  }
+
+  function setExecutionMessage(message, kind) {
+    const node = $('execution-message');
+    node.textContent = message || '';
+    node.className = `execution-message${kind ? ` ${kind}` : ''}`;
+  }
+
+  async function loadExecutionCapability(chainId) {
+    const response = await fetch(`/api/execution/status?chainId=${encodeURIComponent(chainId)}`, {
+      headers: { Accept: 'application/json' },
+      cache: 'no-store',
+    });
+    const payload = await response.json().catch(() => null);
+    const capability = payload?.chains?.[0] || null;
+    if (!response.ok || !capability) throw new Error('Execution quotes are unavailable on this chain.');
+    state.execution.capability = capability;
+    return capability;
+  }
+
+  async function loadExecutionToken(token, chainId) {
+    if (token.native) return token;
+    const key = `${chainId}:${token.address}`;
+    const cached = state.execution.tokenCache.get(key);
+    if (cached) return { ...token, ...cached };
+    const response = await fetch(`/api/execution/token?chainId=${encodeURIComponent(chainId)}&address=${encodeURIComponent(token.address)}`, {
+      headers: { Accept: 'application/json' },
+      cache: 'no-store',
+    });
+    const payload = await response.json().catch(() => null);
+    if (!response.ok || !Number.isInteger(payload?.token?.decimals)) throw new Error('Token precision could not be verified.');
+    const metadata = { decimals: payload.token.decimals };
+    state.execution.tokenCache.set(key, metadata);
+    return { ...token, ...metadata };
+  }
+
+  async function resolvedExecutionPair() {
+    const pair = executionPair(state.execution.side);
+    if (!pair) throw new Error('This market does not expose both token addresses.');
+    const chainId = state.execution.item.chainId;
+    const [input, output] = await Promise.all([
+      loadExecutionToken(pair.input, chainId),
+      loadExecutionToken(pair.output, chainId),
+    ]);
+    return { input, output };
+  }
+
+  function resetExecutionQuote() {
+    state.execution.quote = null;
+    $('execution-quote').hidden = true;
+    $('execution-output').textContent = '—';
+    $('execution-minimum').textContent = '—';
+    $('execution-fee').textContent = '1.00%';
+    $('execution-cashback').textContent = '0.30% after confirmation';
+    const submit = $('execution-submit');
+    submit.disabled = !state.execution.account || !$('execution-amount').value.trim() || state.execution.busy;
+    submit.textContent = state.execution.account ? 'Get quote' : 'Connect wallet';
+  }
+
+  function renderExecutionPair() {
+    const pair = executionPair(state.execution.side);
+    $('execution-input-symbol').textContent = pair?.input?.symbol || 'TOKEN';
+    $('execution-token').textContent = pair ? `${pair.input.symbol} / ${pair.output.symbol}` : 'PAIR UNAVAILABLE';
+    $('execution-side-buy').setAttribute('aria-pressed', String(state.execution.side === 'buy'));
+    $('execution-side-sell').setAttribute('aria-pressed', String(state.execution.side === 'sell'));
+    resetExecutionQuote();
+  }
+
+  function renderExecutionQuote(pair, quote) {
+    const binding = quote.exact_binding || {};
+    $('execution-output').textContent = `${formatBaseUnits(binding.buy_amount_base_units, pair.output.decimals, 8)} ${pair.output.symbol}`;
+    $('execution-minimum').textContent = `${formatBaseUnits(binding.minimum_buy_amount_base_units, pair.output.decimals, 8)} ${pair.output.symbol}`;
+    $('execution-fee').textContent = `${(Number(quote.fee?.fee_bps || 0) / 100).toFixed(2)}% · ${formatBaseUnits(quote.fee?.amount, pair.input.decimals, 8)} ${pair.input.symbol}`;
+    $('execution-cashback').textContent = state.execution.capability?.cashback_settlement_enabled
+      ? `0.30% · after confirmation`
+      : 'Settlement not active';
+    $('execution-quote').hidden = false;
+    const submit = $('execution-submit');
+    const cashbackReady = state.execution.capability?.cashback_settlement_enabled === true;
+    if (!cashbackReady) {
+      submit.disabled = true;
+      submit.textContent = 'Cashback rail required';
+      setExecutionMessage('This is a live route. Signing stays closed until the 0.30% cashback ledger can reconcile the fill.', '');
+      return;
+    }
+    const hardBlockers = Array.isArray(quote.blockers)
+      ? quote.blockers.filter((blocker) => blocker !== 'allowance_required')
+      : [];
+    if (hardBlockers.length) {
+      submit.disabled = true;
+      submit.textContent = 'Route blocked';
+      setExecutionMessage(hardBlockers.join(', ').replaceAll('_', ' '), 'error');
+      return;
+    }
+    if (quote.allowance?.state === 'approval_required') {
+      submit.disabled = false;
+      submit.textContent = `Approve ${pair.input.symbol}`;
+      setExecutionMessage('Exact-amount token approval required.', '');
+      return;
+    }
+    if (quote.wallet_handoff_eligible && quote.unsigned_transaction) {
+      submit.disabled = false;
+      submit.textContent = 'Review in wallet';
+      setExecutionMessage('The wallet will show the bound route and total before you sign.', '');
+      return;
+    }
+    submit.disabled = true;
+    submit.textContent = 'Route blocked';
+    const blockers = Array.isArray(quote.blockers) ? quote.blockers.join(', ').replaceAll('_', ' ') : 'route unavailable';
+    setExecutionMessage(blockers, 'error');
+  }
+
+  function openExecutionDialog(item, market) {
+    const execution = state.execution;
+    execution.item = item;
+    execution.market = market;
+    execution.side = 'buy';
+    execution.quote = null;
+    execution.capability = null;
+    execution.busy = false;
+    $('execution-chain').textContent = item.chainName.toUpperCase();
+    $('execution-pool').textContent = market.pairAddress || market.poolId || '';
+    $('execution-behavior').textContent = capabilitySentence(item);
+    $('execution-amount').value = '';
+    setExecutionMessage('', '');
+    const presets = $('execution-presets');
+    presets.replaceChildren();
+    ['0.01', '0.05', '0.1', '1'].forEach((amount) => {
+      const button = makeElement('button', '', amount);
+      button.type = 'button';
+      button.addEventListener('click', () => {
+        $('execution-amount').value = amount;
+        resetExecutionQuote();
+      });
+      presets.append(button);
+    });
+    $('execution-wallet').textContent = execution.account ? shorten(execution.account, 7, 5) : 'Connect wallet';
+    renderExecutionPair();
+    const dialog = $('execution-dialog');
+    if (typeof dialog.showModal === 'function') dialog.showModal();
+    void Promise.allSettled([executionModule(), loadExecutionCapability(item.chainId)]).then((results) => {
+      if (results[1].status === 'rejected') setExecutionMessage(results[1].reason.message, 'error');
+    });
+  }
+
+  async function connectExecutionWallet() {
+    const provider = executionProvider();
+    if (!provider || typeof provider.request !== 'function') throw new Error('Open Hookline in a browser with an EVM wallet.');
+    const accounts = await provider.request({ method: 'eth_requestAccounts' });
+    const checked = validateAddress(accounts?.[0]);
+    if (!checked.ok) throw new Error('The wallet did not return a valid account.');
+    state.execution.account = checked.address;
+    $('execution-wallet').textContent = shorten(checked.address, 7, 5);
+    resetExecutionQuote();
+    return { provider, account: checked.address };
+  }
+
+  async function ensureExecutionChain(provider, chainId) {
+    const config = EXECUTION_CHAINS[chainId];
+    if (!config) throw new Error('Execution is not configured on this chain.');
+    const current = String(await provider.request({ method: 'eth_chainId' })).toLowerCase();
+    if (current !== config.chainId) {
+      try {
+        await provider.request({ method: 'wallet_switchEthereumChain', params: [{ chainId: config.chainId }] });
+      } catch (error) {
+        if (Number(error?.code) !== 4902) throw error;
+        await provider.request({ method: 'wallet_addEthereumChain', params: [config] });
+      }
+    }
+    const verified = String(await provider.request({ method: 'eth_chainId' })).toLowerCase();
+    if (verified !== config.chainId) throw new Error('Wallet chain switch did not complete.');
+  }
+
+  async function requestExecutionQuote() {
+    if (state.execution.busy) return;
+    state.execution.busy = true;
+    const submit = $('execution-submit');
+    submit.disabled = true;
+    submit.textContent = 'Quoting…';
+    try {
+      const module = await executionModule();
+      const { provider, account } = state.execution.account
+        ? { provider: executionProvider(), account: state.execution.account }
+        : await connectExecutionWallet();
+      if (!provider) throw new Error('Wallet provider unavailable.');
+      const chainId = state.execution.item.chainId;
+      await ensureExecutionChain(provider, chainId);
+      const [pair, capability] = await Promise.all([
+        resolvedExecutionPair(),
+        state.execution.capability ? Promise.resolve(state.execution.capability) : loadExecutionCapability(chainId),
+      ]);
+      if (capability.quote_review_enabled !== true || capability.fee_collection_enabled !== true) {
+        throw new Error('Live fee-bound quotes are unavailable on this chain.');
+      }
+      const request = module.buildQuoteRequest({
+        chainId,
+        fromAddress: account,
+        inputToken: pair.input,
+        outputToken: pair.output,
+        amount: $('execution-amount').value,
+        slippageBps: Number($('execution-slippage').value),
+      });
+      const response = await fetch('/api/execution/quote', {
+        method: 'POST',
+        headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          chain_id: request.chainId,
+          sell_token: request.inputAsset.address,
+          buy_token: request.outputAsset.address,
+          sell_amount: request.exactInputAmountBaseUnits,
+          taker: request.fromAddress,
+          slippage_bps: request.slippageBps,
+        }),
+      });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok || !payload?.quote) throw new Error(String(payload?.error || 'Quote unavailable.').replaceAll('_', ' '));
+      state.execution.quote = payload.quote;
+      renderExecutionQuote(pair, payload.quote);
+    } catch (error) {
+      state.execution.quote = null;
+      $('execution-quote').hidden = true;
+      setExecutionMessage(error.message || 'Quote unavailable.', 'error');
+    } finally {
+      state.execution.busy = false;
+      if (!state.execution.quote) resetExecutionQuote();
+    }
+  }
+
+  async function waitForWalletReceipt(provider, transactionHash) {
+    for (let attempt = 0; attempt < 40; attempt += 1) {
+      const receipt = await provider.request({ method: 'eth_getTransactionReceipt', params: [transactionHash] });
+      if (receipt) {
+        if (String(receipt.status).toLowerCase() !== '0x1') throw new Error('The transaction reverted.');
+        return receipt;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 1500));
+    }
+    throw new Error('Transaction submitted. Confirmation is still pending.');
+  }
+
+  async function approveExecutionToken(pair, quote) {
+    const provider = executionProvider();
+    const spender = String(quote.allowance?.spender || '').toLowerCase();
+    const amount = String(quote.allowance?.required_amount_base_units || '');
+    if (!provider || !/^0x[0-9a-f]{40}$/.test(spender) || !/^\d+$/.test(amount) || pair.input.native) {
+      throw new Error('Exact token approval is unavailable.');
+    }
+    const data = `0x095ea7b3${spender.slice(2).padStart(64, '0')}${BigInt(amount).toString(16).padStart(64, '0')}`;
+    const hash = await provider.request({ method: 'eth_sendTransaction', params: [{
+      from: state.execution.account,
+      to: pair.input.address,
+      data,
+      value: '0x0',
+    }] });
+    setExecutionMessage('Approval submitted. Waiting for confirmation…', '');
+    await waitForWalletReceipt(provider, hash);
+    state.execution.quote = null;
+    return true;
+  }
+
+  async function submitExecutionTransaction(quote) {
+    const provider = executionProvider();
+    const transaction = quote.unsigned_transaction;
+    if (!provider || !transaction || String(transaction.from).toLowerCase() !== state.execution.account) {
+      throw new Error('Reviewed transaction is not bound to this wallet.');
+    }
+    const walletTransaction = {
+      from: state.execution.account,
+      to: transaction.to,
+      data: transaction.data,
+      value: decimalToHexQuantity(transaction.value),
+      gas: decimalToHexQuantity(transaction.gas),
+    };
+    if (transaction.gas_price != null) walletTransaction.gasPrice = decimalToHexQuantity(transaction.gas_price);
+    if (transaction.max_fee_per_gas != null) walletTransaction.maxFeePerGas = decimalToHexQuantity(transaction.max_fee_per_gas);
+    if (transaction.max_priority_fee_per_gas != null) walletTransaction.maxPriorityFeePerGas = decimalToHexQuantity(transaction.max_priority_fee_per_gas);
+    const hash = await provider.request({ method: 'eth_sendTransaction', params: [walletTransaction] });
+    setExecutionMessage(`Submitted ${shorten(hash, 10, 8)}. Waiting for confirmation…`, '');
+    await waitForWalletReceipt(provider, hash);
+    setExecutionMessage(`Confirmed ${shorten(hash, 10, 8)}.`, 'success');
+    $('execution-submit').disabled = true;
+    $('execution-submit').textContent = 'Confirmed';
+  }
+
+  async function advanceExecution() {
+    const quote = state.execution.quote;
+    if (!quote) return requestExecutionQuote();
+    if (state.execution.capability?.cashback_settlement_enabled !== true) return;
+    const hardBlockers = Array.isArray(quote.blockers)
+      ? quote.blockers.filter((blocker) => blocker !== 'allowance_required')
+      : [];
+    if (hardBlockers.length) {
+      setExecutionMessage(hardBlockers.join(', ').replaceAll('_', ' '), 'error');
+      return;
+    }
+    const provider = executionProvider();
+    if (!provider) {
+      setExecutionMessage('Wallet provider unavailable.', 'error');
+      return;
+    }
+    state.execution.busy = true;
+    $('execution-submit').disabled = true;
+    let approved = false;
+    try {
+      await ensureExecutionChain(provider, state.execution.item.chainId);
+      const pair = await resolvedExecutionPair();
+      if (quote.allowance?.state === 'approval_required') approved = await approveExecutionToken(pair, quote);
+      else await submitExecutionTransaction(quote);
+    } catch (error) {
+      setExecutionMessage(error.message || 'Wallet action failed.', 'error');
+      $('execution-submit').disabled = false;
+    } finally {
+      state.execution.busy = false;
+    }
+    if (approved) await requestExecutionQuote();
   }
 
   function candidateKey(candidate) {
@@ -1457,6 +1864,12 @@
       if (chart) links.append(chart);
       if (website) links.append(website);
       if (x) links.append(x);
+      if (executionMarketReady(item, market)) {
+        const trade = makeElement('button', 'market-trade', 'Trade');
+        trade.type = 'button';
+        trade.addEventListener('click', () => openExecutionDialog(item, market));
+        links.append(trade);
+      }
       card.append(head, pair, stats, links);
       list.append(card);
     });
@@ -1514,7 +1927,7 @@
       address: item.indexedAddress || item.address,
       v: MARKET_RESOLVER_VERSION,
     });
-    const response = await fetch(`/api/hook-markets?${params}`, {
+    const response = await fetch(`/api/v3/hook-markets?${params}`, {
       headers: { Accept: 'application/json' },
       cache: force ? 'no-store' : 'default',
     });
@@ -1926,7 +2339,7 @@
     });
     $('hook-profile-backdrop').addEventListener('click', () => $('hook-profile-close').click());
     document.addEventListener('keydown', (event) => {
-      if (event.key === 'Escape' && state.boardSelectedId) $('hook-profile-close').click();
+      if (event.key === 'Escape' && !$('execution-dialog').open && state.boardSelectedId) $('hook-profile-close').click();
     });
     $('hook-profile-copy').addEventListener('click', (event) => {
       const item = selectedBoardItem();
@@ -1935,6 +2348,26 @@
     $('hook-profile-inspect').addEventListener('click', () => inspectSelectedProfile({ forceMarkets: true }));
     $('hook-profile-watch').addEventListener('click', addSelectedToWatchlist);
     $('hook-profile-share').addEventListener('click', (event) => copyText(location.href, event.currentTarget));
+    $('execution-close').addEventListener('click', () => $('execution-dialog').close());
+    $('execution-side-buy').addEventListener('click', () => {
+      state.execution.side = 'buy';
+      renderExecutionPair();
+    });
+    $('execution-side-sell').addEventListener('click', () => {
+      state.execution.side = 'sell';
+      renderExecutionPair();
+    });
+    $('execution-amount').addEventListener('input', resetExecutionQuote);
+    $('execution-slippage').addEventListener('change', resetExecutionQuote);
+    $('execution-wallet').addEventListener('click', async () => {
+      try {
+        await connectExecutionWallet();
+        setExecutionMessage('Wallet connected. Enter an amount for a live quote.', 'success');
+      } catch (error) {
+        setExecutionMessage(error.message || 'Wallet connection failed.', 'error');
+      }
+    });
+    $('execution-submit').addEventListener('click', () => { void advanceExecution(); });
     $$('[data-doc-target]').forEach((button) => {
       button.addEventListener('click', () => {
         const section = document.getElementById(button.dataset.docTarget);

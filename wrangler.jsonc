@@ -15,6 +15,13 @@
       "database_id": "426c029a-ec4e-46d5-956a-e5bd5e6e97ea"
     }
   ],
+  "services": [
+    {
+      "binding": "RAVENOS_EXECUTION",
+      "service": "ravenos-public",
+      "entrypoint": "HooklineExecutionService"
+    }
+  ],
   "triggers": {
     "crons": [
       "*/10 * * * *"

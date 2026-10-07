@@ -25,8 +25,58 @@ globalThis.caches = {
 const expectedOwner = `0x${'ab'.repeat(20)}`;
 const testX402PayTo = `0x${'ef'.repeat(20)}`;
 const ponsAddress = '0xE5e702641Ea86F4ae6cC3cDaeD2B886f976Be044';
+const engramAddress = '0x0ee851f1fe2f4bdba79fee78969e329c136ca0cc';
 const tokenPoolId = `4663_0x${'79'.repeat(32)}`;
 let failedUpstream = null;
+const executionCalls = [];
+const executionBinding = {
+  async capability(chainId) {
+    executionCalls.push({ method: 'capability', chainId });
+    return {
+      chain_id: chainId,
+      state: 'quote_review_available',
+      quote_review_enabled: true,
+      fee_collection_enabled: true,
+      fee_bps: 100,
+      cashback_bps: 30,
+      cashback_settlement_enabled: false,
+      wallet_signature_required: true,
+      signing_available: false,
+      submission_available: false,
+    };
+  },
+  async tokenMetadata(chainId, address) {
+    executionCalls.push({ method: 'tokenMetadata', chainId, address });
+    return { chain_id: chainId, token_address: address, decimals: 18, native: false, symbol: null, balance_base_units: null };
+  },
+  async quote(order) {
+    executionCalls.push({ method: 'quote', order });
+    return {
+      state: 'awaiting_wallet_signature',
+      chain_id: order.chain_id,
+      observed_at: '2026-10-07T18:00:00.000Z',
+      expires_at: '2026-10-07T18:00:30.000Z',
+      exact_binding: {
+        taker: order.taker,
+        recipient: order.taker,
+        sell_token: order.sell_token,
+        buy_token: order.buy_token,
+        sell_amount_base_units: order.sell_amount,
+        buy_amount_base_units: '500000000000000000',
+        minimum_buy_amount_base_units: '490000000000000000',
+      },
+      fee: { enabled: true, state: 'enabled', amount: '10000000000000000', token: order.sell_token, fee_bps: 100, recipient: `0x${'fe'.repeat(20)}`, amount_verification: 'independently_computed_from_sell_amount' },
+      allowance: { state: 'sufficient', spender: `0x${'ab'.repeat(20)}`, required_amount_base_units: order.sell_amount },
+      provider_issues: { balance: null, simulation_incomplete: false, invalid_sources: [] },
+      blockers: [],
+      total_network_fee_native_base_units: '1000',
+      token_taxes: null,
+      route: { fills: [], tokens: [] },
+      unsigned_transaction: { chain_id: order.chain_id, from: order.taker, to: `0x${'ab'.repeat(20)}`, data: '0x12345678', value: '0', gas: '210000', gas_price: '1000000000', unsigned: true },
+      wallet_handoff_eligible: true,
+    };
+  },
+};
 
 function upstreamChainId(url) {
   if (url === 'https://eth.drpc.org') return '0x1';
@@ -74,7 +124,12 @@ globalThis.fetch = async (url, init = {}) => {
 
   if (urlString.startsWith('https://www.v4.xyz/api/pools-by-hook?')) {
     marketUpstreamCalls.push(urlString);
-    const chainId = new URL(urlString).searchParams.get('chainId');
+    const parsedUrl = new URL(urlString);
+    const chainId = parsedUrl.searchParams.get('chainId');
+    const hookAddress = parsedUrl.searchParams.get('hookAddress');
+    if (String(hookAddress).toLowerCase() === engramAddress) {
+      return new Response(JSON.stringify({ Pool: [] }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }
     const robinhood = chainId === '4663';
     return new Response(JSON.stringify({
       Pool: [{
@@ -162,7 +217,9 @@ globalThis.fetch = async (url, init = {}) => {
       result = '0x60006000';
       break;
     case 'eth_call':
-      result = `0x${'0'.repeat(24)}${expectedOwner.slice(2)}`;
+      result = payload.params?.[0]?.data === '0x313ce567'
+        ? '0x12'
+        : `0x${'0'.repeat(24)}${expectedOwner.slice(2)}`;
       break;
     case 'web3_clientVersion':
       result = 'hookline-test-client/1.0';
@@ -182,10 +239,10 @@ assert.equal(typeof worker?.fetch, 'function', 'worker must export default.fetch
 
 let nextIp = 1;
 
-async function request(path, options = {}) {
+async function request(path, options = {}, envOverrides = {}) {
   return worker.fetch(
     new Request(`https://hookline.example${path}`, options),
-    { X402_PAY_TO: testX402PayTo },
+    { X402_PAY_TO: testX402PayTo, RAVENOS_EXECUTION: executionBinding, ...envOverrides },
     { waitUntil() {}, passThroughOnException() {} }
   );
 }
@@ -234,6 +291,7 @@ try {
   assert.match(rootHtml, /hook-profile-capability/);
   assert.match(rootHtml, /Swap delta changes/);
   assert.match(rootHtml, /HooklineTradeBot/);
+  assert.match(rootHtml, /execution-dialog/);
   assert.match(rootHtml, />Velocity</);
   assert.match(rootHtml, /\/assets\/[a-f0-9]{12}\/app\.js/);
   assert.match(rootHtml, /\/assets\/[a-f0-9]{12}\/styles\.css/);
@@ -249,7 +307,7 @@ try {
   assert.match(appSource, /hookline:watchlists:v3/);
   assert.match(appSource, /Promise\.all\(\[worker\(\), worker\(\)\]\)/);
   assert.match(appSource, /fetch\('\/metrics'/);
-  assert.match(appSource, /hookline:market-cache:v1/);
+  assert.match(appSource, /hookline:market-cache:v2/);
   assert.match(appSource, /api\/token-hooks/);
   assert.match(appSource, /board-profile-open/);
   assert.match(appSource, /boardVelocity/);
@@ -260,6 +318,13 @@ try {
   assert.match(appSource, /delete next\.marketError/);
   assert.doesNotMatch(appSource, /FEE_WALLET|strip-copy-fee/);
   assert.doesNotMatch(appSource, /\.innerHTML\s*=/);
+
+  const railResponse = await request('/execution-rail.js');
+  assert.equal(railResponse.status, 200);
+  assert.match(railResponse.headers.get('content-type'), /application\/javascript/);
+  const railSource = await railResponse.text();
+  assert.match(railSource, /EXECUTION_FEE_BPS = 100/);
+  assert.match(railSource, /NOTIONAL_CASHBACK_BPS = 30/);
 
   const versionedCssPath = rootHtml.match(/\/assets\/[a-f0-9]{12}\/styles\.css/)[0];
   const cssResponse = await request(versionedCssPath);
@@ -323,6 +388,13 @@ try {
   assert.equal(robinhoodMarkets.markets[0].volume24h, 88000);
   assert.equal(robinhoodMarkets.markets[0].marketCap, 5100000);
 
+  const persistentMarketsResponse = await request(`/api/v3/hook-markets?chainId=1&address=${engramAddress}`);
+  assert.equal(persistentMarketsResponse.status, 200);
+  const persistentMarkets = await persistentMarketsResponse.json();
+  assert.match(persistentMarkets.source, /persistent index/);
+  assert.equal(persistentMarkets.markets[0].baseToken.symbol, 'ENGRAM');
+  assert.ok(persistentMarkets.markets[0].baseToken.address);
+
   await request(`/api/hook-markets?chainId=4663&address=${ponsAddress.toLowerCase()}`);
   const ponsV4Call = marketUpstreamCalls.find((value) => value.includes(`hookAddress=${encodeURIComponent(ponsAddress)}`));
   assert.ok(ponsV4Call, 'lowercase board addresses must resolve to the indexed checksum address');
@@ -340,6 +412,49 @@ try {
   const addressTokenHooks = await addressTokenHooksResponse.json();
   assert.equal(addressTokenHooks.source, 'DexScreener + v4.xyz');
   assert.equal(addressTokenHooks.relationships[0].baseToken.symbol, 'AI');
+
+  const executionStatusResponse = await request('/api/execution/status?chainId=8453');
+  assert.equal(executionStatusResponse.status, 200);
+  const executionStatus = await executionStatusResponse.json();
+  assert.equal(executionStatus.ok, true);
+  assert.equal(executionStatus.chains[0].fee_bps, 100);
+  assert.equal(executionStatus.chains[0].cashback_settlement_enabled, false);
+  assert.equal(executionStatus.custody, false);
+
+  const executionTokenAddress = `0x${'34'.repeat(20)}`;
+  const executionTokenResponse = await request(`/api/execution/token?chainId=8453&address=${executionTokenAddress}`);
+  assert.equal(executionTokenResponse.status, 200);
+  const executionToken = await executionTokenResponse.json();
+  assert.equal(executionToken.token.decimals, 18);
+
+  const executionOrder = {
+    chain_id: 8453,
+    sell_token: `0x${'34'.repeat(20)}`,
+    buy_token: `0x${'56'.repeat(20)}`,
+    sell_amount: '1000000000000000000',
+    taker: `0x${'78'.repeat(20)}`,
+    slippage_bps: 50,
+  };
+  const executionQuoteResponse = await request('/api/execution/quote', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(executionOrder),
+  });
+  assert.equal(executionQuoteResponse.status, 200);
+  const executionQuote = await executionQuoteResponse.json();
+  assert.equal(executionQuote.quote.schema_version, 'hookline.execution_quote.v1');
+  assert.equal(executionQuote.quote.fee.fee_bps, 100);
+  assert.equal('recipient' in executionQuote.quote.fee, false);
+  assert.equal(executionQuote.quote.wallet_handoff_eligible, true);
+  assert.deepEqual(executionCalls.find((call) => call.method === 'quote').order, executionOrder);
+
+  const rejectedExecutionField = await request('/api/execution/quote', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ...executionOrder, private_key: 'never' }),
+  });
+  assert.equal(rejectedExecutionField.status, 400);
+  assert.equal((await rejectedExecutionField.json()).error, 'request_field_invalid');
 
   const healthResponse = await request('/health');
   assert.equal(healthResponse.status, 200);
@@ -375,7 +490,7 @@ try {
   assert.equal(docs.constraints.batchesSupported, false);
   assert.equal(docs.routes.paidRpc, '/rpc/paid');
   assert.equal(docs.routes.hookBoard, '/data/hooks.json');
-  assert.match(docs.routes.hookMarkets, /^\/api\/hook-markets/);
+  assert.match(docs.routes.hookMarkets, /^\/api\/v3\/hook-markets/);
   assert.match(docs.routes.tokenHooks, /^\/api\/token-hooks/);
   assert.equal(docs.paidAccess.amountAtomic, '10000');
   assert.equal(docs.paidAccess.network, 'eip155:8453');
@@ -432,7 +547,7 @@ try {
   );
   assert.equal(hook.json.result.owner, expectedOwner);
   assert.equal(hook.json.result.codeByteLength, 4);
-  const ownerCall = upstreamCalls.find((call) => call.payload.method === 'eth_call');
+  const ownerCall = upstreamCalls.find((call) => call.payload.method === 'eth_call' && call.payload.params?.[0]?.data === '0x8da5cb5b');
   assert.equal(ownerCall.payload.params[0].data, '0x8da5cb5b');
 
   const clientVersion = await rpc(

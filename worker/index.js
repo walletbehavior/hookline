@@ -3,7 +3,8 @@
 
    This is the maintainable runtime source. The build step
    (scripts/build-hookline-worker.mjs) reads dist/index.html, dist/styles.css,
-   dist/app.js, dist/hooks.json and dist/token-hooks.json, embeds them with JSON.stringify and emits a single
+   dist/app.js, dist/execution-rail.js, dist/hooks.json and dist/token-hooks.json,
+   embeds them with JSON.stringify and emits a single
    self-contained artifact at dist/server/index.js.
 
    Export contract: default.fetch(request, env, ctx) — the Cloudflare Worker
@@ -41,8 +42,8 @@ import { runAlertScan } from '../bot/alert-runner.js';
 
 // ---------------------------------------------------------------------------
 // Static assets (public bundle) — injected by scripts/build-hookline-worker.mjs
-// via JSON.stringify over dist/index.html, dist/styles.css, dist/app.js and
-// dist/hooks.json and dist/token-hooks.json.
+// via JSON.stringify over dist/index.html, dist/styles.css, dist/app.js,
+// dist/execution-rail.js, dist/hooks.json and dist/token-hooks.json.
 // The build script replaces the marker below verbatim with the embedded assets.
 // ---------------------------------------------------------------------------
 /* @ASSETS-INJECT */
@@ -92,6 +93,9 @@ const MARKET_UPSTREAM_TIMEOUT_MS = 7000;
 const MARKET_UPSTREAM_MAX_BYTES = 2 * 1024 * 1024;
 const MARKET_RESULT_LIMIT = 8;
 const MARKET_EDGE_CACHE_SECONDS = 10 * 60;
+// Bump when the market response shape or fallback rules change so an older
+// edge entry cannot mask a just-deployed resolver fix.
+const MARKET_CACHE_SCHEMA_VERSION = '3';
 const DEXSCREENER_CHAIN_SLUGS = Object.freeze({
   1: 'ethereum',
   10: 'optimism',
@@ -192,6 +196,7 @@ const STATIC_ROUTES = Object.freeze({
   '/': { type: 'text/html; charset=utf-8', key: 'html' },
   '/styles.css': { type: 'text/css; charset=utf-8', key: 'css' },
   '/app.js': { type: 'application/javascript; charset=utf-8', key: 'app' },
+  '/execution-rail.js': { type: 'application/javascript; charset=utf-8', key: 'executionRail' },
   '/data/hooks.json': { type: 'application/json; charset=utf-8', key: 'hooks' },
   '/data/token-hooks.json': { type: 'application/json; charset=utf-8', key: 'tokenHooks' },
 });
@@ -1002,6 +1007,7 @@ async function fetchBoundedJson(url) {
 }
 
 function finiteMarketNumber(value) {
+  if (value == null || value === '') return null;
   const number = Number(value);
   return Number.isFinite(number) ? number : null;
 }
@@ -1049,7 +1055,19 @@ async function resolveHookMarkets(chainId, address) {
   v4Url.searchParams.set('chainId', String(chainId));
   const v4Payload = await fetchBoundedJson(v4Url.toString());
   const pools = Array.isArray(v4Payload?.Pool) ? v4Payload.Pool : [];
-  const ranked = pools
+  const persistentRelationships = pools.length ? [] : (staticTokenIndex().relationships || [])
+    .filter((relationship) => Number(relationship?.chainId) === chainId
+      && String(relationship?.hookAddress || '').toLowerCase() === address.toLowerCase())
+    .slice(0, MARKET_RESULT_LIMIT);
+  const candidates = pools.length ? pools : persistentRelationships.map((relationship) => ({
+    id: relationship.poolId,
+    name: relationship.poolName,
+    txCount: relationship.transactions,
+    totalValueLockedUSD: relationship.liquidityUsd,
+    volumeUSD: relationship.volumeUsd,
+    persistentRelationship: relationship,
+  }));
+  const ranked = candidates
     .filter((pool) => poolAddress(pool))
     .sort((left, right) => (
       (finiteMarketNumber(right.totalValueLockedUSD) || 0) - (finiteMarketNumber(left.totalValueLockedUSD) || 0)
@@ -1074,6 +1092,7 @@ async function resolveHookMarkets(chainId, address) {
   const markets = ranked.map((pool) => {
     const addressKey = poolAddress(pool);
     const pair = byPool.get(addressKey);
+    const persistent = pool.persistentRelationship;
     const fallbackSymbols = String(pool.name || '').split(' - ')[0].split('/').map((value) => value.trim());
     const commonQuotes = new Set(['ETH', 'WETH', 'USDC', 'USDT', 'DAI', 'WBTC']);
     const reverseFallback = commonQuotes.has(String(fallbackSymbols[0]).toUpperCase())
@@ -1084,16 +1103,17 @@ async function resolveHookMarkets(chainId, address) {
       poolId: typeof pool.id === 'string' ? pool.id : null,
       poolName: typeof pool.name === 'string' ? pool.name.slice(0, 140) : null,
       pairAddress: addressKey,
-      baseToken: tokenShape(pair?.baseToken) || { address: null, name: fallbackBase || null, symbol: fallbackBase || null },
-      quoteToken: tokenShape(pair?.quoteToken) || { address: null, name: fallbackQuote || null, symbol: fallbackQuote || null },
+      baseToken: tokenShape(pair?.baseToken) || tokenShape(persistent?.baseToken) || { address: null, name: fallbackBase || null, symbol: fallbackBase || null },
+      quoteToken: tokenShape(pair?.quoteToken) || tokenShape(persistent?.quoteToken) || { address: null, name: fallbackQuote || null, symbol: fallbackQuote || null },
       dexLabel: pair?.dexId === 'uniswap' ? `Uniswap ${Array.isArray(pair.labels) && pair.labels[0] ? pair.labels[0] : ''}`.trim() : String(pair?.dexId || 'Uniswap v4').slice(0, 40),
       priceUsd: finiteMarketNumber(pair?.priceUsd),
       priceChange24h: finiteMarketNumber(pair?.priceChange?.h24),
-      volume24h: finiteMarketNumber(pair?.volume?.h24),
-      liquidityUsd: finiteMarketNumber(pair?.liquidity?.usd) ?? finiteMarketNumber(pool.totalValueLockedUSD),
+      volume24h: finiteMarketNumber(pair?.volume?.h24) ?? finiteMarketNumber(persistent?.volumeUsd),
+      liquidityUsd: finiteMarketNumber(pair?.liquidity?.usd) ?? finiteMarketNumber(pool.totalValueLockedUSD) ?? finiteMarketNumber(persistent?.liquidityUsd),
       marketCap: finiteMarketNumber(pair?.marketCap) ?? finiteMarketNumber(pair?.fdv),
       transactions: finiteMarketNumber(pool.txCount),
       chartUrl: safeExternalUrl(pair?.url, ['dexscreener.com', 'www.dexscreener.com'])
+        || safeExternalUrl(persistent?.chartUrl, ['dexscreener.com', 'www.dexscreener.com'])
         || `https://www.v4.xyz/pool/${encodeURIComponent(pool.id)}`,
       website: marketProjectLink(pair?.info, 'website'),
       x: marketProjectLink(pair?.info, 'x'),
@@ -1113,9 +1133,11 @@ async function resolveHookMarkets(chainId, address) {
       verifiedContract: profile.verifiedContract || null,
     } : null,
     observedAt: new Date().toISOString(),
-    source: dexPairs.length ? 'v4.xyz + DexScreener' : 'v4.xyz',
+    source: persistentRelationships.length
+      ? dexPairs.length ? 'persistent index + DexScreener' : 'persistent index'
+      : dexPairs.length ? 'v4.xyz + DexScreener' : 'v4.xyz',
     dexError,
-    totalPoolsReturned: pools.length,
+    totalPoolsReturned: candidates.length,
     markets,
   };
 }
@@ -1280,7 +1302,7 @@ function jsonDocsBody(request) {
       metrics: '/metrics',
       health: '/health',
       hookBoard: '/data/hooks.json',
-      hookMarkets: '/api/hook-markets?chainId={chainId}&address={hookAddress}',
+      hookMarkets: '/api/v3/hook-markets?chainId={chainId}&address={hookAddress}',
       tokenHooks: '/api/token-hooks?q={tokenNameSymbolOrAddress}',
       documentation: '/rpc',
       chainProxies: chainRoutes,
@@ -1357,7 +1379,7 @@ function sendStaticAsset(path, type, content) {
 }
 
 function handleStaticAsset(path) {
-  const versionedAsset = path.match(/^\/assets\/[a-f0-9]{12}\/(styles\.css|app\.js)$/);
+  const versionedAsset = path.match(/^\/assets\/[a-f0-9]{12}\/(styles\.css|app\.js|execution-rail\.js)$/);
   const routePath = versionedAsset ? `/${versionedAsset[1]}` : path;
   const route = STATIC_ROUTES[routePath];
   if (!route) return undefined;
@@ -1459,6 +1481,113 @@ function withPaidResponseHeaders(response) {
   });
 }
 
+const EXECUTION_CHAIN_IDS = Object.freeze([1, 56, 4663, 8453]);
+const EXECUTION_CHAIN_SET = new Set(EXECUTION_CHAIN_IDS);
+const EXECUTION_BODY_BYTES = 12 * 1024;
+const EXECUTION_NATIVE_TOKEN = '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee';
+
+function executionJson(payload, status = 200) {
+  return new Response(JSON.stringify(payload), {
+    status,
+    headers: baseJsonHeaders({ 'Cache-Control': 'no-store' }),
+  });
+}
+
+async function readExecutionOrder(request) {
+  if (!String(request.headers.get('content-type') || '').toLowerCase().startsWith('application/json')) {
+    throw Object.assign(new Error('content_type_invalid'), { status: 415 });
+  }
+  const declared = Number(request.headers.get('content-length') || 0);
+  if (Number.isFinite(declared) && declared > EXECUTION_BODY_BYTES) {
+    throw Object.assign(new Error('request_too_large'), { status: 413 });
+  }
+  const raw = await request.text();
+  if (new TextEncoder().encode(raw).byteLength > EXECUTION_BODY_BYTES) {
+    throw Object.assign(new Error('request_too_large'), { status: 413 });
+  }
+  let body;
+  try { body = JSON.parse(raw); } catch { throw Object.assign(new Error('request_json_invalid'), { status: 400 }); }
+  if (!body || typeof body !== 'object' || Array.isArray(body)) {
+    throw Object.assign(new Error('request_object_required'), { status: 400 });
+  }
+  const allowed = new Set(['chain_id', 'sell_token', 'buy_token', 'sell_amount', 'taker', 'slippage_bps']);
+  if (Object.keys(body).some((key) => !allowed.has(key))) {
+    throw Object.assign(new Error('request_field_invalid'), { status: 400 });
+  }
+  const chainId = Number(body.chain_id);
+  const sellToken = String(body.sell_token || '').toLowerCase();
+  const buyToken = String(body.buy_token || '').toLowerCase();
+  const taker = String(body.taker || '').toLowerCase();
+  const sellAmount = String(body.sell_amount || '');
+  const slippageBps = Number(body.slippage_bps);
+  if (!EXECUTION_CHAIN_SET.has(chainId)) throw Object.assign(new Error('chain_not_supported'), { status: 400 });
+  if (!EVM_ADDRESS_RE.test(sellToken) || /^0x0{40}$/.test(sellToken)) throw Object.assign(new Error('sell_token_invalid'), { status: 400 });
+  if (!EVM_ADDRESS_RE.test(buyToken) || /^0x0{40}$/.test(buyToken)) throw Object.assign(new Error('buy_token_invalid'), { status: 400 });
+  if (sellToken === buyToken) throw Object.assign(new Error('token_pair_invalid'), { status: 400 });
+  if (!EVM_ADDRESS_RE.test(taker) || /^0x0{40}$/.test(taker)) throw Object.assign(new Error('taker_invalid'), { status: 400 });
+  if (!/^[1-9][0-9]{0,77}$/.test(sellAmount)) throw Object.assign(new Error('sell_amount_invalid'), { status: 400 });
+  if (!Number.isSafeInteger(slippageBps) || slippageBps < 1 || slippageBps > 5000) {
+    throw Object.assign(new Error('slippage_invalid'), { status: 400 });
+  }
+  return {
+    chain_id: chainId,
+    sell_token: sellToken,
+    buy_token: buyToken,
+    sell_amount: sellAmount,
+    taker,
+    slippage_bps: slippageBps,
+  };
+}
+
+function publicExecutionQuote(quote) {
+  const fee = quote?.fee && typeof quote.fee === 'object' ? {
+    enabled: quote.fee.enabled === true,
+    state: String(quote.fee.state || ''),
+    amount: String(quote.fee.amount || '0'),
+    token: quote.fee.token || null,
+    fee_bps: Number(quote.fee.fee_bps || 0),
+    amount_verification: String(quote.fee.amount_verification || ''),
+  } : null;
+  return {
+    schema_version: 'hookline.execution_quote.v1',
+    state: String(quote?.state || ''),
+    chain_id: Number(quote?.chain_id),
+    observed_at: quote?.observed_at || null,
+    expires_at: quote?.expires_at || null,
+    exact_binding: quote?.exact_binding || null,
+    fee,
+    allowance: quote?.allowance || null,
+    provider_issues: quote?.provider_issues || null,
+    blockers: Array.isArray(quote?.blockers) ? quote.blockers : [],
+    total_network_fee_native_base_units: quote?.total_network_fee_native_base_units || null,
+    token_taxes: quote?.token_taxes || null,
+    route: quote?.route || null,
+    unsigned_transaction: quote?.unsigned_transaction || null,
+    wallet_handoff_eligible: quote?.wallet_handoff_eligible === true,
+  };
+}
+
+async function readExecutionTokenMetadata(chainId, address, env) {
+  if (address === EXECUTION_NATIVE_TOKEN) {
+    const symbols = { 1: 'ETH', 56: 'BNB', 4663: 'ETH', 8453: 'ETH' };
+    return { chain_id: chainId, token_address: address, decimals: 18, native: true, symbol: symbols[chainId], balance_base_units: null };
+  }
+  const config = CHAIN_CONFIG[chainId];
+  if (!config) return env.RAVENOS_EXECUTION.tokenMetadata(chainId, address, null);
+  const chain = await callChainUpstream(config, { jsonrpc: '2.0', id: 1, method: 'eth_chainId', params: [] }, UPSTREAM_TIMEOUT_MS);
+  if (chain.error || hexToInt(chain.result) !== chainId) throw new Error('token_rpc_chain_mismatch');
+  const [code, decimals] = await Promise.all([
+    callChainUpstream(config, { jsonrpc: '2.0', id: 2, method: 'eth_getCode', params: [address, 'latest'] }, UPSTREAM_TIMEOUT_MS),
+    callChainUpstream(config, { jsonrpc: '2.0', id: 3, method: 'eth_call', params: [{ to: address, data: '0x313ce567' }, 'latest'] }, UPSTREAM_TIMEOUT_MS),
+  ]);
+  if (code.error || !/^0x[0-9a-f]+$/i.test(String(code.result || '')) || ['0x', '0x0'].includes(String(code.result).toLowerCase())) {
+    throw new Error('token_contract_unavailable');
+  }
+  const precision = hexToInt(decimals.result);
+  if (decimals.error || !Number.isSafeInteger(precision) || precision < 0 || precision > 36) throw new Error('token_decimals_invalid');
+  return { chain_id: chainId, token_address: address, decimals: precision, native: false, symbol: null, balance_base_units: null };
+}
+
 // ---------------------------------------------------------------------------
 // Main entry point.
 // ---------------------------------------------------------------------------
@@ -1497,9 +1626,11 @@ export default {
       return staticResponse;
     }
 
-    // GET /api/hook-markets — pool identities from v4.xyz enriched with
+    // GET /api/v3/hook-markets — pool identities from v4.xyz enriched with
     // current DexScreener market data and chart destinations.
-    if (method === 'GET' && url.pathname === '/api/hook-markets') {
+    // Keep the original path as a compatible alias. The versioned path also
+    // gives deployed resolver fixes a fresh outer-CDN key.
+    if (method === 'GET' && ['/api/hook-markets', '/api/v2/hook-markets', '/api/v3/hook-markets'].includes(url.pathname)) {
       const chainId = Number(url.searchParams.get('chainId'));
       const address = String(url.searchParams.get('address') || '').trim();
       if (!Number.isSafeInteger(chainId) || chainId <= 0 || !EVM_ADDRESS_RE.test(address)) {
@@ -1510,9 +1641,10 @@ export default {
       }
 
       const canonicalAddress = canonicalIndexedHookAddress(chainId, address);
-      const cacheUrl = new URL('/api/hook-markets', url.origin);
+      const cacheUrl = new URL('/api/v3/hook-markets', url.origin);
       cacheUrl.searchParams.set('chainId', String(chainId));
       cacheUrl.searchParams.set('address', address.toLowerCase());
+      cacheUrl.searchParams.set('schema', MARKET_CACHE_SCHEMA_VERSION);
       const cacheRequest = new Request(cacheUrl.toString(), { method: 'GET' });
       const edgeCache = globalThis.caches?.default;
 
@@ -1599,6 +1731,72 @@ export default {
           status: 502,
           headers: baseJsonHeaders({ 'Cache-Control': 'no-store' }),
         });
+      }
+    }
+
+    // Private RavenOS service binding supplies validated unsigned EVM routes.
+    // Hookline never receives API keys or wallet secrets, and this Worker never
+    // signs or submits transactions.
+    if (method === 'GET' && url.pathname === '/api/execution/status') {
+      if (!env?.RAVENOS_EXECUTION?.capability) {
+        return executionJson({ ok: false, state: 'unavailable', chains: [] }, 503);
+      }
+      const requestedChainId = url.searchParams.get('chainId');
+      const chainIds = requestedChainId === null ? EXECUTION_CHAIN_IDS : [Number(requestedChainId)];
+      if (chainIds.some((chainId) => !EXECUTION_CHAIN_SET.has(chainId))) {
+        return executionJson({ ok: false, error: 'chain_not_supported' }, 400);
+      }
+      const settled = await Promise.allSettled(chainIds.map((chainId) => env.RAVENOS_EXECUTION.capability(chainId)));
+      const chains = settled.map((result, index) => result.status === 'fulfilled'
+        ? result.value
+        : { chain_id: chainIds[index], state: 'unavailable', quote_review_enabled: false });
+      return executionJson({
+        ok: chains.some((chain) => chain.quote_review_enabled === true),
+        state: chains.some((chain) => chain.quote_review_enabled === true) ? 'available' : 'unavailable',
+        chains,
+        signing_location: 'user_wallet',
+        custody: false,
+      });
+    }
+
+    if (method === 'GET' && url.pathname === '/api/execution/token') {
+      if (!env?.RAVENOS_EXECUTION?.tokenMetadata) {
+        return executionJson({ ok: false, error: 'token_service_unavailable' }, 503);
+      }
+      const chainId = Number(url.searchParams.get('chainId'));
+      const address = String(url.searchParams.get('address') || '').toLowerCase();
+      const wallet = String(url.searchParams.get('wallet') || '').toLowerCase();
+      if (!EXECUTION_CHAIN_SET.has(chainId)) return executionJson({ ok: false, error: 'chain_not_supported' }, 400);
+      if (!EVM_ADDRESS_RE.test(address) || /^0x0{40}$/.test(address)) return executionJson({ ok: false, error: 'token_invalid' }, 400);
+      if (wallet && (!EVM_ADDRESS_RE.test(wallet) || /^0x0{40}$/.test(wallet))) return executionJson({ ok: false, error: 'wallet_invalid' }, 400);
+      try {
+        const token = wallet
+          ? await env.RAVENOS_EXECUTION.tokenMetadata(chainId, address, wallet)
+          : await readExecutionTokenMetadata(chainId, address, env);
+        return executionJson({ ok: true, token });
+      } catch (error) {
+        const code = String(error?.code || error?.message || 'token_service_unavailable').replace(/[^a-z0-9_:.-]/gi, '_').slice(0, 100);
+        return executionJson({ ok: false, error: code }, 503);
+      }
+    }
+
+    if (method === 'POST' && url.pathname === '/api/execution/quote') {
+      const rl = checkRateLimit(`execution:${getConnectingIp(request)}`);
+      if (rl.tooMany) {
+        return executionJson({ ok: false, error: 'rate_limited', retry_after: rl.retryAfter }, 429);
+      }
+      if (!env?.RAVENOS_EXECUTION?.quote) {
+        return executionJson({ ok: false, error: 'quote_service_unavailable' }, 503);
+      }
+      try {
+        const order = await readExecutionOrder(request);
+        const quote = await env.RAVENOS_EXECUTION.quote(order);
+        return executionJson({ ok: true, quote: publicExecutionQuote(quote) });
+      } catch (error) {
+        const status = Number(error?.status);
+        const safeStatus = Number.isSafeInteger(status) && status >= 400 && status <= 499 ? status : 503;
+        const code = String(error?.code || error?.message || 'quote_service_unavailable').replace(/[^a-z0-9_:.-]/gi, '_').slice(0, 100);
+        return executionJson({ ok: false, error: code }, safeStatus);
       }
     }
 
