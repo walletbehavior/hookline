@@ -1123,6 +1123,7 @@
     try {
       const params = new URLSearchParams();
       if (trimmed) params.set('q', trimmed);
+      params.set('v', '1');
       const response = await fetch(`/api/token-hooks${params.size ? `?${params}` : ''}`, {
         headers: { Accept: 'application/json' },
         cache: 'no-store',
