@@ -268,7 +268,7 @@ async function alertsCommand(client, parsed, ctx, userId) {
         '*Enable hook alert?*',
         '',
         alertTarget(chainId, address),
-        'Checks every 10 minutes for new pools or a liquidity move of 10% or more.',
+        'Checks every 10 minutes for runtime changes, new indexed pool relationships, or indexed liquidity movement of 10% or more.',
       ].join('\n'),
       {
         parse_mode: 'Markdown',
@@ -461,7 +461,7 @@ async function handleCallback(callbackQuery, ctx, userId) {
         if (chatId == null) return invalidCallback(client, callbackQuery);
         await alertsStore(ctx).createOrEnableAlert({ userId, chatId, chainId, address });
         await editCard(client, callbackQuery, {
-          text: `*Alert enabled*\n\n${alertTarget(chainId, address)}\nNew pools and liquidity moves of 10% or more.`,
+          text: `*Alert enabled*\n\n${alertTarget(chainId, address)}\nRuntime changes, new indexed pool relationships, and indexed liquidity movement of 10% or more.`,
         });
         return { handled: true, answered: true, kind: 'alert_enabled' };
       }

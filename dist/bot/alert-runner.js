@@ -13,7 +13,15 @@ export const SCAN_CAP_PER_RUN = 25;
 export const SCAN_CAP_PER_USER = 10;
 export const LIQUIDITY_CHANGE_THRESHOLD = 0.10;
 
-function marketBaseline(result) {
+function runtimeFingerprintOf(inspection) {
+  const value = inspection?.runtimeFingerprint;
+  const fingerprint = typeof value === 'object' ? value?.fingerprint : value;
+  return typeof fingerprint === 'string' && /^[0-9a-f]{64}$/i.test(fingerprint)
+    ? fingerprint.toLowerCase()
+    : null;
+}
+
+function marketBaseline(result, inspection = null) {
   const markets = Array.isArray(result?.markets) ? result.markets : [];
   const poolIds = [...new Set(markets
     .map((market) => String(market?.pairAddress || market?.poolId || '').toLowerCase())
@@ -22,7 +30,12 @@ function marketBaseline(result) {
     const liquidity = Number(market?.liquidityUsd);
     return sum + (Number.isFinite(liquidity) && liquidity > 0 ? liquidity : 0);
   }, 0);
-  return { poolIds, aggregateLiquidityUsd };
+  return {
+    poolIds,
+    aggregateLiquidityUsd,
+    runtimeFingerprint: runtimeFingerprintOf(inspection),
+    codeByteLength: Number.isSafeInteger(Number(inspection?.codeByteLength)) ? Number(inspection.codeByteLength) : null,
+  };
 }
 
 function parseBaseline(value) {
@@ -33,6 +46,10 @@ function parseBaseline(value) {
     return {
       poolIds: parsed.poolIds.map((item) => String(item).toLowerCase()).sort(),
       aggregateLiquidityUsd: Number(parsed.aggregateLiquidityUsd) || 0,
+      runtimeFingerprint: typeof parsed.runtimeFingerprint === 'string' && /^[0-9a-f]{64}$/i.test(parsed.runtimeFingerprint)
+        ? parsed.runtimeFingerprint.toLowerCase()
+        : null,
+      codeByteLength: Number.isSafeInteger(Number(parsed.codeByteLength)) ? Number(parsed.codeByteLength) : null,
     };
   } catch {
     return null;
@@ -67,6 +84,14 @@ export function alertEvents(previous, current) {
   const knownPools = new Set(previous.poolIds);
   const newPools = current.poolIds.filter((poolId) => !knownPools.has(poolId));
   const events = [];
+  if (previous.runtimeFingerprint && current.runtimeFingerprint && previous.runtimeFingerprint !== current.runtimeFingerprint) {
+    events.push({
+      kind: 'runtime_change',
+      previousFingerprint: previous.runtimeFingerprint,
+      currentFingerprint: current.runtimeFingerprint,
+      eventKey: `runtime:${current.runtimeFingerprint}`,
+    });
+  }
   if (newPools.length) {
     events.push({
       kind: 'new_pool',
@@ -90,16 +115,23 @@ export function alertEvents(previous, current) {
 
 function formatNotification(alert, event, previous, current) {
   const chainName = CHAIN_CONFIG[Number(alert.chain_id)]?.name || `Chain ${alert.chain_id}`;
-  const change = event.kind === 'new_pool'
-    ? `${event.count} new pool${event.count === 1 ? '' : 's'} detected`
-    : `Liquidity ${event.ratio >= 0 ? 'rose' : 'fell'} ${Math.abs(event.ratio * 100).toFixed(1)}%`;
-  return [
+  const change = event.kind === 'runtime_change'
+    ? 'Runtime bytecode changed'
+    : event.kind === 'new_pool'
+      ? `${event.count} new indexed pool relationship${event.count === 1 ? '' : 's'}`
+      : `Indexed liquidity ${event.ratio >= 0 ? 'rose' : 'fell'} ${Math.abs(event.ratio * 100).toFixed(1)}%`;
+  const lines = [
     'Hookline alert',
     `${chainName}, ${shortAddress(alert.target_address)}`,
     change,
-    `Liquidity: ${money(previous.aggregateLiquidityUsd)}, ${money(current.aggregateLiquidityUsd)}`,
-    `https://hookline.world/#/board/${alert.chain_id}/${alert.target_address}`,
-  ].join('\n');
+  ];
+  if (event.kind === 'runtime_change') {
+    lines.push(`Runtime: ${event.previousFingerprint.slice(0, 10)}..., ${event.currentFingerprint.slice(0, 10)}...`);
+  } else {
+    lines.push(`Indexed liquidity: ${money(previous.aggregateLiquidityUsd)}, ${money(current.aggregateLiquidityUsd)}`);
+  }
+  lines.push(`https://hookline.world/#/board/${alert.chain_id}/${alert.target_address}`);
+  return lines.join('\n');
 }
 
 async function defaultSend(env, chatId, text) {
@@ -119,6 +151,7 @@ export async function runAlertScan(env, options = {}) {
   }
 
   const resolveHookMarkets = options.resolveHookMarkets || fallbackResolver;
+  const inspectHook = options.inspectHook || null;
   const sendMessage = options.sendMessage || ((chatId, text) => defaultSend(env, chatId, text));
   const due = await store.listDueAlerts({
     now,
@@ -133,9 +166,12 @@ export async function runAlertScan(env, options = {}) {
 
   for (const alert of due) {
     try {
-      const result = await resolveHookMarkets(Number(alert.chain_id), String(alert.target_address));
+      const [result, inspection] = await Promise.all([
+        resolveHookMarkets(Number(alert.chain_id), String(alert.target_address)),
+        inspectHook ? inspectHook(Number(alert.chain_id), String(alert.target_address)) : Promise.resolve(null),
+      ]);
       const previous = parseBaseline(alert.baseline_json);
-      const current = marketBaseline(result);
+      const current = marketBaseline(result, inspection);
       if (!previous) {
         await store.updateBaseline({ id: alert.id, baseline: current, now });
         seeded += 1;
