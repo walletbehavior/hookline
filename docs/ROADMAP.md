@@ -44,27 +44,36 @@ Acceptance criteria:
 - A receipt is stored only after the onchain transaction matches the short-lived intent's wallet, chain, destination, calldata, and value.
 - Public claims contain no fabricated usage or market data.
 
-## Next: Hook Tape and runtime families
+## Shipped foundation: Hook Tape and runtime families
 
-- Index PoolManager initialization events on the first production chain
-- Build canonical hook-deployment and pool identities
-- Store raw logs and reorganization-safe cursors
+- Index finalized PoolManager initialization events on Base
+- Build canonical hook and pool identities with exact source transactions
+- Store raw logs with separate live and bounded historical cursors
+- Publish coverage, pagination, hook filtering, and the Tape browser view
+- Keep the shipped runtime-family map current and identify changed forks as separate families
+
+Acceptance criteria met by this slice:
+
+- Every saved pool relationship resolves to its originating transaction, block, and raw `Initialize` log.
+- The public status distinguishes current finalized coverage from historical catch-up.
+- Failed scans preserve the last good evidence and do not advance a cursor.
+- Project-submitted profiles remain visibly separate from chain observations.
+
+## Next: swap outcomes and change intelligence
+
 - Index swap outcomes and hook calls over explicit block ranges
 - Measure the pool-advertised fee separately from observable hook-adjusted token flow
 - Record swap refusals, hook gas, recipients, and return-delta involvement where the evidence supports it
-- Keep the shipped runtime-family map current and identify changed forks as separate families
 - Publish short tape rows with links to their source transactions, logs, traces, and derivation version
 - Alert on material fee deltas, refusal-rate changes, and new deployments of known runtime families
 
 Acceptance criteria:
 
-- Every pool relationship resolves to its originating transaction and block.
 - Every tape metric identifies the exact chain, hook, pool, and block range.
 - Pool fee, hook delta, and measured token flow remain separate fields.
 - A metric is withheld when the available receipt or trace cannot support it.
 - Runtime-family membership is reproducible from retained bytecode and its fingerprint.
-- The index can rebuild its derived state from retained source data.
-- Project-submitted profiles are visibly separate from chain observations.
+- The swap index can rebuild its derived state from retained source data.
 
 ## After that: deeper route checks and change intelligence
 

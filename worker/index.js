@@ -44,6 +44,7 @@ import { TelegramClient } from '../bot/bot-api.js';
 import { digest as projectDigest } from '../projects/evidence.js';
 import { handleAccountsApi, consumeTelegramLink, pruneAccountEphemera } from '../accounts/index.js';
 import { createEip1271Verifier } from '../accounts/contract-signatures.js';
+import { handleTapeApi, liveTapePoolsForHook, runBaseTapeScan } from '../projects/tape.js';
 
 'use strict';
 
@@ -1890,6 +1891,7 @@ async function readExecutionTokenMetadata(chainId, address, env) {
 // ---------------------------------------------------------------------------
 
 const projectRpcHealth=createRpcPoolHealth();
+const tapeRpcHealth=createRpcPoolHealth();
 const verifySmartWalletSignature=createEip1271Verifier({allowedChains:SUPPORTED_CHAINS,rpc:async({chainId,method,params,signal})=>{
   const config=CHAIN_CONFIG[chainId];
   if(!config || !['eth_chainId','eth_getBlockByNumber','eth_getCode','eth_call'].includes(method)) throw new Error('Unsupported verification read.');
@@ -1914,6 +1916,11 @@ async function collectProjectEvidence(env) {
   // account responses, the browser bundle, or project-submission receipts.
   return {...result,transport:pool.diagnostics()};
 }
+async function collectTapeEvidence(env) {
+  const pool=createProjectRpcPool({health:tapeRpcHealth,maxRequests:48,deadlineAt:Date.now()+40000});
+  const result=await runBaseTapeScan(env,{rpc:pool.rpc});
+  return {...result,transport:pool.diagnostics()};
+}
 
 export default {
   // Scheduled scanner entry point (10-minute cron). Fails closed when the DB
@@ -1930,7 +1937,8 @@ export default {
       if(env.TELEGRAM_BOT_TOKEN) await deliverProjectEvents(env,{send:(chatId,text,options)=>new TelegramClient(env.TELEGRAM_BOT_TOKEN).sendMessage(chatId,text,options)});
       return result;
     };
-    const scan = Promise.allSettled([runAlertScan(env, { resolveHookMarkets, inspectHook }), projects(), pruneAccountEphemera(env)]);
+    const scan = Promise.allSettled([runAlertScan(env, { resolveHookMarkets, inspectHook,
+      resolveFirstPartyPools:(chainId,address)=>liveTapePoolsForHook(env,chainId,address) }), projects(), collectTapeEvidence(env), pruneAccountEphemera(env)]);
     ctx.waitUntil(scan);
     return scan;
   },
@@ -1957,6 +1965,19 @@ export default {
     if (url.pathname.startsWith('/api/account/')) {
       const response=await handleAccountsApi(request,env,{verifySmartWalletSignature});
       if(response) return response;
+    }
+
+    if (url.pathname==='/api/tape-maintenance/scan') {
+      const configured=typeof env.PROJECT_REVIEW_TOKEN==='string' && env.PROJECT_REVIEW_TOKEN.length>=32;
+      const candidate=(request.headers.get('authorization') || '').replace(/^Bearer /,'');
+      if(method!=='POST') return Response.json({error:'method_not_allowed'},{status:405,headers:{'Cache-Control':'no-store'}});
+      if(!configured || !candidate || await projectDigest(candidate)!==await projectDigest(env.PROJECT_REVIEW_TOKEN)) return Response.json({error:'operator_access_required'},{status:403,headers:{'Cache-Control':'no-store'}});
+      try {return Response.json(await collectTapeEvidence(env),{headers:{'Cache-Control':'private, no-store'}});}
+      catch {return Response.json({error:'tape_scan_failed'},{status:503,headers:{'Cache-Control':'private, no-store'}});}
+    }
+    if (url.pathname.startsWith('/api/tape/')) {
+      const tapeResponse=await handleTapeApi(request,env);
+      if(tapeResponse) return tapeResponse;
     }
 
     if (url.pathname.startsWith('/api/project')) {

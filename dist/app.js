@@ -23,7 +23,7 @@
   const MAX_OBSERVATIONS = 100;
   const MAX_IMPORT_BYTES = 1024 * 1024;
   const CURRENT_WINDOW_MS = 15 * 60 * 1000;
-  const VIEWS = new Set(['board', 'projects', 'activity', 'observatory', 'watchlists', 'network', 'docs']);
+  const VIEWS = new Set(['board', 'projects', 'activity', 'tape', 'observatory', 'watchlists', 'network', 'docs']);
   const BOARD_PAGE_SIZE = 50;
   const CHAIN_COLORS = Object.freeze({
     1: '#8b9aee', 10: '#ff5364', 56: '#f0b90b', 130: '#ff3d96', 137: '#8e6cff', 143: '#836ef9',
@@ -80,6 +80,7 @@
     boardEvidence: new Map(),
     boardLoading: new Set(),
     projects: { registry: null, loading: null, error: '', detailRequest: 0, detail: null, activityRequest: 0, events: [], activityLoaded: false, activityGeneratedAt: null, receipts: [], contributionBusy: false },
+    tape: { status: null, pools: [], cursor: null, loaded: false, loading: false, error: '' },
     execution: {
       module: null,
       modulePromise: null,
@@ -2313,6 +2314,7 @@
     }
     $('hook-profile-callback-count').textContent = item.address ? `${item.permissions.enabled.length} / 14 bits` : '';
     renderBoardMarkets(item);
+    renderBoardTape(item);
     renderRuntimeFamily(item);
     renderBoardLiveEvidence(item);
     $('hook-profile-project').hidden = !project;
@@ -2453,6 +2455,26 @@
     });
   }
 
+  function renderBoardTape(item) {
+    const section=$('hook-profile-tape'),list=$('hook-profile-tape-list'),status=$('hook-profile-tape-status');
+    list.replaceChildren();
+    const cached=state.boardEvidence.get(item.id),pools=Array.isArray(cached?.tapePools)?cached.tapePools.slice(0,4):[];
+    section.hidden=item.chainId!==8453 || pools.length===0;
+    if(section.hidden) return;
+    $('hook-profile-tape-open').href=`#/tape/8453/${item.address}`;
+    status.textContent=`${pools.length} finalized`;
+    pools.forEach((pool)=>{
+      const card=makeElement('article','profile-tape-row');
+      const identity=makeElement('div','');
+      const code=makeElement('code','',tapeAddress(pool.poolId,10,8));code.title=pool.poolId;
+      identity.append(makeElement('span','','Pool'),code);
+      const facts=makeElement('div','');
+      facts.append(makeElement('span','',tapeFee(pool)),makeElement('span','',`Block ${formatNumber(Number(pool.blockNumber))}`));
+      const tx=tapeLink(`https://basescan.org/tx/${pool.transactionHash}`,'Source tx','');tx.target='_blank';tx.rel='noopener noreferrer';
+      card.append(identity,facts,tx);list.append(card);
+    });
+  }
+
   function renderRuntimeFamily(item) {
     const section = $('hook-profile-runtime');
     const status = $('hook-profile-runtime-status');
@@ -2586,6 +2608,14 @@
     return markets;
   }
 
+  async function readHookTape(item) {
+    if(item.chainId!==8453 || !item.address) return [];
+    const response=await fetch(`/api/tape/pools?hook=${encodeURIComponent(item.address)}&limit=4`,{headers:{Accept:'application/json'}});
+    const payload=await response.json().catch(()=>null);
+    if(!response.ok || !Array.isArray(payload?.pools)) throw new Error('First-party pool evidence failed.');
+    return payload.pools;
+  }
+
   async function inspectSelectedProfile(options) {
     const item = selectedBoardItem();
     if (!item || item.kind !== 'hook' || !item.address) return;
@@ -2599,9 +2629,11 @@
     const previous = state.boardEvidence.get(item.id) || {};
     const includeContract = settings.includeContract !== false && item.liveInspection && (!settings.automatic || !previous.result);
     const includeMarkets = settings.includeMarkets !== false;
-    const [contract, markets] = await Promise.allSettled([
+    const includeTape=item.chainId===8453 && settings.includeTape!==false && (!settings.automatic || !previous.tapeLoaded);
+    const [contract, markets, tape] = await Promise.allSettled([
       includeContract ? readHook(item.chainId, item.address) : Promise.resolve(null),
       includeMarkets ? readHookMarkets(item, Boolean(settings.forceMarkets)) : Promise.resolve(null),
+      includeTape ? readHookTape(item) : Promise.resolve(null),
     ]);
     const next = { ...previous };
     if (contract.status === 'fulfilled' && contract.value) {
@@ -2615,20 +2647,23 @@
       delete next.marketError;
     }
     if (markets.status === 'rejected') next.marketError = markets.reason?.message || 'Market lookup failed.';
+    if(tape.status==='fulfilled' && tape.value){next.tapePools=tape.value;next.tapeLoaded=true;delete next.tapeError;}
+    if(tape.status==='rejected') next.tapeError=tape.reason?.message || 'First-party pool evidence failed.';
     state.boardEvidence.set(item.id, next);
-    if (!settings.automatic && (next.result || next.markets?.length)) {
+    if (!settings.automatic && (next.result || next.markets?.length || next.tapePools?.length)) {
       state.inspectionsThisSession += 1;
       updateDeskCounters();
-      toast(next.markets?.length ? `${next.markets.length} related markets resolved.` : 'Contract read complete.', 'info');
-    } else if (!settings.automatic && !(next.result || next.markets?.length)) {
-      toast(next.error || next.marketError || 'Inspection failed.', 'alert');
+      toast(next.markets?.length ? `${next.markets.length} related markets resolved.` : next.tapePools?.length ? `${next.tapePools.length} finalized pool records resolved.` : 'Contract read complete.', 'info');
+    } else if (!settings.automatic && !(next.result || next.markets?.length || next.tapePools?.length)) {
+      toast(next.error || next.marketError || next.tapeError || 'Inspection failed.', 'alert');
     }
     state.boardLoading.delete(item.id);
     if (state.boardSelectedId === item.id) {
       renderBoardMarkets(item);
+      renderBoardTape(item);
       renderBoardLiveEvidence(item);
       button.disabled = false;
-      button.textContent = next.result || next.markets ? 'Refresh' : 'Inspect';
+      button.textContent = next.result || next.markets || next.tapePools ? 'Refresh' : 'Inspect';
     }
   }
 
@@ -2638,8 +2673,9 @@
     const evidence = state.boardEvidence.get(item.id) || {};
     const needsMarkets = !marketCacheEntry(item, true);
     const needsContract = item.liveInspection && !evidence.result;
-    if (needsMarkets || needsContract) {
-      void inspectSelectedProfile({ automatic: true, includeMarkets: needsMarkets, includeContract: needsContract });
+    const needsTape=item.chainId===8453 && !evidence.tapeLoaded;
+    if (needsMarkets || needsContract || needsTape) {
+      void inspectSelectedProfile({ automatic: true, includeMarkets: needsMarkets, includeContract: needsContract,includeTape:needsTape });
     }
   }
 
@@ -2741,6 +2777,7 @@
       renderBoard();
       renderBoardProfile();
       inspectProfileIfNeeded();
+      if(state.tape.loaded) renderTape();
       void openExecutionRoute();
     } catch (error) {
       $('board-result-count').textContent = 'Hook index unavailable';
@@ -3502,6 +3539,109 @@
     loadProjectReceipts();
   }
 
+  function tapeLink(href, text, className) {
+    const link=makeElement('a',className || '',text);
+    link.href=href;return link;
+  }
+
+  function tapeAddress(value, prefix = 8, suffix = 6) {
+    return typeof value === 'string' && value.length > prefix + suffix + 1
+      ? `${value.slice(0,prefix)}…${value.slice(-suffix)}` : value || 'unavailable';
+  }
+
+  function tapeFee(pool) {
+    if (pool?.poolFee?.mode === 'dynamic') return 'Dynamic';
+    const percent=Number(pool?.poolFee?.percent);
+    if (!Number.isFinite(percent)) return 'Unavailable';
+    return `${percent.toLocaleString(undefined,{maximumFractionDigits:4})}% static`;
+  }
+
+  function tapeHookName(address) {
+    if (address === ZERO_ADDRESS) return 'No hook';
+    const item=state.board?.items?.find((candidate)=>candidate.id===`8453_${address}`);
+    return item?boardItemName(item):'Unnamed hook';
+  }
+
+  function renderTapeCoverage() {
+    const status=state.tape.status;
+    if(!status) return;
+    const coverage=status.coverage || {},counts=status.counts || {};
+    $('tape-pool-count').textContent=formatNumber(Number(counts.pools));
+    $('tape-hook-count').textContent=formatNumber(Number(counts.hooks));
+    $('tape-live-through').textContent=coverage.liveThrough==null?'—':formatNumber(Number(coverage.liveThrough));
+    $('tape-history-through').textContent=coverage.historicalThrough==null?'—':formatNumber(Number(coverage.historicalThrough));
+    const historicalFrom=Number(coverage.historicalFrom),historicalThrough=Number(coverage.historicalThrough),liveFrom=Number(coverage.liveFrom);
+    const total=Math.max(1,liveFrom-historicalFrom);
+    const progress=coverage.historicalComplete?100:Math.max(0,Math.min(100,((historicalThrough-historicalFrom+1)/total)*100));
+    $('tape-coverage-fill').style.width=`${progress}%`;
+    $('tape-coverage-copy').textContent=coverage.historicalComplete
+      ? `Historical coverage connects to the live range. Finalized evidence is continuous from block ${formatNumber(historicalFrom)} through ${formatNumber(Number(coverage.liveThrough))}.`
+      : `History is indexed through block ${formatNumber(historicalThrough)}. The current finalized range starts at block ${formatNumber(liveFrom)} and is live through ${formatNumber(Number(coverage.liveThrough))}.`;
+    const scan=status.scan || {};
+    $('tape-scan-status').textContent=`${scan.status === 'healthy' ? 'Scanner healthy' : scan.status === 'degraded' ? 'Scanner preserving its last good cursor' : 'Scanner initializing'}${scan.lastSuccessAt ? ` · last write ${relativeTime(Date.parse(scan.lastSuccessAt))}` : ''} · ${status.derivationVersion || 'initialize-v1'}`;
+  }
+
+  function renderTape() {
+    renderTapeCoverage();
+    const query=$('tape-search').value.trim().toLowerCase();
+    const pools=state.tape.pools.filter((pool)=>!query || [pool.hookAddress,pool.poolId,pool.transactionHash,...(pool.currencies || [])].some((value)=>String(value || '').toLowerCase().includes(query)));
+    const body=$('tape-body');body.replaceChildren();
+    pools.forEach((pool)=>{
+      const row=document.createElement('tr');
+      const block=document.createElement('td');block.dataset.label='Block';
+      const blockLink=tapeLink(`https://basescan.org/block/${pool.blockNumber}`,formatNumber(Number(pool.blockNumber)),'tape-block-link');blockLink.target='_blank';blockLink.rel='noopener noreferrer';block.append(blockLink);
+      const hook=document.createElement('td');hook.dataset.label='Hook';
+      const hookName=tapeHookName(pool.hookAddress),hookIdentity=makeElement('div','tape-hook-identity');
+      if(pool.hookAddress===ZERO_ADDRESS) hookIdentity.append(makeElement('strong','',hookName));
+      else {const hookLink=tapeLink(`#/board/${pool.chainId}/${pool.hookAddress}`,hookName,'tape-hook-link');hookLink.title=pool.hookAddress;hookIdentity.append(hookLink,makeElement('code','',tapeAddress(pool.hookAddress)));}
+      hook.append(hookIdentity);
+      const poolId=document.createElement('td');poolId.dataset.label='Pool';const poolCode=makeElement('code','',tapeAddress(pool.poolId,10,8));poolCode.title=pool.poolId;poolId.append(poolCode);
+      const currencies=document.createElement('td');currencies.dataset.label='Currencies';
+      (pool.currencies || []).forEach((currency,index)=>{if(index) currencies.append(document.createTextNode(', '));if(currency===ZERO_ADDRESS){const native=makeElement('span','','Native ETH');native.title=currency;currencies.append(native);}else{const link=tapeLink(`https://basescan.org/address/${currency}`,tapeAddress(currency,7,5));link.target='_blank';link.rel='noopener noreferrer';link.title=currency;currencies.append(link);}});
+      const fee=makeElement('td',pool.poolFee?.mode === 'dynamic'?'tape-dynamic':'',tapeFee(pool));fee.dataset.label='LP fee config';
+      const evidence=document.createElement('td');evidence.dataset.label='Evidence';const tx=tapeLink(`https://basescan.org/tx/${pool.transactionHash}`,`tx ${tapeAddress(pool.transactionHash,8,6)}`,'tape-tx-link');tx.target='_blank';tx.rel='noopener noreferrer';tx.title=pool.transactionHash;evidence.append(tx,makeElement('small','',`log ${pool.logIndex}`));
+      row.append(block,hook,poolId,currencies,fee,evidence);body.append(row);
+    });
+    $('tape-empty').hidden=pools.length>0 || !state.tape.loaded;
+    $('tape-result-count').textContent=state.tape.loaded?`${pools.length.toLocaleString()} of ${state.tape.pools.length.toLocaleString()} loaded rows`:'Loading evidence…';
+    $('tape-more').hidden=!state.tape.cursor || Boolean(query);
+  }
+
+  async function loadTape(force = false, append = false) {
+    if(state.tape.loading) return;
+    if(state.tape.loaded && !force && !append){renderTape();return;}
+    state.tape.loading=true;$('tape-refresh').disabled=true;$('tape-more').disabled=true;
+    if(!append) projectNotice($('tape-error'),'');
+    try {
+      const cursor=append&&state.tape.cursor?`&cursor=${encodeURIComponent(state.tape.cursor)}`:'';
+      const requests=[fetch(`/api/tape/pools?limit=100${cursor}`,{headers:{Accept:'application/json'},cache:force?'no-store':'default'})];
+      if(!append) requests.unshift(fetch('/api/tape/status',{headers:{Accept:'application/json'},cache:force?'no-store':'default'}));
+      const responses=await Promise.all(requests);
+      const payloads=await Promise.all(responses.map((entry)=>entry.json().catch(()=>null)));
+      if(responses.some((entry)=>!entry.ok)) throw new Error('Tape evidence is temporarily unavailable.');
+      const poolsBody=append?payloads[0]:payloads[1];
+      if(!poolsBody || !Array.isArray(poolsBody.pools)) throw new Error('Tape response was incomplete.');
+      if(!append) {
+        if(!payloads[0]?.coverage) throw new Error('Tape coverage was incomplete.');
+        state.tape.status=payloads[0];state.tape.pools=poolsBody.pools;
+      } else {
+        const existing=new Set(state.tape.pools.map((pool)=>pool.id));
+        state.tape.pools.push(...poolsBody.pools.filter((pool)=>!existing.has(pool.id)));
+      }
+      state.tape.cursor=poolsBody.nextCursor || null;state.tape.loaded=true;state.tape.error='';renderTape();
+    } catch(error) {
+      state.tape.error=error.message || 'Tape evidence could not be loaded.';
+      projectNotice($('tape-error'),`${state.tape.error}${state.tape.loaded?' Last loaded evidence is preserved.':''}`,()=>void loadTape(true));
+      if(state.tape.loaded) renderTape();
+    } finally {state.tape.loading=false;$('tape-refresh').disabled=false;$('tape-more').disabled=false;}
+  }
+
+  function setupTapeEvents() {
+    $('tape-refresh').addEventListener('click',()=>void loadTape(true));
+    $('tape-more').addEventListener('click',()=>void loadTape(false,true));
+    $('tape-search').addEventListener('input',renderTape);
+  }
+
   function viewFromHash() {
     const value = (location.hash.replace(/^#\/?/, '') || 'board').split('/')[0];
     return VIEWS.has(value) ? value : 'board';
@@ -3536,6 +3676,12 @@
     if (view === 'projects') void renderProjectsRoute();
     else state.projects.detailRequest += 1;
     if (view === 'activity') void loadProjectActivity();
+    if (view === 'tape') {
+      const match=location.hash.match(/^#\/tape\/8453\/(0x[0-9a-fA-F]{40})$/);
+      if(match) $('tape-search').value=match[1].toLowerCase();
+      else if(location.hash==='#/tape') $('tape-search').value='';
+      void loadTape();
+    }
     if (view === 'watchlists') renderWatchlists();
     if (view === 'network') renderTelemetry(state.metrics);
     if (location.hash.startsWith('#/trade/')) void openExecutionRoute();
@@ -3736,6 +3882,7 @@
     $$('[data-copy]').forEach((button) => button.addEventListener('click', (event) => copyText(button.dataset.copy, event.currentTarget)));
     window.addEventListener('hashchange', renderView);
     setupProjectEvents();
+    setupTapeEvents();
   }
 
   function init() {

@@ -361,3 +361,25 @@ test('liquidity alerts require complete measurements of the same indexed pool se
   assert.ok(!alertEvents(before,{...after,poolIds:['b']}).some(event=>event.kind==='liquidity'));
   assert.ok(!alertEvents(before,{...after,poolIds:[],aggregateLiquidityUsd:0,liquidityComplete:false}).length);
 });
+
+test('first-party pool alerts seed silently and carry source evidence',async()=>{
+  const alert={id:2,telegram_user_id:'7',chat_id:'7',chain_id:8453,target_address:HOOK,baseline_json:null};
+  const deliveries=new Set(),sent=[];
+  const store={async listDueAlerts(){return [alert];},async updateBaseline({baseline}){alert.baseline_json=JSON.stringify(baseline);},async reschedule(){},
+    async hasDelivery(_id,key){return deliveries.has(key);},async recordDelivery(_id,key){deliveries.add(key);}};
+  const pool=(digit,block)=>({poolId:`0x${digit.repeat(64)}`,transactionHash:`0x${String(Number(digit)+1).repeat(64)}`,blockNumber:block,logIndex:3});
+  let pools=[pool('1',100)];
+  const resolveFirstPartyPools=async()=>({available:true,complete:true,liveFrom:90,liveThrough:110,pools});
+  const resolveHookMarkets=async()=>({profile:{project:{name:'Measured Hook'}},markets:[]});
+  const sendMessage=async(chatId,text,options)=>sent.push({chatId,text,options});
+  const seeded=await runAlertScan({}, {store,resolveHookMarkets,resolveFirstPartyPools,sendMessage,now:1});
+  assert.equal(seeded.seeded,1);assert.equal(sent.length,0);
+  pools=[pool('2',112),...pools];
+  const delivered=await runAlertScan({}, {store,resolveHookMarkets,resolveFirstPartyPools,sendMessage,now:2});
+  assert.equal(delivered.delivered,1);assert.match(sent[0].text,/new finalized Base pool/);assert.match(sent[0].text,/Measured Hook/);
+  assert.match(sent[0].text,/Source transaction/);assert(sent[0].text.includes(`<code>${pools[0].transactionHash}</code>`));
+  assert.equal(sent[0].options.reply_markup.inline_keyboard[0][0].url,`https://hookline.world/#/tape/8453/${HOOK}`);
+  const before=JSON.parse(alert.baseline_json);
+  await runAlertScan({}, {store,resolveHookMarkets,resolveFirstPartyPools:async()=>({available:true,complete:false,pools:[pool('3',113)]}),sendMessage,now:3});
+  assert.deepEqual(JSON.parse(alert.baseline_json).firstPartyPools,before.firstPartyPools,'Incomplete coverage must retain the last complete baseline.');
+});

@@ -22,7 +22,7 @@ function runtimeFingerprintOf(inspection) {
     : null;
 }
 
-function marketBaseline(result, inspection = null) {
+function marketBaseline(result, inspection = null, firstParty = null) {
   const markets = Array.isArray(result?.markets) ? result.markets : [];
   const poolIds = [...new Set(markets
     .map((market) => String(market?.pairAddress || market?.poolId || '').toLowerCase())
@@ -37,6 +37,10 @@ function marketBaseline(result, inspection = null) {
     liquidityComplete:markets.length>0 && markets.every(market=>market?.liquidityUsd!=null && Number.isFinite(Number(market.liquidityUsd)) && Number(market.liquidityUsd)>=0),
     runtimeFingerprint: runtimeFingerprintOf(inspection),
     codeByteLength: Number.isSafeInteger(Number(inspection?.codeByteLength)) ? Number(inspection.codeByteLength) : null,
+    firstPartyPools:firstParty?.available===true && firstParty?.complete===true && Array.isArray(firstParty.pools)
+      ? firstParty.pools.map((pool)=>({poolId:String(pool.poolId || '').toLowerCase(),transactionHash:String(pool.transactionHash || '').toLowerCase(),blockNumber:Number(pool.blockNumber),logIndex:Number(pool.logIndex)}))
+        .filter((pool)=>/^0x[0-9a-f]{64}$/.test(pool.poolId)&&/^0x[0-9a-f]{64}$/.test(pool.transactionHash)&&Number.isSafeInteger(pool.blockNumber)&&Number.isSafeInteger(pool.logIndex))
+      : null,
   };
 }
 
@@ -53,6 +57,10 @@ function parseBaseline(value) {
         ? parsed.runtimeFingerprint.toLowerCase()
         : null,
       codeByteLength: Number.isSafeInteger(Number(parsed.codeByteLength)) ? Number(parsed.codeByteLength) : null,
+      firstPartyPools:Array.isArray(parsed.firstPartyPools)?parsed.firstPartyPools.map((pool)=>({
+        poolId:String(pool?.poolId || '').toLowerCase(),transactionHash:String(pool?.transactionHash || '').toLowerCase(),
+        blockNumber:Number(pool?.blockNumber),logIndex:Number(pool?.logIndex),
+      })).filter((pool)=>/^0x[0-9a-f]{64}$/.test(pool.poolId)&&/^0x[0-9a-f]{64}$/.test(pool.transactionHash)&&Number.isSafeInteger(pool.blockNumber)&&Number.isSafeInteger(pool.logIndex)):null,
     };
   } catch {
     return null;
@@ -82,6 +90,12 @@ export function alertEvents(previous, current) {
   const knownPools = new Set(previous.poolIds);
   const newPools = current.poolIds.filter((poolId) => !knownPools.has(poolId));
   const events = [];
+  if(Array.isArray(previous.firstPartyPools) && Array.isArray(current.firstPartyPools)) {
+    const knownFirstParty=new Set(previous.firstPartyPools.map((pool)=>pool.poolId));
+    const newFirstParty=current.firstPartyPools.filter((pool)=>!knownFirstParty.has(pool.poolId));
+    if(newFirstParty.length) events.push({kind:'first_party_pool',count:newFirstParty.length,pools:newFirstParty,
+      eventKey:`first_party_pool:${stableHash(newFirstParty.map((pool)=>pool.poolId).sort().join(','))}`});
+  }
   if (previous.runtimeFingerprint && current.runtimeFingerprint && previous.runtimeFingerprint !== current.runtimeFingerprint) {
     events.push({
       kind: 'runtime_change',
@@ -116,6 +130,8 @@ function formatNotification(alert, event, previous, current,result) {
   const chainName = CHAIN_CONFIG[Number(alert.chain_id)]?.name || `Chain ${alert.chain_id}`;
   const change = event.kind === 'runtime_change'
     ? 'Runtime bytecode changed'
+    : event.kind === 'first_party_pool'
+      ? `${event.count} new finalized Base pool${event.count === 1 ? '' : 's'}`
     : event.kind === 'new_pool'
       ? `${event.count} new indexed pool relationship${event.count === 1 ? '' : 's'}`
       : `Indexed liquidity ${event.ratio >= 0 ? 'rose' : 'fell'} ${Math.abs(event.ratio * 100).toFixed(1)}%`;
@@ -128,6 +144,11 @@ function formatNotification(alert, event, previous, current,result) {
   ];
   if (event.kind === 'runtime_change') {
     lines.push(`Runtime: ${event.previousFingerprint.slice(0, 10)}..., ${event.currentFingerprint.slice(0, 10)}...`);
+  } else if(event.kind==='first_party_pool' && event.pools?.[0]) {
+    lines.push(`Pool: ${event.pools[0].poolId}`);
+    lines.push(`Block: ${event.pools[0].blockNumber}`);
+    lines.push('Source transaction');
+    lines.push({address:event.pools[0].transactionHash});
   } else if(previous.liquidityComplete && current.liquidityComplete) {
     lines.push(`Indexed liquidity: ${money(previous.aggregateLiquidityUsd)}, ${money(current.aggregateLiquidityUsd)}`);
   }
@@ -152,6 +173,7 @@ export async function runAlertScan(env, options = {}) {
 
   const resolveHookMarkets = options.resolveHookMarkets || fallbackResolver;
   const inspectHook = options.inspectHook || null;
+  const resolveFirstPartyPools=options.resolveFirstPartyPools || null;
   const sendMessage = options.sendMessage || ((chatId, text,sendOptions) => defaultSend(env, chatId, text,sendOptions));
   const due = await store.listDueAlerts({
     now,
@@ -166,18 +188,20 @@ export async function runAlertScan(env, options = {}) {
 
   for (const alert of due) {
     try {
-      const [result, inspection] = await Promise.all([
+      const [result, inspection, firstParty] = await Promise.all([
         resolveHookMarkets(Number(alert.chain_id), String(alert.target_address)),
         inspectHook ? inspectHook(Number(alert.chain_id), String(alert.target_address)) : Promise.resolve(null),
+        resolveFirstPartyPools ? Promise.resolve().then(()=>resolveFirstPartyPools(Number(alert.chain_id),String(alert.target_address))).catch(()=>null) : Promise.resolve(null),
       ]);
       const previous = parseBaseline(alert.baseline_json);
-      const current = marketBaseline(result, inspection);
+      const current = marketBaseline(result, inspection, firstParty);
       // Empty/failed market coverage is not evidence that the old pools vanished.
       // Preserve identities for recovery; no liquidity alert uses this read.
       if(previous && !current.poolIds.length) {
         current.poolIds=previous.poolIds;
         current.aggregateLiquidityUsd=previous.aggregateLiquidityUsd;
       }
+      if(previous && current.firstPartyPools===null) current.firstPartyPools=previous.firstPartyPools;
       if (!previous) {
         await store.updateBaseline({ id: alert.id, baseline: current, now });
         seeded += 1;
@@ -189,7 +213,7 @@ export async function runAlertScan(env, options = {}) {
         if (await store.hasDelivery(alert.id, event.eventKey)) continue;
         await sendMessage(String(alert.chat_id), formatNotification(alert, event, previous, current,result),{
           parse_mode:'HTML',disable_web_page_preview:true,
-          reply_markup:{inline_keyboard:[[{text:'Details',url:`https://hookline.world/#/board/${alert.chain_id}/${alert.target_address}`},{text:'Pause alert',callback_data:`tg:ad:${alert.chain_id}:${alert.target_address}`}],...alertNavigationRows()]},
+          reply_markup:{inline_keyboard:[[{text:'Details',url:event.kind==='first_party_pool'?`https://hookline.world/#/tape/${alert.chain_id}/${alert.target_address}`:`https://hookline.world/#/board/${alert.chain_id}/${alert.target_address}`},{text:'Pause alert',callback_data:`tg:ad:${alert.chain_id}:${alert.target_address}`}],...alertNavigationRows()]},
         });
         await store.recordDelivery(alert.id, event.eventKey, now);
         delivered += 1;

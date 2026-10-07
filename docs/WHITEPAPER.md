@@ -104,9 +104,9 @@ A human workstation for inspection, history, comparisons, activity, dependency v
 
 ### Hook Tape
 
-A block-range feed of hook-mediated execution behavior. Tape rows separate the pool-advertised fee from measurable hook deltas and token flows, report refused swap attempts and hook gas where trace evidence exists, identify recipients when they can be proven, and link every claim to its source transaction, logs, traces, and derivation version.
+A first-party feed begins with finalized Base PoolManager initialization evidence. Every shipped row resolves the pool, hook, currencies, configured LP fee field, block, transaction, raw log, and derivation version. Deeper block-range rows will separate the pool-advertised fee from measurable hook deltas and token flows, report refused swap attempts and hook gas where trace evidence exists, and identify recipients only when they can be proven.
 
-Runtime fingerprints group byte-identical deployments into runtime families. Identical code alone does not establish identical configuration, common ownership, or a new launch. Proxy implementation and model-address reads are separate identity signals. The planned tape combines those signals without treating a family badge as a measured behavior.
+Runtime fingerprints group byte-identical deployments into runtime families. Identical code alone does not establish identical configuration, common ownership, or a new launch. Proxy implementation and model-address reads are separate identity signals. The evolving tape combines those signals without treating a family badge as measured behavior.
 
 ### Monitoring and alerts
 

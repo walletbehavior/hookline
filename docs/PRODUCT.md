@@ -6,7 +6,7 @@ Hookline is the intelligence and coordination layer for onchain hooks. The initi
 
 Hookline gives that ecosystem a shared evidence model and a practical workstation.
 
-The boards are the map. The shipped Projects layer shares configuration reads, selected activity, and changes across a broad ecosystem. The planned Hook Tape deepens that into block-range measurements of what pools advertised, what hooks changed, which attempts failed, and where measurable value moved.
+The boards are the map. The shipped Projects layer shares configuration reads, selected activity, and changes across a broad ecosystem. The shipped Hook Tape foundation owns finalized Base pool-initialization evidence and exact source transactions. Its next derivations deepen that into block-range measurements of what pools advertised, what hooks changed, which attempts failed, and where measurable value moved.
 
 ## Current capabilities
 
@@ -78,19 +78,19 @@ The board applies those classes visibly:
 - Project records carry their metadata provenance.
 - Live inspection is available only where Hookline has configured RPC coverage.
 
-## Planned first-party event index
+## First-party event index
 
-The current board supplies useful discovery before Hookline owns the complete event pipeline. The next data layer follows official PoolManager events to build a graph of:
+The broad board remains a useful discovery surface. Hookline now also follows finalized `Initialize` events from the official Base PoolManager to begin an independently reproducible graph of:
 
 ```text
 hook, pools, chains, deployers, code versions, events
 ```
 
-The index will associate initialized pools with their configured hook, aggregate swap and liquidity activity over explicit block ranges, retain reorganization-safe cursors, and make every derived metric reproducible from its source events.
+The shipped first slice associates initialized pools with their configured hook, currencies, LP fee field, source block, transaction, and raw log. It maintains a live finalized cursor and a separate bounded historical cursor, and advances only after evidence is stored. Swap and liquidity outcomes over explicit block ranges are the next derivation layer.
 
 ## Hook Tape
 
-The first tape starts on one production chain and expands only after its derivations are dependable. Each row is designed to answer a concrete execution question:
+The first tape is live on Base and expands only after its derivations are dependable. Initialization rows already answer which pool, hook, currencies, LP fee configuration, block, and transaction established a relationship. The next rows are designed to answer concrete execution questions:
 
 - How many swaps touched this hook in the stated block range?
 - How many attempts reverted during the hook path?

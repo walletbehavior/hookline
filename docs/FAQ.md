@@ -10,11 +10,15 @@ Hook information is split across explorers, repositories, RPC calls, dashboards,
 
 ## Where does the current data come from?
 
-The board uses a timestamped v4.xyz community-indexer snapshot for hook discovery and aggregate pool and swap counts. Its directory metadata is community-curated, project-submitted, or Hookline-researched and labeled accordingly. Live contract evidence comes directly from configured Ethereum, BNB Chain, Base, Arbitrum One, and Robinhood Chain RPC endpoints. Hookline uses bytecode and call methods, current block height, deterministic hashing, and local permission decoding.
+The board uses a timestamped v4.xyz community-indexer snapshot for broad hook discovery and aggregate pool and swap counts. The Base Hook Tape separately reads finalized `Initialize` logs from the official Uniswap v4 PoolManager, retaining the pool, hook, currencies, configured LP fee, block, transaction, and raw log. Directory metadata is community-curated, project-submitted, or Hookline-researched and labeled accordingly. Live contract evidence comes directly from configured Ethereum, BNB Chain, Base, Arbitrum One, and Robinhood Chain RPC endpoints.
 
 ## Is the board exhaustive?
 
-No. The sync collects activity leaders for every two-nibble hook-address prefix exposed by the public index. That creates broad cross-chain coverage without overstating completeness or overloading a community service. First-party PoolManager event indexing is the path to exhaustive, reproducible coverage.
+No. The board sync collects activity leaders for every two-nibble hook-address prefix exposed by the public index. That creates broad cross-chain discovery without overstating completeness or overloading a community service. The Base Tape now owns its PoolManager initialization source and displays its exact live and historical coverage. Complete swap outcomes and other chains remain separate work.
+
+## What is the Hook Tape today?
+
+It is a first-party Base feed of finalized pool initialization evidence. Each row resolves a pool ID to its hook, currencies, configured LP fee field, source block, and transaction. A live cursor follows finalized blocks while a bounded cursor backfills from the PoolManager deployment block. This first slice proves relationships and provenance. Swap-level fee deltas, recipients, refusals, and hook-adjusted token flow appear only after the corresponding receipt or trace derivation is implemented.
 
 ## Why is the index snapshot older than the current time?
 
@@ -104,7 +108,7 @@ The paid endpoint uses x402 to request 0.01 USDC on Base for a higher-capacity H
 
 ## What does the Telegram bot do?
 
-Send it a token or hook address to navigate hook relationships, related tokens, markets, and trade previews. A website hook link opens the matching chain and profile directly. From a hook profile, enable a persistent alert for direct runtime changes, new indexed pool relationships, or indexed liquidity movement of 10% or more. Checks run every 10 minutes. Telegram does not sign; reviewed execution opens on the website for the user's wallet.
+Send it a token or hook address to navigate hook relationships, related tokens, markets, and trade previews. A website hook link opens the matching chain and profile directly. From a hook profile, enable a persistent alert for direct runtime changes, new finalized Base PoolManager relationships, new community-indexed relationships, or indexed liquidity movement of 10% or more. First-party pool alerts include the sourced project or hook name, full hook address, pool ID, finalized block, and copyable source transaction. Existing subscriptions seed silently, and historical backfill never becomes a false new-pool alert. Checks run every 10 minutes. Telegram does not sign; reviewed execution opens on the website for the user's wallet.
 
 Alert cards show sourced project, token, or contract names when available, the chain, and the full contract address in a copyable code line. Details, Pause/Resume, Add alert, Projects, and Main menu buttons handle routine navigation. An unavailable name remains explicitly unnamed rather than inventing an affiliation.
 

@@ -357,7 +357,7 @@ function envelope(method, params, id = 1) {
 }
 
 try {
-  for(const path of ['/api/project-maintenance/bot-status','/api/project-maintenance/scan']) {
+  for(const path of ['/api/project-maintenance/bot-status','/api/project-maintenance/scan','/api/tape-maintenance/scan']) {
     const response=await request(path,{method:path.endsWith('/scan')?'POST':'GET'});
     assert.equal(response.status,403);assert.equal(response.headers.get('cache-control'),'no-store');
   }
@@ -378,6 +378,7 @@ try {
   assert.match(rootHtml, /Free RPC/);
   assert.match(rootHtml, /Watchlists/);
   assert.match(rootHtml, /The hook board\./);
+  assert.match(rootHtml, /The hook tape\./);
   assert.match(rootHtml, /CROSS-CHAIN HOOK MARKET INTELLIGENCE/);
   assert.match(rootHtml, /Hookline docs/);
   assert.match(rootHtml, /Frequently asked questions/);

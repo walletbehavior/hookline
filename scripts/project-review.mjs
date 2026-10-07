@@ -16,7 +16,7 @@ function keychainToken() {
   catch {throw new Error('Project review credential is not configured on this host.');}
 }
 export async function reviewApi(path,{method='GET',body,token=keychainToken(),fetcher=fetch}={}) {
-  if(!/^\/api\/project-submissions(?:\/review-queue|\/[a-f0-9-]{36}\/review)$/.test(path) && !['/api/project-maintenance/scan','/api/project-maintenance/bot-status'].includes(path)) throw new Error('Review endpoint not allowed.');
+  if(!/^\/api\/project-submissions(?:\/review-queue|\/[a-f0-9-]{36}\/review)$/.test(path) && !['/api/project-maintenance/scan','/api/project-maintenance/bot-status','/api/tape-maintenance/scan'].includes(path)) throw new Error('Review endpoint not allowed.');
   if(typeof token!=='string'||token.length<32) throw new Error('Review credential is unavailable.');
   const response=await fetcher(`${origin}${path}`,{method,redirect:'error',signal:AbortSignal.timeout(path.endsWith('/scan')?55000:15000),
     headers:{authorization:`Bearer ${token}`,'content-type':'application/json'},...(body?{body:JSON.stringify(body)}:{})});
@@ -44,6 +44,7 @@ export async function main(args=process.argv.slice(2)) {
   const [command,id,decisionFile]=args;
   if(command==='setup'&&id==='--configure-hookline') return setup();
   if(command==='scan') {console.log(JSON.stringify(await reviewApi('/api/project-maintenance/scan',{method:'POST'})));return;}
+  if(command==='tape-scan') {console.log(JSON.stringify(await reviewApi('/api/tape-maintenance/scan',{method:'POST'})));return;}
   if(command==='bot-status') {console.log(JSON.stringify(await reviewApi('/api/project-maintenance/bot-status')));return;}
   if(command==='queue') {
     const result=await reviewApi('/api/project-submissions/review-queue');
@@ -58,7 +59,7 @@ export async function main(args=process.argv.slice(2)) {
     const decision=JSON.parse(raw);
     console.log(JSON.stringify(await reviewApi(`/api/project-submissions/${id}/review`,{method:'POST',body:decision}),null,2));return;
   }
-  throw new Error('Use: node scripts/project-review.mjs queue | review <id> <decision.json> | setup --configure-hookline');
+  throw new Error('Use: node scripts/project-review.mjs queue | scan | tape-scan | review <id> <decision.json> | setup --configure-hookline');
 }
 if(import.meta.url===pathToFileURL(process.argv[1] || '').href) main().catch(error=>{
   console.error(error?.message?.startsWith('Review API')?error.message:'Project review command failed. Check configuration or arguments.');

@@ -93,6 +93,21 @@ Public snapshots are briefly cached. Private receipt, DNS verification, owner-me
 
 `GET /api/v3/hook-markets?chainId={chainId}&address={hook}` resolves indexed pools and available market readings. Fee metadata contains `feeMode` (`static`, `dynamic`, `invalid`, or `unavailable`), a nullable `advertisedFeePercent`, and `feeSource`. A dynamic flag has no numeric current fee. These fields do not measure hook extraction.
 
+## Hook Tape
+
+The first Tape surface indexes the official Uniswap v4 PoolManager on Base at `0x498581ff718922c3f8e6a244956af099b2652b2b`.
+
+| Route | Response |
+| --- | --- |
+| `GET /api/tape/status` | Finalized head, live and historical cursors, gap size, saved pool and hook counts, source contracts, and derivation version |
+| `GET /api/tape/pools?limit=50` | Newest saved PoolManager initialization records |
+| `GET /api/tape/pools?hook={address}&limit=50` | Initialization records for one exact normalized hook address |
+| `GET /api/tape/pools?cursor={block}:{logIndex}` | Older records using the prior response's opaque-compatible cursor value |
+
+Each pool row contains the PoolManager, pool ID, hook, currencies, configured LP fee field, tick spacing, initial price and tick, block/hash, transaction/hash, log index, finalized read boundary, retained source log, and derivation version. The API currently proves initialization relationships. It does not claim that a static fee remained current, that a dynamic fee had a particular value, or that a hook extracted a measured amount during a swap.
+
+The scanner keeps a finalized live cursor current and advances a separate bounded historical cursor from the PoolManager deployment block. A cursor advances only after its decoded source rows are stored. Failed reads retain the last good evidence and cursor. Public Tape responses are briefly cacheable; the operator scan route is authenticated and never public.
+
 ## Private accounts
 
 Account endpoints accept only the canonical `https://hookline.world` origin, use secure HttpOnly same-origin cookies, and return `Cache-Control: no-store`. They are not public cross-origin APIs. Writes require `X-Hookline-CSRF` from the authenticated session, except the browser-bound sign-in challenge and login. Signatures authorize identity, never spending.
