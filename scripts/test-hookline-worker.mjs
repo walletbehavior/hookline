@@ -25,7 +25,7 @@ globalThis.caches = {
 const expectedOwner = `0x${'ab'.repeat(20)}`;
 const testX402PayTo = `0x${'ef'.repeat(20)}`;
 const ponsAddress = '0xE5e702641Ea86F4ae6cC3cDaeD2B886f976Be044';
-const engramAddress = '0x0ee851f1fe2f4bdba79fee78969e329c136ca0cc';
+const persistentHookAddress = '0x0000000aa232009084bd71a5797d089aa4edfad4';
 const tokenPoolId = `4663_0x${'79'.repeat(32)}`;
 let failedUpstream = null;
 const executionCalls = [];
@@ -194,7 +194,7 @@ globalThis.fetch = async (url, init = {}) => {
     const parsedUrl = new URL(urlString);
     const chainId = parsedUrl.searchParams.get('chainId');
     const hookAddress = parsedUrl.searchParams.get('hookAddress');
-    if (String(hookAddress).toLowerCase() === engramAddress) {
+    if (String(hookAddress).toLowerCase() === persistentHookAddress) {
       return new Response(JSON.stringify({ Pool: [] }), { status: 200, headers: { 'Content-Type': 'application/json' } });
     }
     const robinhood = chainId === '4663';
@@ -465,6 +465,7 @@ try {
   const markets = await marketsResponse.json();
   assert.equal(markets.markets.length, 1);
   assert.equal(markets.markets[0].baseToken.symbol, 'TEST');
+  assert.equal(markets.markets[0].advertisedFeePercent, 0.3);
   assert.equal(markets.markets[0].marketCap, 420000);
   assert.match(markets.markets[0].chartUrl, /^https:\/\/dexscreener\.com\//);
 
@@ -483,12 +484,12 @@ try {
   assert.equal(robinhoodMarkets.markets[0].volume24h, 88000);
   assert.equal(robinhoodMarkets.markets[0].marketCap, 5100000);
 
-  const persistentMarketsResponse = await request(`/api/v3/hook-markets?chainId=1&address=${engramAddress}`);
+  const persistentMarketsResponse = await request(`/api/v3/hook-markets?chainId=1&address=${persistentHookAddress}`);
   assert.equal(persistentMarketsResponse.status, 200);
   const persistentMarkets = await persistentMarketsResponse.json();
   assert.match(persistentMarkets.source, /persistent index/);
-  assert.equal(persistentMarkets.markets[0].baseToken.symbol, 'ENGRAM');
-  assert.ok(persistentMarkets.markets[0].baseToken.address);
+  assert.ok(persistentMarkets.markets.length >= 1);
+  assert.match(persistentMarkets.markets[0].poolName, /USDC|WETH|USDT/);
 
   await request(`/api/hook-markets?chainId=4663&address=${ponsAddress.toLowerCase()}`);
   const ponsV4Call = marketUpstreamCalls.find((value) => value.includes(`hookAddress=${encodeURIComponent(ponsAddress)}`));
@@ -623,7 +624,10 @@ try {
   assert.equal(healthResponse.status, 200);
   const health = await healthResponse.json();
   assert.equal(health.status, 'live');
-  assert.equal(health.transaction_submission_supported, false);
+  assert.equal(health.transaction_submission_supported, true);
+  assert.equal(health.transaction_submission_location, 'user_wallet');
+  assert.equal(health.server_transaction_submission_supported, false);
+  assert.equal(health.public_rpc_transaction_submission_supported, false);
 
   const metricsResponse = await request('/metrics');
   assert.equal(metricsResponse.status, 200);

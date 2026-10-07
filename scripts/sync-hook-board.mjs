@@ -44,7 +44,7 @@ const CHAIN_NAMES = Object.freeze({
   81457: 'Blast',
 });
 
-const SUPPORTED_LIVE_CHAINS = new Set([1, 8453, 42161, 4663]);
+const SUPPORTED_LIVE_CHAINS = new Set([1, 56, 8453, 42161, 4663]);
 
 const HOOKLINE_RESEARCHED_PROJECTS = Object.freeze([
   {

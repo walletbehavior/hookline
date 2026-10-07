@@ -11,13 +11,19 @@ if (![hookLimit, poolsPerHook, concurrency].every((value) => Number.isSafeIntege
   throw new Error('token index limits must be positive integers');
 }
 
-const hooks = hooksSnapshot.hooks
-  .filter((hook) => hook?.address && Number(hook.numberOfPools) > 0)
+const rankedHooks = hooksSnapshot.hooks
+  .filter((hook) => hook?.address && (Number(hook.numberOfPools) > 0 || hook.project?.provenance === 'Hookline researched'))
   .sort((left, right) => (
     Number(right.numberOfSwaps || 0) - Number(left.numberOfSwaps || 0)
     || Number(right.numberOfPools || 0) - Number(left.numberOfPools || 0)
-  ))
-  .slice(0, hookLimit);
+  ));
+const hooks = [...rankedHooks.slice(0, hookLimit)];
+const selectedHookIds = new Set(hooks.map((hook) => hook.id));
+for (const hook of rankedHooks) {
+  if (hook.project?.provenance !== 'Hookline researched' || selectedHookIds.has(hook.id)) continue;
+  hooks.push(hook);
+  selectedHookIds.add(hook.id);
+}
 
 function finite(value) {
   const number = Number(value);

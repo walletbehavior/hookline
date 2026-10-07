@@ -1987,11 +1987,13 @@
       head.append(identity, changeNode);
       const pair = makeElement('p', 'market-pair', `${market.baseToken?.symbol || '?'} / ${market.quoteToken?.symbol || '?'} · ${market.dexLabel || 'DEX'}`);
       const stats = makeElement('div', 'market-stats');
+      const advertisedFee = finiteNumberOrNull(market.advertisedFeePercent);
       [
         ['PRICE', formatUsd(market.priceUsd, false)],
         ['MKT CAP', formatUsd(market.marketCap, true)],
         ['LIQ', formatUsd(market.liquidityUsd, true)],
         ['VOL 24H', formatUsd(market.volume24h, true)],
+        ['POOL FEE', advertisedFee == null ? '—' : `${advertisedFee}% advertised`],
       ].forEach(([label, value]) => {
         const stat = makeElement('div', '');
         stat.append(makeElement('span', '', label), makeElement('strong', '', value));

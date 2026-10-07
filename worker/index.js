@@ -1069,6 +1069,11 @@ function marketProjectLink(info, type) {
     : safeExternalUrl(candidate?.url, ['x.com', 'www.x.com', 'twitter.com', 'www.twitter.com']);
 }
 
+function advertisedPoolFeePercent(poolName) {
+  const match = String(poolName || '').match(/-\s*([0-9]+(?:\.[0-9]+)?)%\s*$/);
+  return match ? finiteMarketNumber(match[1]) : null;
+}
+
 async function resolveHookMarkets(chainId, address) {
   const profile = indexedHook(chainId, address);
   const v4Url = new URL(V4_POOLS_BY_HOOK_URL);
@@ -1125,6 +1130,7 @@ async function resolveHookMarkets(chainId, address) {
     return {
       poolId: typeof pool.id === 'string' ? pool.id : null,
       poolName: typeof pool.name === 'string' ? pool.name.slice(0, 140) : null,
+      advertisedFeePercent: advertisedPoolFeePercent(pool.name),
       pairAddress: addressKey,
       baseToken: tokenShape(pair?.baseToken) || tokenShape(persistent?.baseToken) || indexedBase || { address: null, name: fallbackBase || null, symbol: fallbackBase || null },
       quoteToken: tokenShape(pair?.quoteToken) || tokenShape(persistent?.quoteToken) || indexedQuote || { address: null, name: fallbackQuote || null, symbol: fallbackQuote || null },
@@ -1295,7 +1301,10 @@ function jsonHealthBody() {
     version: '0.1.0',
     status: 'live',
     mode: 'worker',
-    transaction_submission_supported: false,
+    transaction_submission_supported: true,
+    transaction_submission_location: 'user_wallet',
+    server_transaction_submission_supported: false,
+    public_rpc_transaction_submission_supported: false,
     chains: SUPPORTED_CHAINS.length,
     chainsSupported: SUPPORTED_CHAINS,
     documentationUrl: '/rpc',
@@ -1317,7 +1326,10 @@ function jsonDocsBody(request) {
     version: '0.1.0',
     status: 'live',
     mode: 'worker',
-    transaction_submission_supported: false,
+    transaction_submission_supported: true,
+    transaction_submission_location: 'user_wallet',
+    server_transaction_submission_supported: false,
+    public_rpc_transaction_submission_supported: false,
     origin: origin,
     routes: {
       rpcRoot: '/rpc',
@@ -1348,6 +1360,7 @@ function jsonDocsBody(request) {
       upstream: cfg.upstream,
       route: `/rpc/${idKey}`,
       transaction_submission_supported: false,
+      browser_wallet_submission_supported: EXECUTION_CHAIN_SET.has(Number(idKey)),
     })),
     curlExample: JSON_DOCS_CURL_EXAMPLE(origin),
     paidAccess: {
