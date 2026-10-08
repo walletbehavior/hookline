@@ -18,7 +18,7 @@ No. The board sync collects activity leaders for every two-nibble hook-address p
 
 ## What is the Hook Tape today?
 
-It is a first-party Base feed with two views. Pool births resolve a pool ID to its hook, currencies, configured LP fee field, source block, and transaction. Swaps retain finalized PoolManager events for already-resolved hooked pools, including signed pool deltas and the exact swap fee PoolManager emitted. Raw swap rows are bounded to seven days and 200,000 rows to keep infrastructure cost predictable. Separate hook transfers, fee recipients, rejected attempts, and hook-adjusted token flow appear only after receipt or trace evidence supports them.
+It is a first-party Base feed with two views. Pool births resolve a pool ID to its hook, currencies, configured LP fee field, source block, and transaction. Swaps retain finalized PoolManager events for already-resolved hooked pools, including signed pool deltas and the exact swap fee PoolManager emitted. Successful receipts add bounded ERC-20 transfer evidence when a transfer touches the hook or a pool currency. Those flows are not automatically fees or payouts. Raw swap rows are bounded to seven days and 200,000 rows to keep infrastructure cost predictable. Rejected attempts, native-value flow, and call-path attribution require trace evidence.
 
 ## Why is the index snapshot older than the current time?
 

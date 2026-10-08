@@ -3,7 +3,8 @@ import { readFileSync } from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
 import {
   BASE_CHAIN_ID, BASE_POOL_MANAGER, BASE_POOL_MANAGER_DEPLOYMENT_BLOCK, INITIALIZE_TOPIC,
-  SWAP_TOPIC, TAPE_SCAN_ID, decodeInitializeLog, decodeSwapLog, handleTapeApi, liveTapePoolsForHook, liveTapeSwapFeesForHook, runBaseTapeScan,
+  SWAP_TOPIC, TRANSFER_TOPIC, TAPE_SCAN_ID, decodeInitializeLog, decodeSwapLog, decodeSwapReceipt,
+  handleTapeApi, liveTapePoolsForHook, liveTapeSwapFeesForHook, runBaseTapeScan,
 } from '../projects/tape.js';
 
 class D1 {
@@ -11,6 +12,7 @@ class D1 {
     this.sqlite=new DatabaseSync(':memory:');
     this.sqlite.exec(readFileSync(new URL('../drizzle/0007_hook_tape.sql',import.meta.url),'utf8'));
     this.sqlite.exec(readFileSync(new URL('../drizzle/0008_hook_tape_swaps.sql',import.meta.url),'utf8'));
+    this.sqlite.exec(readFileSync(new URL('../drizzle/0009_hook_tape_receipts.sql',import.meta.url),'utf8'));
   }
   prepare(sql) {
     const database=this;let values=[];
@@ -56,8 +58,18 @@ function swapLog({blockNumber,logIndex=0,transaction=blockNumber*100+logIndex,po
   };
 }
 
+function transferLog({blockNumber,transaction,logIndex=1,token=address('1'),from=address('8'),to=address('4'),value=25n}={}) {
+  return {address:token,topics:[TRANSFER_TOPIC,`0x${addressWord(from)}`,`0x${addressWord(to)}`],data:`0x${word(value)}`,
+    blockNumber:quantity(blockNumber),blockHash:hash(blockNumber+10_000_000),transactionHash:hash(transaction),logIndex:quantity(logIndex),removed:false};
+}
+
+function receipt({blockNumber,transaction,logs=[]}={}) {
+  return {transactionHash:hash(transaction),blockNumber:quantity(blockNumber),blockHash:hash(blockNumber+10_000_000),status:'0x1',
+    gasUsed:'0x249f0',effectiveGasPrice:'0x4c4b40',logs};
+}
+
 class RPC {
-  constructor(tip=BASE_POOL_MANAGER_DEPLOYMENT_BLOCK+2000){this.tip=tip;this.logs=[];this.swapLogs=[];this.calls=[];this.failLogs=false;this.pin=null;}
+  constructor(tip=BASE_POOL_MANAGER_DEPLOYMENT_BLOCK+2000){this.tip=tip;this.logs=[];this.swapLogs=[];this.receipts=new Map();this.calls=[];this.failLogs=false;this.pin=null;}
   rpc=async(chainId,method,params)=>{
     assert.equal(chainId,BASE_CHAIN_ID);this.calls.push({method,params:structuredClone(params)});
     if(method==='eth_getBlockByNumber') return {number:quantity(this.tip),hash:hash(this.tip+20_000_000),timestamp:quantity(Math.floor(NOW/1000))};
@@ -67,6 +79,7 @@ class RPC {
       const source=filter.topics[0]===SWAP_TOPIC?this.swapLogs:this.logs;
       return source.filter((log)=>Number(BigInt(log.blockNumber))>=from&&Number(BigInt(log.blockNumber))<=to);
     }
+    if(method==='eth_getTransactionReceipt') return this.receipts.get(params[0]) || null;
     throw new Error(`Unexpected method ${method}`);
   };
   install(){this.rpc.pinBlock=(chainId,block)=>{assert.equal(chainId,BASE_CHAIN_ID);this.pin=block;};this.rpc.upstreamRequests=()=>this.calls.length;return this.rpc;}
@@ -100,14 +113,31 @@ test('strict Swap decoding preserves signed pool deltas and the reported swap fe
   assert.throws(()=>decodeSwapLog({...source,topics:[INITIALIZE_TOPIC,...source.topics.slice(1)]}),/tape_swap_topics_invalid/);
 });
 
+test('receipt decoding retains relevant ERC-20 flows without calling them fees',()=>{
+  const blockNumber=BASE_POOL_MANAGER_DEPLOYMENT_BLOCK+3,transaction=777,hook=address('4');
+  const context={transactionHash:hash(transaction),blockNumber,blockHash:hash(blockNumber+10_000_000),hookAddress:hook,currency0:address('1'),currency1:address('0')};
+  const relevant=transferLog({blockNumber,transaction,token:address('1'),from:address('8'),to:address('9'),value:25n});
+  const hookLinked=transferLog({blockNumber,transaction,logIndex:2,token:address('7'),from:hook,to:address('6'),value:5n});
+  const unrelated=transferLog({blockNumber,transaction,logIndex:3,token:address('7'),from:address('8'),to:address('9'),value:7n});
+  const decoded=decodeSwapReceipt(receipt({blockNumber,transaction,logs:[relevant,hookLinked,unrelated]}),[context]);
+  assert.equal(decoded.transferLogs,3);assert.equal(decoded.currencyTransfers,1);assert.equal(decoded.hookLinkedTransfers,1);
+  assert.equal(decoded.selectedTransfers.length,2);assert.equal(decoded.selectedTransfers[0].value,'25');assert.equal(decoded.truncated,false);
+  assert.throws(()=>decodeSwapReceipt({...receipt({blockNumber,transaction,logs:[relevant]}),blockHash:hash(9)},[context]),/tape_receipt_source_mismatch/);
+  assert.throws(()=>decodeSwapReceipt(receipt({blockNumber,transaction,logs:[{...relevant,data:'0x00'}]}),[context]),/tape_receipt_transfer_invalid/);
+});
+
 test('scanner stores recent finalized evidence, bounded history, and explicit coverage',async()=>{
   const env={DB:new D1()},transport=new RPC(),tip=transport.tip,liveBlock=tip-5,historicalBlock=BASE_POOL_MANAGER_DEPLOYMENT_BLOCK+5;
   transport.logs=[initializeLog({blockNumber:historicalBlock,pool:1,hook:address('4')}),initializeLog({blockNumber:liveBlock,pool:2,hook:address('5'),fee:0x800000})];
   transport.swapLogs=[swapLog({blockNumber:liveBlock+1,pool:2,fee:4321})];
+  const swapTransaction=(liveBlock+1)*100;
+  transport.receipts.set(hash(swapTransaction),receipt({blockNumber:liveBlock+1,transaction:swapTransaction,
+    logs:[transferLog({blockNumber:liveBlock+1,transaction:swapTransaction,token:address('1'),from:address('8'),to:address('5'),value:44n})]}));
   const result=await runBaseTapeScan(env,{rpc:transport.install(),now:NOW});
   assert.equal(result.status,'ok');assert.equal(result.rows,2);assert.equal(result.liveThrough,tip);
   assert.equal(result.historicalThrough,tip-500);assert.equal(result.historicalComplete,true);
   assert.equal(result.swaps.status,'ok');assert.equal(result.swaps.rows,1);assert.equal(result.swaps.liveThrough,tip);
+  assert.equal(result.receipts.status,'ok');assert.equal(result.receipts.saved,1);
   assert.equal((await env.DB.prepare('SELECT COUNT(*) AS n FROM hook_tape_pools').first()).n,2);
   const state=await env.DB.prepare('SELECT * FROM hook_tape_scan_state WHERE id=?').bind(TAPE_SCAN_ID).first();
   assert.equal(state.live_started_block,tip-499);assert.equal(state.live_next_block,tip+1);assert.equal(state.historical_complete,1);
@@ -115,6 +145,7 @@ test('scanner stores recent finalized evidence, bounded history, and explicit co
 
   const status=await json(new Request('https://hookline.world/api/tape/status'),env);
   assert.equal(status.response.status,200);assert.equal(status.body.counts.pools,2);assert.equal(status.body.counts.hooks,2);assert.equal(status.body.counts.swaps,1);
+  assert.equal(status.body.counts.receipts,1);assert.equal(status.body.counts.retainedRelevantTransfers,1);
   assert.equal(status.body.coverage.liveThrough,tip);assert.equal(status.body.coverage.gapBlocks,0);
   assert.equal(status.body.swapCoverage.liveThrough,tip);assert.match(status.body.scope,/Initialize and Swap logs/i);
   const pools=await json(new Request(`https://hookline.world/api/tape/pools?hook=${address('5')}&limit=10`),env);
@@ -129,6 +160,8 @@ test('scanner stores recent finalized evidence, bounded history, and explicit co
   assert.equal(swaps.response.status,200);assert.equal(swaps.body.swaps.length,1);
   assert.equal(swaps.body.swaps[0].poolManagerFee.percent,0.4321);assert.equal(swaps.body.swaps[0].poolDeltas.amount0,'-1000');
   assert.equal(swaps.body.swaps[0].evidence.derivationVersion,'swap-event-v1');
+  assert.equal(swaps.body.swaps[0].receipt.tokenFlows.length,1);assert.equal(swaps.body.swaps[0].receipt.tokenFlows[0].value,'44');
+  assert.equal(swaps.body.swaps[0].receipt.tokenFlows[0].relationship.touchesHook,true);
   const activity=await json(new Request(`https://hookline.world/api/tape/activity?hook=${address('5')}&blocks=500`),env);
   assert.equal(activity.response.status,200);assert.equal(activity.body.summary.swaps,1);assert.equal(activity.body.summary.pools,1);
   assert.equal(activity.body.summary.poolManagerFee.minPercent,0.4321);assert.equal(activity.body.pools[0].latestTransactionHash,hash((liveBlock+1)*100));

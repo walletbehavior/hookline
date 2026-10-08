@@ -10,11 +10,13 @@ export const BASE_POOL_MANAGER = '0x498581ff718922c3f8e6a244956af099b2652b2b';
 export const BASE_POOL_MANAGER_DEPLOYMENT_BLOCK = 25350988;
 export const INITIALIZE_TOPIC = '0xdd466e674ea557f56295e2d0218a125ea4b4f0f6f3307b95f85e6110838d6438';
 export const SWAP_TOPIC = '0x40e9cecb9f5f1f1c5b9c97dec2917b7ee92e57ba5563708daca94dd84ad7112f';
+export const TRANSFER_TOPIC = '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef';
 export const TAPE_SCAN_ID = 'base-poolmanager-initialize-v1';
 export const SWAP_TAPE_SCAN_ID = 'base-poolmanager-swap-v1';
 export const TAPE_SCHEMA_VERSION = 1;
 export const TAPE_DERIVATION_VERSION = 'initialize-v1';
 export const SWAP_TAPE_DERIVATION_VERSION = 'swap-event-v1';
+export const RECEIPT_TAPE_DERIVATION_VERSION = 'receipt-transfer-v1';
 
 const ADDRESS = /^0x[0-9a-f]{40}$/;
 const HASH = /^0x[0-9a-f]{64}$/;
@@ -30,6 +32,9 @@ const SWAP_WINDOWS_PER_RUN = 6;
 const SWAP_LIVE_LOOKBACK_BLOCKS = 150;
 const MAX_SWAP_LOGS_PER_SEGMENT = 500;
 const MAX_SWAP_ROWS_PER_RUN = 1000;
+const MAX_RECEIPTS_PER_RUN = 12;
+const MAX_RECEIPT_LOGS = 1024;
+const MAX_SELECTED_TRANSFERS = 64;
 const SWAP_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
 const MAX_RETAINED_SWAPS = 200_000;
 const MAX_SWAP_PRUNE_PER_RUN = 5_000;
@@ -47,6 +52,12 @@ function integerQuantity(value, code = 'tape_log_quantity_invalid') {
   const number = Number(BigInt(normalized));
   if (!Number.isSafeInteger(number) || number < 0) throw failure(code);
   return number;
+}
+
+function decimalQuantity(value,code='tape_receipt_quantity_invalid') {
+  const normalized=String(value || '').toLowerCase();
+  if(!QUANTITY.test(normalized)) throw failure(code);
+  return BigInt(normalized).toString();
 }
 
 function addressWord(value, code) {
@@ -172,6 +183,50 @@ export function decodeSwapLog(log) {
   };
 }
 
+/** Normalize only receipt-level ERC-20 Transfer evidence that is relevant to
+ * one of the saved swaps in the transaction. A transfer touching a hook or a
+ * pool currency is observable evidence, but it is not automatically a fee.
+ */
+export function decodeSwapReceipt(receipt,contexts) {
+  if(!receipt || typeof receipt!=='object' || !Array.isArray(contexts) || !contexts.length) throw failure('tape_receipt_invalid');
+  const transactionHash=String(receipt.transactionHash || '').toLowerCase(),blockHash=String(receipt.blockHash || '').toLowerCase();
+  const blockNumber=integerQuantity(receipt.blockNumber,'tape_receipt_block_invalid');
+  if(!HASH.test(transactionHash) || !HASH.test(blockHash) || integerQuantity(receipt.status,'tape_receipt_status_invalid')!==1) throw failure('tape_receipt_identity_invalid');
+  const expectedTransaction=String(contexts[0].transactionHash || contexts[0].transaction_hash || '').toLowerCase();
+  const expectedBlock=Number(contexts[0].blockNumber ?? contexts[0].block_number),expectedHash=String(contexts[0].blockHash || contexts[0].block_hash || '').toLowerCase();
+  if(transactionHash!==expectedTransaction || blockNumber!==expectedBlock || blockHash!==expectedHash) throw failure('tape_receipt_source_mismatch');
+  const hooks=new Set(),currencies=new Set();
+  for(const context of contexts) {
+    const tx=String(context.transactionHash || context.transaction_hash || '').toLowerCase();
+    const number=Number(context.blockNumber ?? context.block_number),hash=String(context.blockHash || context.block_hash || '').toLowerCase();
+    const hook=String(context.hookAddress || context.hook_address || '').toLowerCase();
+    const currency0=String(context.currency0 || '').toLowerCase(),currency1=String(context.currency1 || '').toLowerCase();
+    if(tx!==transactionHash || number!==blockNumber || hash!==blockHash || !ADDRESS.test(hook) || !ADDRESS.test(currency0) || !ADDRESS.test(currency1)) throw failure('tape_receipt_context_invalid');
+    hooks.add(hook);if(currency0!==ZERO_ADDRESS) currencies.add(currency0);if(currency1!==ZERO_ADDRESS) currencies.add(currency1);
+  }
+  if(!Array.isArray(receipt.logs) || receipt.logs.length>MAX_RECEIPT_LOGS) throw failure('tape_receipt_logs_invalid');
+  let transferLogs=0,relevantTransfers=0,hookLinkedTransfers=0,currencyTransfers=0;const selected=[];
+  for(const log of receipt.logs) {
+    if(String(log?.topics?.[0] || '').toLowerCase()!==TRANSFER_TOPIC) continue;
+    transferLogs++;
+    const token=String(log.address || '').toLowerCase(),logTransaction=String(log.transactionHash || '').toLowerCase();
+    const logBlockHash=String(log.blockHash || '').toLowerCase(),data=String(log.data || '').toLowerCase();
+    if(!ADDRESS.test(token) || logTransaction!==transactionHash || logBlockHash!==blockHash
+      || integerQuantity(log.blockNumber,'tape_receipt_log_block_invalid')!==blockNumber || log.removed===true
+      || !Array.isArray(log.topics) || log.topics.length!==3 || !/^0x[0-9a-f]{64}$/.test(data)) throw failure('tape_receipt_transfer_invalid');
+    const from=addressWord(log.topics[1],'tape_receipt_transfer_address_invalid'),to=addressWord(log.topics[2],'tape_receipt_transfer_address_invalid');
+    const logIndex=integerQuantity(log.logIndex,'tape_receipt_log_index_invalid'),value=BigInt(data).toString();
+    const touchesHook=hooks.has(from) || hooks.has(to),matchesPoolCurrency=currencies.has(token);
+    if(touchesHook) hookLinkedTransfers++;if(matchesPoolCurrency) currencyTransfers++;
+    if(touchesHook || matchesPoolCurrency) {relevantTransfers++;if(selected.length<MAX_SELECTED_TRANSFERS) selected.push({token,from,to,value,logIndex});}
+  }
+  selected.sort((left,right)=>left.logIndex-right.logIndex);
+  return {chainId:BASE_CHAIN_ID,transactionHash,blockNumber,blockHash,status:1,
+    gasUsed:decimalQuantity(receipt.gasUsed),effectiveGasPrice:receipt.effectiveGasPrice==null?null:decimalQuantity(receipt.effectiveGasPrice),
+    logsCount:receipt.logs.length,transferLogs,hookLinkedTransfers,currencyTransfers,
+    selectedTransfers:selected,truncated:relevantTransfers>selected.length};
+}
+
 function poolStatement(db, item, now, finalized) {
   return db.prepare(`INSERT INTO hook_tape_pools(
     event_id,chain_id,manager_address,pool_id,hook_address,currency0,currency1,fee_raw,fee_mode,tick_spacing,
@@ -212,6 +267,46 @@ async function saveSwaps(db, items, pools, now, finalized) {
   }
 }
 
+function receiptStatement(db,item,now,finalized) {
+  return db.prepare(`INSERT INTO hook_tape_receipts(
+    transaction_hash,chain_id,block_number,block_hash,status,gas_used,effective_gas_price,logs_count,
+    transfer_logs,hook_linked_transfers,currency_transfers,selected_transfers,truncated,transfers_json,
+    observed_at,finalized_at_block,finalized_at_hash
+  ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+  ON CONFLICT(transaction_hash) DO UPDATE SET
+    finalized_at_block=MAX(hook_tape_receipts.finalized_at_block,excluded.finalized_at_block),
+    finalized_at_hash=CASE WHEN excluded.finalized_at_block>=hook_tape_receipts.finalized_at_block THEN excluded.finalized_at_hash ELSE hook_tape_receipts.finalized_at_hash END`)
+    .bind(item.transactionHash,item.chainId,item.blockNumber,item.blockHash,item.status,item.gasUsed,item.effectiveGasPrice,item.logsCount,
+      item.transferLogs,item.hookLinkedTransfers,item.currencyTransfers,item.selectedTransfers.length,item.truncated?1:0,JSON.stringify(item.selectedTransfers),
+      now,finalized.number,finalized.hash);
+}
+
+async function enrichSwapReceipts(db,rpc,now,finalized) {
+  const candidates=await db.prepare(`SELECT s.transaction_hash,MAX(s.block_number) AS block_number,MAX(s.block_hash) AS block_hash
+    FROM hook_tape_swaps s LEFT JOIN hook_tape_receipts r ON r.transaction_hash=s.transaction_hash
+    WHERE s.chain_id=? AND r.transaction_hash IS NULL
+    GROUP BY s.transaction_hash ORDER BY block_number DESC LIMIT ?`).bind(BASE_CHAIN_ID,MAX_RECEIPTS_PER_RUN).all();
+  let saved=0,unavailable=0,failed=0;let lastFailure=null;
+  for(const candidate of candidates?.results || []) {
+    try {
+      const rows=await db.prepare(`SELECT transaction_hash,block_number,block_hash,hook_address,currency0,currency1
+        FROM hook_tape_swaps WHERE chain_id=? AND transaction_hash=? ORDER BY log_index ASC`).bind(BASE_CHAIN_ID,candidate.transaction_hash).all();
+      const contexts=Array.isArray(rows?.results)?rows.results:[];
+      if(!contexts.length) continue;
+      const receipt=await rpc(BASE_CHAIN_ID,'eth_getTransactionReceipt',[candidate.transaction_hash]);
+      if(!receipt) {unavailable++;continue;}
+      const decoded=decodeSwapReceipt(receipt,contexts);
+      await receiptStatement(db,decoded,now,finalized).run();saved++;
+    } catch(error) {
+      const code=safeError(error);lastFailure=code;
+      if(/^scan_(rpc_budget|deadline)$/.test(error?.code || error?.message || '')) break;
+      failed++;
+    }
+  }
+  return {status:lastFailure?'degraded':'ok',attempted:Number(candidates?.results?.length || 0),saved,unavailable,failed,
+    ...(lastFailure?{failure:lastFailure}:{})};
+}
+
 async function knownHookedPools(db, poolIds) {
   const unique=[...new Set(poolIds)],found=new Map();
   for(let offset=0;offset<unique.length;offset+=75) {
@@ -236,7 +331,11 @@ async function pruneSwaps(db,now) {
   const overflow=await db.prepare(`DELETE FROM hook_tape_swaps WHERE event_id IN (
     SELECT event_id FROM hook_tape_swaps ORDER BY block_number DESC,log_index DESC LIMIT ? OFFSET ?
   )`).bind(MAX_SWAP_PRUNE_PER_RUN,MAX_RETAINED_SWAPS).run();
-  return Number(expired?.meta?.changes || 0)+Number(overflow?.meta?.changes || 0);
+  const orphanReceipts=await db.prepare(`DELETE FROM hook_tape_receipts WHERE transaction_hash IN (
+    SELECT r.transaction_hash FROM hook_tape_receipts r LEFT JOIN hook_tape_swaps s ON s.transaction_hash=r.transaction_hash
+    WHERE s.transaction_hash IS NULL ORDER BY r.observed_at ASC LIMIT ?
+  )`).bind(MAX_SWAP_PRUNE_PER_RUN).run();
+  return Number(expired?.meta?.changes || 0)+Number(overflow?.meta?.changes || 0)+Number(orphanReceipts?.meta?.changes || 0);
 }
 
 async function initializeState(db, now) {
@@ -407,6 +506,7 @@ export async function runBaseTapeScan(env, { rpc, now = Date.now() } = {}) {
     // Current swap evidence is more time-sensitive than the bounded historical
     // initialization catch-up. Seed it before archive-provider work begins.
     const swaps=await scanBaseSwaps(db,rpc,now,finalized);
+    const receipts=await enrichSwapReceipts(db,rpc,now,finalized);
     let historicalFailure=null;
     try {
       for (let window = 0; window < HISTORICAL_WINDOWS_PER_RUN && historicalNext < liveStarted && rows < MAX_ROWS_PER_RUN; window++) {
@@ -427,7 +527,7 @@ export async function runBaseTapeScan(env, { rpc, now = Date.now() } = {}) {
     state = await db.prepare('SELECT historical_next_block,live_started_block,live_next_block,historical_complete FROM hook_tape_scan_state WHERE id=?').bind(TAPE_SCAN_ID).first();
     return { status:historicalFailure?'degraded':'ok', chainId:BASE_CHAIN_ID, finalizedBlock:finalized.number, rows, segments,
       historicalThrough:Number(state.historical_next_block)-1, liveThrough:Number(state.live_next_block)-1,
-      historicalComplete:Boolean(state.historical_complete),historicalFailure,swaps,
+      historicalComplete:Boolean(state.historical_complete),historicalFailure,swaps,receipts,
       rpcRequests:typeof rpc.upstreamRequests==='function'?rpc.upstreamRequests():null };
   } catch (error) {
     await db.prepare('UPDATE hook_tape_scan_state SET last_checked_at=?,last_failure=?,updated_at=? WHERE id=?')
@@ -464,7 +564,26 @@ function publicPool(row) {
   };
 }
 
-function publicSwap(row) {
+function publicReceipt(row,swap) {
+  if(!row) return null;
+  let transfers=[];
+  try {transfers=JSON.parse(row.transfers_json);} catch {transfers=[];}
+  if(!Array.isArray(transfers)) transfers=[];
+  const hook=String(swap.hook_address || '').toLowerCase(),currencies=new Set([swap.currency0,swap.currency1].map(value=>String(value || '').toLowerCase()));
+  const relevant=transfers.filter((flow)=>flow && (flow.from===hook || flow.to===hook || currencies.has(flow.token))).map((flow)=>({
+    token:flow.token,from:flow.from,to:flow.to,value:String(flow.value),logIndex:Number(flow.logIndex),
+    relationship:{touchesHook:flow.from===hook || flow.to===hook,matchesPoolCurrency:currencies.has(flow.token)},
+  }));
+  return {status:'success',gasUsed:row.gas_used,effectiveGasPrice:row.effective_gas_price,
+    transactionLogs:Number(row.logs_count),erc20TransferLogs:Number(row.transfer_logs),
+    retainedRelevantTransfers:Number(row.selected_transfers),truncated:Boolean(row.truncated),tokenFlows:relevant,
+    scope:'Successful transaction receipt. Transfers are observable ERC-20 flows, not automatic hook-fee attribution.',
+    evidence:{kind:'normalized transaction receipt logs',finality:'receipt matched the saved finalized swap block',
+      finalizedAtBlock:Number(row.finalized_at_block),finalizedAtHash:row.finalized_at_hash,
+      derivationVersion:RECEIPT_TAPE_DERIVATION_VERSION}};
+}
+
+function publicSwap(row,receipt=null) {
   let rawLog=null;
   try {rawLog=JSON.parse(row.raw_log_json);} catch {rawLog=null;}
   return {
@@ -476,6 +595,7 @@ function publicSwap(row) {
       scope:'fee reported by PoolManager for this swap; excludes separately attributable hook transfers'},
     blockNumber:Number(row.block_number),blockHash:row.block_hash,transactionHash:row.transaction_hash,
     logIndex:Number(row.log_index),observedAt:iso(row.observed_at),
+    receipt:publicReceipt(receipt,row),
     evidence:{kind:'PoolManager Swap log',finality:'requested at a finalized block',
       finalizedAtBlock:Number(row.finalized_at_block),finalizedAtHash:row.finalized_at_hash,
       derivationVersion:SWAP_TAPE_DERIVATION_VERSION,rawLog},
@@ -484,7 +604,7 @@ function publicSwap(row) {
 
 async function tapeStatus(env) {
   const db = database(env);
-  const [state, counts, swapState, swapCounts] = await Promise.all([
+  const [state, counts, swapState, swapCounts, receiptCounts] = await Promise.all([
     db.prepare('SELECT * FROM hook_tape_scan_state WHERE id=?').bind(TAPE_SCAN_ID).first(),
     db.prepare(`SELECT COUNT(*) AS pools,COUNT(DISTINCT CASE WHEN hook_address!=? THEN hook_address END) AS hooks,
       SUM(CASE WHEN hook_address!=? THEN 1 ELSE 0 END) AS hooked_pools,
@@ -493,17 +613,22 @@ async function tapeStatus(env) {
     db.prepare('SELECT * FROM hook_tape_swap_state WHERE id=?').bind(SWAP_TAPE_SCAN_ID).first(),
     db.prepare(`SELECT COUNT(*) AS swaps,COUNT(DISTINCT pool_id) AS pools,COUNT(DISTINCT hook_address) AS hooks,
       MIN(block_number) AS first_block,MAX(block_number) AS last_block FROM hook_tape_swaps WHERE chain_id=?`).bind(BASE_CHAIN_ID).first(),
+    db.prepare(`SELECT COUNT(*) AS receipts,SUM(transfer_logs) AS transfer_logs,SUM(selected_transfers) AS selected_transfers,
+      SUM(hook_linked_transfers) AS hook_linked_transfers,MIN(block_number) AS first_block,MAX(block_number) AS last_block
+      FROM hook_tape_receipts WHERE chain_id=?`).bind(BASE_CHAIN_ID).first(),
   ]);
   if (!state) throw failure('tape_not_initialized');
   const historicalNext=Number(state.historical_next_block),liveStarted=state.live_started_block==null?null:Number(state.live_started_block),liveNext=state.live_next_block==null?null:Number(state.live_next_block);
   return {
     schemaVersion:TAPE_SCHEMA_VERSION,
     generatedAt:new Date().toISOString(),
-    scope:'Finalized Uniswap v4 PoolManager Initialize and Swap logs on Base. Swap rows report pool deltas and the PoolManager fee; separate hook-fee attribution is not included.',
+    scope:'Finalized Uniswap v4 PoolManager Initialize and Swap logs on Base. Successful swap receipts add normalized relevant ERC-20 transfers. PoolManager fees and receipt transfers remain separate from hook-fee attribution.',
     source:{chainId:BASE_CHAIN_ID,chainName:'Base',managerAddress:BASE_POOL_MANAGER,event:'Initialize',events:['Initialize','Swap'],deploymentBlock:BASE_POOL_MANAGER_DEPLOYMENT_BLOCK,
       contractSource:'https://github.com/Uniswap/contracts/blob/main/deployments/8453.md',interfaceSource:'https://github.com/Uniswap/v4-core/blob/main/src/interfaces/IPoolManager.sol'},
     counts:{pools:Number(counts?.pools || 0),hookedPools:Number(counts?.hooked_pools || 0),hooks:Number(counts?.hooks || 0),dynamicPools:Number(counts?.dynamic_pools || 0),
-      swaps:Number(swapCounts?.swaps || 0),swapPools:Number(swapCounts?.pools || 0),swapHooks:Number(swapCounts?.hooks || 0)},
+      swaps:Number(swapCounts?.swaps || 0),swapPools:Number(swapCounts?.pools || 0),swapHooks:Number(swapCounts?.hooks || 0),
+      receipts:Number(receiptCounts?.receipts || 0),receiptTransferLogs:Number(receiptCounts?.transfer_logs || 0),
+      retainedRelevantTransfers:Number(receiptCounts?.selected_transfers || 0),hookLinkedTransfers:Number(receiptCounts?.hook_linked_transfers || 0)},
     coverage:{historicalFrom:BASE_POOL_MANAGER_DEPLOYMENT_BLOCK,historicalThrough:Number.isSafeInteger(historicalNext)?historicalNext-1:null,
       historicalComplete:Boolean(state.historical_complete),liveFrom:Number.isSafeInteger(liveStarted)?liveStarted:null,
       liveThrough:Number.isSafeInteger(liveNext)?liveNext-1:null,finalizedBlock:state.finalized_block==null?null:Number(state.finalized_block),
@@ -522,7 +647,11 @@ async function tapeStatus(env) {
       lastSuccessAt:swapState?.last_success_at?iso(swapState.last_success_at):null,
       status:swapState?.last_failure?'degraded':swapState?.last_success_at?'healthy':'initializing',failure:swapState?.last_failure || null},
     swapRetention:{maxAgeDays:7,maxRows:MAX_RETAINED_SWAPS,pruneLimitPerRun:MAX_SWAP_PRUNE_PER_RUN},
+    receiptCoverage:{firstSavedBlock:receiptCounts?.first_block==null?null:Number(receiptCounts.first_block),
+      lastSavedBlock:receiptCounts?.last_block==null?null:Number(receiptCounts.last_block),maxReceiptsPerRun:MAX_RECEIPTS_PER_RUN,
+      maxSelectedTransfersPerReceipt:MAX_SELECTED_TRANSFERS},
     derivationVersion:TAPE_DERIVATION_VERSION,swapDerivationVersion:SWAP_TAPE_DERIVATION_VERSION,
+    receiptDerivationVersion:RECEIPT_TAPE_DERIVATION_VERSION,
   };
 }
 
@@ -551,6 +680,17 @@ async function tapePools(request, env) {
     pools:shown.map(publicPool),nextCursor:more&&last?`${last.block_number}:${last.log_index}`:null};
 }
 
+async function receiptsForTransactions(db,transactions) {
+  const unique=[...new Set(transactions.filter((value)=>HASH.test(String(value || ''))))],receipts=new Map();
+  for(let offset=0;offset<unique.length;offset+=75) {
+    const batch=unique.slice(offset,offset+75),marks=batch.map(()=>'?').join(',');
+    const result=await db.prepare(`SELECT * FROM hook_tape_receipts WHERE chain_id=? AND transaction_hash IN (${marks})`)
+      .bind(BASE_CHAIN_ID,...batch).all();
+    for(const row of result?.results || []) receipts.set(row.transaction_hash,row);
+  }
+  return receipts;
+}
+
 async function tapeSwaps(request,env) {
   const db=database(env),url=new URL(request.url);
   const hook=String(url.searchParams.get('hook') || '').toLowerCase();
@@ -573,8 +713,9 @@ async function tapeSwaps(request,env) {
   values.push(rawLimit+1);
   const result=await db.prepare(`SELECT * FROM hook_tape_swaps WHERE ${where.join(' AND ')} ORDER BY block_number DESC,log_index DESC LIMIT ?`).bind(...values).all();
   const rows=Array.isArray(result?.results)?result.results:[],more=rows.length>rawLimit,shown=rows.slice(0,rawLimit),last=shown.at(-1);
-  return {schemaVersion:TAPE_SCHEMA_VERSION,generatedAt:new Date().toISOString(),scope:'Finalized PoolManager Swap logs for already-resolved hooked pools',
-    swaps:shown.map(publicSwap),nextCursor:more&&last?`${last.block_number}:${last.log_index}`:null};
+  const receipts=await receiptsForTransactions(db,shown.map((row)=>row.transaction_hash));
+  return {schemaVersion:TAPE_SCHEMA_VERSION,generatedAt:new Date().toISOString(),scope:'Finalized PoolManager Swap logs for already-resolved hooked pools, with bounded normalized receipt transfers when available',
+    swaps:shown.map((row)=>publicSwap(row,receipts.get(row.transaction_hash))),nextCursor:more&&last?`${last.block_number}:${last.log_index}`:null};
 }
 
 function publicActivitySummary(row) {

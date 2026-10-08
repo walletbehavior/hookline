@@ -14,6 +14,7 @@ const ethPublic = provider('ethereum-publicnode','https://ethereum-rpc.publicnod
 const ethDrpc = provider('ethereum-drpc','https://eth.drpc.org','https://drpc.org/docs/ethereum-api');
 const basePublic = provider('base-publicnode','https://base-rpc.publicnode.com','https://base.publicnode.com/');
 const baseTenderly = provider('base-tenderly','https://base.gateway.tenderly.co','https://tenderly.co/blog/changelog/tenderly-now-supports-base-mainnet-goerli-testnet/');
+const baseOfficial = provider('base-official','https://mainnet.base.org','https://docs.base.org/base-chain/api-reference/ethereum-json-rpc-api/eth_getTransactionCount');
 const baseDrpc = provider('base-drpc','https://base.drpc.org','https://drpc.org/chainlist/base');
 const arbOfficial = provider('arbitrum-official','https://arb1.arbitrum.io/rpc','https://docs.arbitrum.io/chain-info');
 const arbPublic = provider('arbitrum-publicnode','https://arbitrum-one-rpc.publicnode.com','https://arbitrum-one.publicnode.com/');
@@ -26,7 +27,7 @@ export const PROJECT_RPC_POOLS = freeze({
   1:{headers:[ethPublic,ethDrpc],state:[ethPublic,ethDrpc],logs:[ethPublic,ethDrpc]},
   // PublicNode's public Base tier rejects finalized historical state. It does
   // serve the bounded log windows. Do not retry state there as if it were fresh.
-  8453:{headers:[basePublic,baseTenderly],state:[baseTenderly,baseDrpc],logs:[basePublic,baseTenderly]},
+  8453:{headers:[basePublic,baseTenderly],state:[baseTenderly,baseOfficial,baseDrpc],logs:[basePublic,baseTenderly]},
   42161:{headers:[arbOfficial,arbPublic],state:[arbOfficial,arbPublic],logs:[arbOfficial,arbPublic]},
   // BNB explicitly disables eth_getLogs on its official public endpoints.
   56:{headers:[bnbOfficial,bnbPublic],state:[bnbOfficial,bnbPublic],logs:[bnbPublic]},
@@ -219,7 +220,10 @@ export function createProjectRpcPool({health=createRpcPoolHealth(),fetchImpl=fet
     if (method==='eth_getBlockByNumber' && params[0]!=='finalized' && !QUANTITY.test(String(params[0]))) throw failure('rpc_invalid_block',{terminal:true});
     if (method==='eth_getTransactionReceipt' && (!HASH.test(params[0] || '') || !pins.has(chainId))) throw failure('rpc_receipt_request_invalid',{terminal:true});
     const errors=[];
-    for (const entry of config[group].slice(0,2)) {
+    // Base has a separately verified official receipt/state fallback. Keep the
+    // fan-out bounded while allowing that third source to absorb free-tier
+    // throttling during receipt catch-up.
+    for (const entry of config[group].slice(0,3)) {
       checkBudget();
       const blocked=cooling(entry,group);
       if (blocked) {errors.push(failure(blocked.lastError || 'rpc_provider_unavailable',{retryAfterMs:blocked.cooldownUntil-now()}));continue;}

@@ -3681,7 +3681,14 @@
         (pool.currencies || []).forEach((currency,index)=>{if(index) currencies.append(document.createTextNode(', '));if(currency===ZERO_ADDRESS){const native=makeElement('span','','Native ETH');native.title=currency;currencies.append(native);}else{const link=tapeLink(`https://basescan.org/address/${currency}`,tapeAddress(currency,7,5));link.target='_blank';link.rel='noopener noreferrer';link.title=currency;currencies.append(link);}});
       }
       const fee=makeElement('td',swaps?'tape-dynamic':pool.poolFee?.mode === 'dynamic'?'tape-dynamic':'',swaps?tapeSwapFee(pool):tapeFee(pool));fee.dataset.label=swaps?'Swap fee':'LP fee config';
-      const evidence=document.createElement('td');evidence.dataset.label='Evidence';const tx=tapeLink(`https://basescan.org/tx/${pool.transactionHash}`,`tx ${tapeAddress(pool.transactionHash,8,6)}`,'tape-tx-link');tx.target='_blank';tx.rel='noopener noreferrer';tx.title=pool.transactionHash;evidence.append(tx,makeElement('small','',`log ${pool.logIndex}`));
+      const evidence=document.createElement('td');evidence.dataset.label='Evidence';evidence.className='tape-evidence';
+      const tx=tapeLink(`https://basescan.org/tx/${pool.transactionHash}`,`tx ${tapeAddress(pool.transactionHash,8,6)}`,'tape-tx-link');tx.target='_blank';tx.rel='noopener noreferrer';tx.title=pool.transactionHash;
+      const source=makeElement('div','tape-evidence-source');source.append(tx,makeElement('small','',`log ${pool.logIndex}`));evidence.append(source);
+      if(swaps && pool.receipt) {
+        const flows=Array.isArray(pool.receipt.tokenFlows)?pool.receipt.tokenFlows.length:0;
+        const note=makeElement('small','tape-receipt-note',flows?`${formatNumber(flows)} relevant ERC-20 transfer${flows===1?'':'s'} in receipt`:'receipt read · no relevant ERC-20 transfers');
+        note.title='Observable receipt logs only. This is not automatic hook-fee attribution.';evidence.append(note);
+      }
       row.append(block,hook,poolId,currencies,fee,evidence);body.append(row);
     });
     $('tape-empty').hidden=rows.length>0 || !state.tape.loaded[state.tape.mode];
@@ -3690,9 +3697,9 @@
     $('tape-more').hidden=!state.tape.cursors[state.tape.mode] || Boolean(query);
     $('tape-mode-swaps').setAttribute('aria-pressed',String(swaps));$('tape-mode-pools').setAttribute('aria-pressed',String(!swaps));
     $('tape-scope-label').textContent=swaps?'WHAT SWAP ROWS PROVE':'WHAT POOL ROWS PROVE';
-    $('tape-scope-copy').textContent=swaps?'Signed pool deltas, the fee PoolManager reported for that swap, finalized block, and source transaction.':'A pool ID, its hook, currencies, configured LP fee at initialization, block, and source transaction.';
+    $('tape-scope-copy').textContent=swaps?'Signed pool deltas, the fee PoolManager reported, finalized block, source transaction, and normalized relevant ERC-20 receipt logs when available.':'A pool ID, its hook, currencies, configured LP fee at initialization, block, and source transaction.';
     $('tape-limit-label').textContent=swaps?'NOT YET ATTRIBUTED':'SEPARATE MEASUREMENT';
-    $('tape-limit-copy').textContent=swaps?'Separate hook transfers, recipients, and rejected calls require receipt or trace evidence.':'Current dynamic fees and hook-adjusted outcomes live in swap and trace evidence, not the initialization row.';
+    $('tape-limit-copy').textContent=swaps?'A receipt transfer is not automatically a hook fee. Rejected calls and call-path attribution still require traces.':'Current dynamic fees and hook-adjusted outcomes live in swap and trace evidence, not the initialization row.';
   }
 
   async function loadTape(force = false, append = false) {

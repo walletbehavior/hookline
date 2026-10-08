@@ -34,6 +34,7 @@ test('immutable method-specific sources exclude known unusable log services',()=
   assert.deepEqual(PROJECT_RPC_POOLS[4663].logs.map(p=>p.id),['robinhood-official']);
   assert.ok(PROJECT_RPC_POOLS[56].logs.every(p=>p.id!=='bnb-official'));
   assert.ok(PROJECT_RPC_POOLS[8453].state.every(p=>p.id!=='base-publicnode'));
+  assert.deepEqual(PROJECT_RPC_POOLS[8453].state.map(p=>p.id),['base-tenderly','base-official','base-drpc']);
   for(const config of Object.values(PROJECT_RPC_POOLS)) for(const providers of Object.values(config)) for(const entry of providers) {
     assert.match(entry.url,/^https:\/\//);assert.match(entry.sourceUrl,/^https:\/\//);assert.equal(new URL(entry.url).username,'');
   }
@@ -64,9 +65,20 @@ test('all state fallbacks verify chain and the same finalized hash before unchan
   assert.ok(h.calls.every(c=>!c.params.includes('latest')));assert.equal(h.diagnostics().requests,h.calls.length);
   assert.ok(new Set(h.calls.map(c=>c.id)).size===h.calls.length,'Every upstream request has a fresh id');
 });
+test('Base receipt reads reach the bounded official fallback when a free gateway is throttled',async()=>{
+  const transaction=hash(77),receipt={transactionHash:transaction,blockHash:head.hash,blockNumber:head.number,logs:[],status:'0x1'};
+  const h=harness({handler:({url,request})=>{
+    if(request.method==='eth_getTransactionReceipt' && url.includes('tenderly')) return reply(request,null,{status:429,message:'rate limited'});
+    if(request.method==='eth_getTransactionReceipt' && url.includes('mainnet.base.org')) return reply(request,receipt);
+  }});h.rpc.pinBlock(8453,head);
+  assert.deepEqual(await h.rpc(8453,'eth_getTransactionReceipt',[transaction]),receipt);
+  assert.deepEqual(h.calls.filter(call=>call.method==='eth_getTransactionReceipt').map(call=>new URL(call.url).hostname),
+    ['base.gateway.tenderly.co','mainnet.base.org']);
+});
 test('wrong chain and mismatched pinned hash cannot reach a state read',async()=>{
   const h=harness({handler:({url,request})=>{
     if(url.includes('tenderly') && request.method==='eth_chainId') return reply(request,hex(1));
+    if(url.includes('mainnet.base.org') && request.method==='eth_getBlockByNumber') return reply(request,{...head,hash:hash(999)});
     if(url.includes('drpc') && request.method==='eth_getBlockByNumber') return reply(request,{...head,hash:hash(999)});
   }});h.rpc.pinBlock(8453,head);
   await assert.rejects(h.rpc(8453,'eth_getCode',[address,head.number]),/rpc_pin_mismatch|rpc_chain_mismatch/);

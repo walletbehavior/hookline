@@ -203,7 +203,7 @@
         <div>
           <p class="eyebrow">FIRST-PARTY POOLMANAGER EVIDENCE</p>
           <h1 id="tape-title">The hook tape.</h1>
-          <p>Finalized Base swaps and pool births, read directly from Uniswap v4’s PoolManager and tied to their source transactions.</p>
+          <p>Finalized Base swaps, receipt-linked token flows, and pool births tied to their source transactions.</p>
         </div>
         <button id="tape-refresh" class="btn btn-secondary" type="button">Refresh tape</button>
       </header>
@@ -246,9 +246,9 @@
       <button id="tape-more" class="board-more" type="button" hidden>Load older evidence</button>
       <footer class="tape-scope">
         <b id="tape-scope-label">WHAT SWAP ROWS PROVE</b>
-        <span id="tape-scope-copy">Signed pool deltas, the fee PoolManager reported for that swap, finalized block, and source transaction.</span>
+        <span id="tape-scope-copy">Signed pool deltas, the fee PoolManager reported, finalized block, source transaction, and normalized relevant ERC-20 receipt logs when available.</span>
         <b id="tape-limit-label">NOT YET ATTRIBUTED</b>
-        <span id="tape-limit-copy">Separate hook transfers, recipients, and rejected calls require receipt or trace evidence.</span>
+        <span id="tape-limit-copy">A receipt transfer is not automatically a hook fee. Rejected calls and call-path attribution still require traces.</span>
       </footer>
     </section>
 
@@ -530,7 +530,7 @@
           <ul class="method-list">
             <li><code>GET /api/tape/status</code><span>Base PoolManager source, finalized coverage, cursors, and counts</span></li>
             <li><code>GET /api/tape/pools</code><span>pool, hook, currency, fee configuration, block, transaction, and raw log evidence</span></li>
-            <li><code>GET /api/tape/swaps</code><span>hooked pool, signed deltas, PoolManager-reported fee, post-swap state, and source transaction</span></li>
+            <li><code>GET /api/tape/swaps</code><span>hooked pool, signed deltas, PoolManager-reported fee, source transaction, and bounded receipt transfers</span></li>
             <li><code>GET /api/tape/activity</code><span>explicit block-window activity, active hooks or pools, and PoolManager fee ranges</span></li>
           </ul>
           <a class="doc-link" href="https://github.com/walletbehavior/hookline/blob/main/docs/PROJECT_CONTRIBUTIONS.md" target="_blank" rel="noopener noreferrer">Submission API and domain-verification guide</a>
@@ -544,7 +544,7 @@
           <div class="system-graph" aria-label="Hookline system-of-record graph">
             <span>HOOKS</span><i>,</i><span>POOLS</span><i>,</i><span>CHAINS</span><i>,</i><span>DEPLOYERS</span><i>,</i><span>CODE</span><i>,</i><span>EVENTS</span>
           </div>
-          <p>The board is the map. The Hook Tape now owns finalized Base pool-initialization and live swap evidence with exact source transactions. Swap rows retain signed pool deltas and the fee PoolManager emitted. Receipt and trace derivations come next for separate hook flows, recipients, refusals, and gas.</p>
+          <p>The board is the map. The Hook Tape now owns finalized Base pool-initialization and live swap evidence with exact source transactions. Swap rows retain signed pool deltas, the fee PoolManager emitted, and normalized relevant ERC-20 transfers from successful receipts when available. Those transfers are not automatically fees. Traces come next for refusals and call-path attribution.</p>
           <a class="doc-link" href="https://github.com/walletbehavior/hookline/blob/main/docs/WHITEPAPER.md" target="_blank" rel="noopener noreferrer">Read the complete whitepaper on GitHub</a>
         </section>
 
@@ -575,7 +575,7 @@
             <details><summary>Does Hookline show volume and liquidity?</summary><p>Yes. Related markets show available DexScreener price, market cap, liquidity, volume, and change alongside the indexed relationship. The first-party Tape separately keeps a bounded finalized Base swap feed for already-resolved hooked pools; it is not complete historical volume. Missing data stays unavailable. Liquidity alerts require complete readings for the same indexed pool set.</p></details>
             <details><summary>What does a Dynamic pool fee mean?</summary><p>It identifies Uniswap v4's dynamic-fee configuration flag, not an 838.8608% fee or a measured current fee. Static advertised LP fees, adaptive LP fees, hook charges, and Hookline execution fees stay separate. Swap-specific evidence is required to measure what was actually paid.</p></details>
             <details><summary>What does Velocity mean?</summary><p>Velocity ranks the current indexed activity density of each hook or token relationship. It is a discovery ranking, not a promise of future performance.</p></details>
-            <details><summary>What is the Hook Tape?</summary><p>It is a first-party Base feed with separate Swaps and Pool births views. Pool rows prove the hook relationship and fee configuration at initialization. Swap rows retain signed pool deltas, the fee PoolManager emitted, post-swap state, finalized block, and source transaction for already-resolved hooked pools. Activity cards summarize an explicit retained block window and label partial coverage. Raw swaps are capped at seven days and 200,000 rows to keep storage predictable. Separate hook transfers, recipients, and rejected attempts require receipt or trace evidence.</p></details>
+            <details><summary>What is the Hook Tape?</summary><p>It is a first-party Base feed with separate Swaps and Pool births views. Pool rows prove the hook relationship and fee configuration at initialization. Swap rows retain signed pool deltas, the fee PoolManager emitted, post-swap state, finalized block, and source transaction for already-resolved hooked pools. Successful receipt enrichment keeps only bounded ERC-20 transfers touching the hook or a pool currency. A transfer is observable flow, not automatic proof of a fee or its economic purpose. Activity cards summarize an explicit retained block window and label partial coverage. Raw swaps are capped at seven days and 200,000 rows to keep storage predictable. Rejected attempts and call-path attribution require traces.</p></details>
             <details><summary>What does the Telegram bot do?</summary><p>Explore hook relationships, markets, and project follows. Alert cards show sourced names, chain, full copyable contract addresses, and Details/Pause/Resume buttons. Add alert, Projects, Settings, and Main menu reduce command typing. Hook alerts check runtime changes, new finalized Base PoolManager relationships, PoolManager-reported fee moves of at least 10 basis points for the same finalized pool, new community-indexed relationships, and qualifying liquidity changes on the 10-minute schedule. Fee alerts carry before/after rates, pool ID, block, and source transaction without calling that rate a hook charge. Existing subscriptions seed silently; historical backfill never becomes a false new-pool alert. Telegram does not sign; reviewed execution opens on the website for your wallet.</p></details>
             <details><summary>What does Hookline execution cost?</summary><p>Hookline shows a 1% gross execution fee and applies 0.3% cashback instantly in the route, leaving a 0.7% effective fee. There is no deferred cashback claim. The public RPC never submits a transaction. The user’s wallet signs and submits the exact reviewed route, then Hookline independently verifies the receipt.</p></details>
             <details><summary>Can I save trade settings?</summary><p>Slippage and buy/sell presets are supported. Website settings stay on that device; Telegram settings belong to the private Telegram identity. A trade link carries its explicit settings, never an automatic signature. Native amounts are not silently converted to wrapped-token or stablecoin units. Priority remains wallet-managed; saved TP/SL profiles are not active orders.</p></details>
