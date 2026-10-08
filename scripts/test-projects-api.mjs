@@ -135,11 +135,16 @@ test('HTTP directory and profiles expose only canonical observations, chain-awar
   assert.equal(list.response.status, 200);
   assert.match(list.response.headers.get('cache-control'), /public/);
   const alpha = list.body.projects.find((project) => project.id === 'alpha');
+  assert.equal(alpha.evidenceCoverage.level, 'pinned_state');
+  assert.equal(alpha.evidenceCoverage.label, 'Pinned contract state');
   assert.equal(alpha.coverage.observedDeployments, 1, 'Historical snapshots must not inflate deployment coverage.');
   assert.equal(alpha.coverage.runtimeFamilies,1);
   assert.equal(alpha.coverage.repeatedRuntimeFamilies,1);
   assert.equal(alpha.latestObservedAt, new Date(NOW).toISOString());
-  assert.equal(list.body.projects.find((project) => project.id === 'beta').coverage.observedDeployments, 0);
+  const beta=list.body.projects.find((project) => project.id === 'beta');
+  assert.equal(beta.coverage.observedDeployments, 0);
+  assert.equal(beta.evidenceCoverage.level, 'linked_only');
+  assert.equal(list.body.projects.find((project) => project.id === 'gamma').evidenceCoverage.level, 'directory_only');
   const detail = await api(e, source, '/api/projects/alpha');
   assert.equal(detail.response.status, 200);
   assert.equal(detail.body.observations.length, 1);

@@ -3015,6 +3015,7 @@
       const chains = [...new Set(projectDeployments(project).map((deployment) => deployment.chainId))];
       chains.forEach((id) => tags.append(makeElement('span', '', projectChainName(id))));
       if (!chains.length) tags.append(makeElement('span', '', 'Deployment links pending'));
+      if (project.evidenceCoverage?.label) tags.append(makeElement('span', `project-evidence-tier ${project.evidenceCoverage.level || ''}`, project.evidenceCoverage.label));
       identity.append(tags);
       const coverage = makeElement('div', 'project-card-coverage');
       [['Linked deployments', projectCount(project, 'linkedDeployments')], ['Observed deployments', projectCount(project, 'observedDeployments')], ['Runtime families', projectCount(project, 'runtimeFamilies')]].forEach(([label, value]) => {
@@ -3292,7 +3293,9 @@
     actions.append(projectExternalLink(`https://t.me/HooklineTradeBot?start=project_${encodeURIComponent(project.id)}`, 'Follow in Telegram', 'btn btn-primary'));
     actions.append(projectButton('Claim profile', () => openProjectContribution('claim', project.id)), projectButton('Suggest correction', () => openProjectContribution('correction', project.id), 'project-text-button'));
     hero.append(title, actions);
-    root.append(hero, makeElement('p', 'project-provenance', `${project.metadataProvenance || project.provenance || 'Source-linked project metadata'} · Listing does not establish ownership or safety.`));
+    const coverageLabel=project.evidenceCoverage?.label || 'Coverage unclassified';
+    const coverageCounts=project.evidenceCoverage?.level==='source_bound' ? ` · ${formatNumber(project.evidenceCoverage.readTypes || 0)} read type${project.evidenceCoverage.readTypes===1?'':'s'} · ${formatNumber(project.evidenceCoverage.eventTypes || 0)} event type${project.evidenceCoverage.eventTypes===1?'':'s'}` : '';
+    root.append(hero, makeElement('p', 'project-provenance', `${project.metadataProvenance || project.provenance || 'Source-linked project metadata'} · ${coverageLabel}${coverageCounts} · Listing does not establish ownership or safety.`));
     const layout = makeElement('div', 'project-detail-layout');
     const primary = makeElement('div', 'project-detail-main');
     primary.append(renderProjectObservations(Array.isArray(body.observations) ? body.observations : []));

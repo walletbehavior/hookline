@@ -1409,6 +1409,9 @@ progress::-moz-progress-bar { background: var(--cyan); }
 .project-card-summary { max-width: 650px; margin: 0 0 10px; color: var(--bone-dim); font-size: .78rem; line-height: 1.65; }
 .project-chain-tags { display: flex; gap: 5px; flex-wrap: wrap; }
 .project-chain-tags span { padding: 3px 7px; border: 1px solid #39312a; color: #a59b90; font: .61rem var(--font-mono); }
+.project-chain-tags .project-evidence-tier { border-color: #5a4637; color: #d8a488; }
+.project-chain-tags .project-evidence-tier.source_bound { border-color: #6e5d38; color: #d8c17b; }
+.project-chain-tags .project-evidence-tier.directory_only { border-color: #342e29; color: var(--bone-mute); }
 .project-card-coverage { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 14px; }
 .project-card-coverage > div { min-width: 0; }
 .project-card-coverage strong { display: block; margin-bottom: 4px; color: var(--bone); font: 1.05rem var(--font-mono); overflow-wrap: anywhere; }

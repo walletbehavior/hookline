@@ -1,6 +1,7 @@
 import { createProjectRegistry,mergeProjectOverrides } from './registry.js';
 import { latestProjectObservations,listProjectEvents,projectMonitoring } from './evidence.js';
 import { handleContributionRequest,readProjectOverrides,readProjectAuthority } from './contributions.js';
+import { READERS,readerDefinitionsForDeployment } from './reader-definitions.js';
 
 const sourceRegistries=new WeakMap(), publicRegistries=new WeakMap(), runtimeIndexes=new WeakMap();
 const FINGERPRINT=/^[0-9a-f]{64}$/;
@@ -37,6 +38,21 @@ function runtimeCoverage(project,assets) {
     if(fingerprint) families.add(fingerprint);
   }
   return {runtimeFamilies:families.size,repeatedRuntimeFamilies:[...families].filter(value=>(index.families.get(value)?.deploymentCount || 0)>1).length};
+}
+
+function evidenceCoverage(project) {
+  const deployments=Array.isArray(project.deployments)?project.deployments:[];
+  const monitored=deployments.filter(item=>item.monitor===true).length;
+  const sourceBound=deployments.map(item=>readerDefinitionsForDeployment(project.id,item))
+    .filter(definitions=>definitions.reads.length || definitions.events.length);
+  const reader=READERS[project.id];
+  const eventTypes=new Set(sourceBound.flatMap(definitions=>definitions.events.map(event=>event.key))).size;
+  const readTypes=new Set(sourceBound.flatMap(definitions=>definitions.reads.map(read=>read.key))).size;
+  if(sourceBound.length) return {level:'source_bound',label:'Source-bound reader',sourceBoundDeployments:sourceBound.length,
+    readTypes,eventTypes,readerVersion:reader?.version || null};
+  if(monitored) return {level:'pinned_state',label:'Pinned contract state',sourceBoundDeployments:0,readTypes:0,eventTypes:0,readerVersion:null};
+  if(deployments.length) return {level:'linked_only',label:'Linked deployments',sourceBoundDeployments:0,readTypes:0,eventTypes:0,readerVersion:null};
+  return {level:'directory_only',label:'Directory record',sourceBoundDeployments:0,readTypes:0,eventTypes:0,readerVersion:null};
 }
 
 function projectRuntimeFamilies(project,observations,registry,assets) {
@@ -92,7 +108,7 @@ export async function publicProjectRegistry(env,assets) {
     FROM project_observations WHERE canonical=1 GROUP BY project_id`).all())]);
   const coverage=new Map((counts.results || []).map(r=>[r.project_id,r]));
   const merged=mergeProjectOverrides(registry,overrides);
-  const value={...merged,projects:merged.projects.map(p=>({...p,
+  const value={...merged,projects:merged.projects.map(p=>({...p,evidenceCoverage:evidenceCoverage(p),
     coverage:{...p.coverage,...runtimeCoverage(p,assets),observedDeployments:Number(coverage.get(p.id)?.observations || 0)},
     latestObservedAt:coverage.get(p.id)?.latest?new Date(coverage.get(p.id).latest).toISOString():null}))};
   publicRegistries.set(env.DB,{assets,value,until:Date.now()+60000});
