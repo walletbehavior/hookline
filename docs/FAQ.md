@@ -14,11 +14,11 @@ The board uses a timestamped v4.xyz community-indexer snapshot for broad hook di
 
 ## Is the board exhaustive?
 
-No. The board sync collects activity leaders for every two-nibble hook-address prefix exposed by the public index. That creates broad cross-chain discovery without overstating completeness or overloading a community service. The Base Tape now owns its PoolManager initialization source and displays its exact live and historical coverage. Complete swap outcomes and other chains remain separate work.
+No. The board sync collects activity leaders for every two-nibble hook-address prefix exposed by the public index. That creates broad cross-chain discovery without overstating completeness or overloading a community service. The Base Tape owns its PoolManager initialization source and a finalized live swap feed for already-resolved hooked pools. Receipt and trace attribution, full swap history, and other chains remain separate work.
 
 ## What is the Hook Tape today?
 
-It is a first-party Base feed of finalized pool initialization evidence. Each row resolves a pool ID to its hook, currencies, configured LP fee field, source block, and transaction. A live cursor follows finalized blocks while a bounded cursor backfills from the PoolManager deployment block. This first slice proves relationships and provenance. Swap-level fee deltas, recipients, refusals, and hook-adjusted token flow appear only after the corresponding receipt or trace derivation is implemented.
+It is a first-party Base feed with two views. Pool births resolve a pool ID to its hook, currencies, configured LP fee field, source block, and transaction. Swaps retain finalized PoolManager events for already-resolved hooked pools, including signed pool deltas and the exact swap fee PoolManager emitted. Raw swap rows are bounded to seven days and 200,000 rows to keep infrastructure cost predictable. Separate hook transfers, fee recipients, rejected attempts, and hook-adjusted token flow appear only after receipt or trace evidence supports them.
 
 ## Why is the index snapshot older than the current time?
 

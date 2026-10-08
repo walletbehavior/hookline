@@ -213,7 +213,7 @@ export async function runAlertScan(env, options = {}) {
         if (await store.hasDelivery(alert.id, event.eventKey)) continue;
         await sendMessage(String(alert.chat_id), formatNotification(alert, event, previous, current,result),{
           parse_mode:'HTML',disable_web_page_preview:true,
-          reply_markup:{inline_keyboard:[[{text:'Details',url:event.kind==='first_party_pool'?`https://hookline.world/#/tape/${alert.chain_id}/${alert.target_address}`:`https://hookline.world/#/board/${alert.chain_id}/${alert.target_address}`},{text:'Pause alert',callback_data:`tg:ad:${alert.chain_id}:${alert.target_address}`}],...alertNavigationRows()]},
+          reply_markup:{inline_keyboard:[[{text:'Details',url:event.kind==='first_party_pool'?`https://hookline.world/#/tape/pools/${alert.chain_id}/${alert.target_address}`:`https://hookline.world/#/board/${alert.chain_id}/${alert.target_address}`},{text:'Pause alert',callback_data:`tg:ad:${alert.chain_id}:${alert.target_address}`}],...alertNavigationRows()]},
         });
         await store.recordDelivery(alert.id, event.eventKey, now);
         delivered += 1;

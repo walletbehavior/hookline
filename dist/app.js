@@ -80,7 +80,7 @@
     boardEvidence: new Map(),
     boardLoading: new Set(),
     projects: { registry: null, loading: null, error: '', detailRequest: 0, detail: null, activityRequest: 0, events: [], activityLoaded: false, activityGeneratedAt: null, receipts: [], contributionBusy: false },
-    tape: { status: null, pools: [], cursor: null, loaded: false, loading: false, error: '' },
+    tape: { status: null, mode: 'swaps', pools: [], swaps: [], cursors: { pools: null, swaps: null }, loaded: { pools: false, swaps: false }, loading: false, error: '' },
     execution: {
       module: null,
       modulePromise: null,
@@ -2461,7 +2461,7 @@
     const cached=state.boardEvidence.get(item.id),pools=Array.isArray(cached?.tapePools)?cached.tapePools.slice(0,4):[];
     section.hidden=item.chainId!==8453 || pools.length===0;
     if(section.hidden) return;
-    $('hook-profile-tape-open').href=`#/tape/8453/${item.address}`;
+    $('hook-profile-tape-open').href=`#/tape/pools/8453/${item.address}`;
     status.textContent=`${pools.length} finalized`;
     pools.forEach((pool)=>{
       const card=makeElement('article','profile-tape-row');
@@ -2777,7 +2777,7 @@
       renderBoard();
       renderBoardProfile();
       inspectProfileIfNeeded();
-      if(state.tape.loaded) renderTape();
+      if(Object.values(state.tape.loaded).some(Boolean)) renderTape();
       void openExecutionRoute();
     } catch (error) {
       $('board-result-count').textContent = 'Hook index unavailable';
@@ -3562,31 +3562,75 @@
     return item?boardItemName(item):'Unnamed hook';
   }
 
+  function tapeDelta(value) {
+    try {
+      const amount=BigInt(value),negative=amount<0n,absolute=(negative?-amount:amount).toString();
+      const compact=absolute.length>14?`${absolute.slice(0,7)}…${absolute.slice(-5)}`:BigInt(absolute).toLocaleString();
+      return `${negative?'−':'+'}${compact}`;
+    } catch (_) { return 'Unavailable'; }
+  }
+
+  function tapeSwapFee(swap) {
+    const percent=Number(swap?.poolManagerFee?.percent);
+    return Number.isFinite(percent)?`${percent.toLocaleString(undefined,{maximumFractionDigits:4})}%`:'Unavailable';
+  }
+
+  function tapeHeadings(values) {
+    const row=$('tape-head-row');row.replaceChildren(...values.map((value)=>makeElement('th','',value)));
+  }
+
   function renderTapeCoverage() {
     const status=state.tape.status;
     if(!status) return;
     const coverage=status.coverage || {},counts=status.counts || {};
-    $('tape-pool-count').textContent=formatNumber(Number(counts.pools));
-    $('tape-hook-count').textContent=formatNumber(Number(counts.hooks));
-    $('tape-live-through').textContent=coverage.liveThrough==null?'—':formatNumber(Number(coverage.liveThrough));
-    $('tape-history-through').textContent=coverage.historicalThrough==null?'—':formatNumber(Number(coverage.historicalThrough));
-    const historicalFrom=Number(coverage.historicalFrom),historicalThrough=Number(coverage.historicalThrough),liveFrom=Number(coverage.liveFrom);
-    const total=Math.max(1,liveFrom-historicalFrom);
-    const progress=coverage.historicalComplete?100:Math.max(0,Math.min(100,((historicalThrough-historicalFrom+1)/total)*100));
-    $('tape-coverage-fill').style.width=`${progress}%`;
-    $('tape-coverage-copy').textContent=coverage.historicalComplete
-      ? `Historical coverage connects to the live range. Finalized evidence is continuous from block ${formatNumber(historicalFrom)} through ${formatNumber(Number(coverage.liveThrough))}.`
-      : `History is indexed through block ${formatNumber(historicalThrough)}. The current finalized range starts at block ${formatNumber(liveFrom)} and is live through ${formatNumber(Number(coverage.liveThrough))}.`;
-    const scan=status.scan || {};
-    $('tape-scan-status').textContent=`${scan.status === 'healthy' ? 'Scanner healthy' : scan.status === 'degraded' ? 'Scanner preserving its last good cursor' : 'Scanner initializing'}${scan.lastSuccessAt ? ` · last write ${relativeTime(Date.parse(scan.lastSuccessAt))}` : ''} · ${status.derivationVersion || 'initialize-v1'}`;
+    const swaps=state.tape.mode==='swaps';
+    if(swaps) {
+      const swapCoverage=status.swapCoverage || {},scan=status.swapScan || {};
+      $('tape-coverage-title').textContent='Finalized swaps, one source transaction at a time.';
+      $('tape-stat-one-label').textContent='SWAPS RECORDED';$('tape-stat-one-note').textContent='finalized hooked-pool swaps';
+      $('tape-stat-two-label').textContent='ACTIVE POOLS';$('tape-stat-two-note').textContent='pools with saved swaps';
+      $('tape-stat-three-label').textContent='HOOKS ACTIVE';$('tape-stat-three-note').textContent='unique hook addresses';
+      $('tape-stat-four-label').textContent='SWAPS THROUGH';$('tape-stat-four-note').textContent='finalized Base block';
+      $('tape-pool-count').textContent=formatNumber(Number(counts.swaps));$('tape-hook-count').textContent=formatNumber(Number(counts.swapPools));
+      $('tape-live-through').textContent=formatNumber(Number(counts.swapHooks));
+      $('tape-history-through').textContent=swapCoverage.liveThrough==null?'—':formatNumber(Number(swapCoverage.liveThrough));
+      const from=Number(swapCoverage.liveFrom),through=Number(swapCoverage.liveThrough),finalized=Number(swapCoverage.finalizedBlock);
+      const progress=Number.isSafeInteger(from)&&Number.isSafeInteger(through)&&Number.isSafeInteger(finalized)
+        ? Math.max(0,Math.min(100,((through-from+1)/Math.max(1,finalized-from+1))*100)):0;
+      $('tape-coverage-fill').style.width=`${progress}%`;
+      $('tape-coverage-copy').textContent=Number.isSafeInteger(from)&&Number.isSafeInteger(through)
+        ? `Finalized swap coverage begins at block ${formatNumber(from)} and is live through ${formatNumber(through)}. Rows are retained only when the pool-to-hook relationship is already resolved.`
+        : 'Finalized swap coverage is initializing.';
+      $('tape-scan-status').textContent=`${scan.status==='healthy'?'Swap scanner healthy':scan.status==='degraded'?'Swap scanner preserving its last good cursor':'Swap scanner initializing'}${swapCoverage.lagBlocks?` · ${formatNumber(Number(swapCoverage.lagBlocks))} blocks behind`:''}${scan.lastSuccessAt?` · last write ${relativeTime(Date.parse(scan.lastSuccessAt))}`:''} · ${status.swapDerivationVersion || 'swap-event-v1'}`;
+    } else {
+      $('tape-coverage-title').textContent='Recent blocks stay current while history fills in.';
+      $('tape-stat-one-label').textContent='POOLS RECORDED';$('tape-stat-one-note').textContent='finalized initialization logs';
+      $('tape-stat-two-label').textContent='HOOKS SEEN';$('tape-stat-two-note').textContent='unique hook addresses';
+      $('tape-stat-three-label').textContent='LIVE THROUGH';$('tape-stat-three-note').textContent='finalized Base block';
+      $('tape-stat-four-label').textContent='HISTORY THROUGH';$('tape-stat-four-note').textContent='bounded catch-up cursor';
+      $('tape-pool-count').textContent=formatNumber(Number(counts.pools));$('tape-hook-count').textContent=formatNumber(Number(counts.hooks));
+      $('tape-live-through').textContent=coverage.liveThrough==null?'—':formatNumber(Number(coverage.liveThrough));
+      $('tape-history-through').textContent=coverage.historicalThrough==null?'—':formatNumber(Number(coverage.historicalThrough));
+      const historicalFrom=Number(coverage.historicalFrom),historicalThrough=Number(coverage.historicalThrough),liveFrom=Number(coverage.liveFrom);
+      const total=Math.max(1,liveFrom-historicalFrom),progress=coverage.historicalComplete?100:Math.max(0,Math.min(100,((historicalThrough-historicalFrom+1)/total)*100));
+      $('tape-coverage-fill').style.width=`${progress}%`;
+      $('tape-coverage-copy').textContent=coverage.historicalComplete
+        ? `Historical coverage connects to the live range. Finalized evidence is continuous from block ${formatNumber(historicalFrom)} through ${formatNumber(Number(coverage.liveThrough))}.`
+        : `History is indexed through block ${formatNumber(historicalThrough)}. The current finalized range starts at block ${formatNumber(liveFrom)} and is live through ${formatNumber(Number(coverage.liveThrough))}.`;
+      const scan=status.scan || {};
+      $('tape-scan-status').textContent=`${scan.status==='healthy'?'Pool scanner healthy':scan.status==='degraded'?'Pool scanner preserving its last good cursor':'Pool scanner initializing'}${scan.lastSuccessAt?` · last write ${relativeTime(Date.parse(scan.lastSuccessAt))}`:''} · ${status.derivationVersion || 'initialize-v1'}`;
+    }
   }
 
   function renderTape() {
     renderTapeCoverage();
     const query=$('tape-search').value.trim().toLowerCase();
-    const pools=state.tape.pools.filter((pool)=>!query || [pool.hookAddress,pool.poolId,pool.transactionHash,...(pool.currencies || [])].some((value)=>String(value || '').toLowerCase().includes(query)));
     const body=$('tape-body');body.replaceChildren();
-    pools.forEach((pool)=>{
+    const swaps=state.tape.mode==='swaps',source=swaps?state.tape.swaps:state.tape.pools;
+    const rows=source.filter((entry)=>!query || [entry.hookAddress,entry.poolId,entry.transactionHash,entry.sender,...(entry.currencies || [])].some((value)=>String(value || '').toLowerCase().includes(query)));
+    tapeHeadings(swaps?['Block','Hook','Pool','Pool deltas','Swap fee','Evidence']:['Block','Hook','Pool','Currencies','LP fee config','Evidence']);
+    $('tape-table').setAttribute('aria-label',swaps?'Finalized Base PoolManager swap evidence':'Finalized Base pool initialization evidence');
+    rows.forEach((pool)=>{
       const row=document.createElement('tr');
       const block=document.createElement('td');block.dataset.label='Block';
       const blockLink=tapeLink(`https://basescan.org/block/${pool.blockNumber}`,formatNumber(Number(pool.blockNumber)),'tape-block-link');blockLink.target='_blank';blockLink.rel='noopener noreferrer';block.append(blockLink);
@@ -3596,43 +3640,57 @@
       else {const hookLink=tapeLink(`#/board/${pool.chainId}/${pool.hookAddress}`,hookName,'tape-hook-link');hookLink.title=pool.hookAddress;hookIdentity.append(hookLink,makeElement('code','',tapeAddress(pool.hookAddress)));}
       hook.append(hookIdentity);
       const poolId=document.createElement('td');poolId.dataset.label='Pool';const poolCode=makeElement('code','',tapeAddress(pool.poolId,10,8));poolCode.title=pool.poolId;poolId.append(poolCode);
-      const currencies=document.createElement('td');currencies.dataset.label='Currencies';
-      (pool.currencies || []).forEach((currency,index)=>{if(index) currencies.append(document.createTextNode(', '));if(currency===ZERO_ADDRESS){const native=makeElement('span','','Native ETH');native.title=currency;currencies.append(native);}else{const link=tapeLink(`https://basescan.org/address/${currency}`,tapeAddress(currency,7,5));link.target='_blank';link.rel='noopener noreferrer';link.title=currency;currencies.append(link);}});
-      const fee=makeElement('td',pool.poolFee?.mode === 'dynamic'?'tape-dynamic':'',tapeFee(pool));fee.dataset.label='LP fee config';
+      const currencies=document.createElement('td');
+      if(swaps) {
+        currencies.dataset.label='Pool deltas';currencies.className='tape-deltas';
+        const first=makeElement('code','',`Δ0 ${tapeDelta(pool.poolDeltas?.amount0)}`),second=makeElement('code','',`Δ1 ${tapeDelta(pool.poolDeltas?.amount1)}`);
+        first.title=String(pool.poolDeltas?.amount0 || '');second.title=String(pool.poolDeltas?.amount1 || '');currencies.append(first,second);
+      } else {
+        currencies.dataset.label='Currencies';
+        (pool.currencies || []).forEach((currency,index)=>{if(index) currencies.append(document.createTextNode(', '));if(currency===ZERO_ADDRESS){const native=makeElement('span','','Native ETH');native.title=currency;currencies.append(native);}else{const link=tapeLink(`https://basescan.org/address/${currency}`,tapeAddress(currency,7,5));link.target='_blank';link.rel='noopener noreferrer';link.title=currency;currencies.append(link);}});
+      }
+      const fee=makeElement('td',swaps?'tape-dynamic':pool.poolFee?.mode === 'dynamic'?'tape-dynamic':'',swaps?tapeSwapFee(pool):tapeFee(pool));fee.dataset.label=swaps?'Swap fee':'LP fee config';
       const evidence=document.createElement('td');evidence.dataset.label='Evidence';const tx=tapeLink(`https://basescan.org/tx/${pool.transactionHash}`,`tx ${tapeAddress(pool.transactionHash,8,6)}`,'tape-tx-link');tx.target='_blank';tx.rel='noopener noreferrer';tx.title=pool.transactionHash;evidence.append(tx,makeElement('small','',`log ${pool.logIndex}`));
       row.append(block,hook,poolId,currencies,fee,evidence);body.append(row);
     });
-    $('tape-empty').hidden=pools.length>0 || !state.tape.loaded;
-    $('tape-result-count').textContent=state.tape.loaded?`${pools.length.toLocaleString()} of ${state.tape.pools.length.toLocaleString()} loaded rows`:'Loading evidence…';
-    $('tape-more').hidden=!state.tape.cursor || Boolean(query);
+    $('tape-empty').hidden=rows.length>0 || !state.tape.loaded[state.tape.mode];
+    $('tape-empty').textContent=swaps?'No loaded swap rows match this search.':'No loaded pool rows match this search.';
+    $('tape-result-count').textContent=state.tape.loaded[state.tape.mode]?`${rows.length.toLocaleString()} of ${source.length.toLocaleString()} loaded rows`:'Loading evidence…';
+    $('tape-more').hidden=!state.tape.cursors[state.tape.mode] || Boolean(query);
+    $('tape-mode-swaps').setAttribute('aria-pressed',String(swaps));$('tape-mode-pools').setAttribute('aria-pressed',String(!swaps));
+    $('tape-scope-label').textContent=swaps?'WHAT SWAP ROWS PROVE':'WHAT POOL ROWS PROVE';
+    $('tape-scope-copy').textContent=swaps?'Signed pool deltas, the fee PoolManager reported for that swap, finalized block, and source transaction.':'A pool ID, its hook, currencies, configured LP fee at initialization, block, and source transaction.';
+    $('tape-limit-label').textContent=swaps?'NOT YET ATTRIBUTED':'SEPARATE MEASUREMENT';
+    $('tape-limit-copy').textContent=swaps?'Separate hook transfers, recipients, and rejected calls require receipt or trace evidence.':'Current dynamic fees and hook-adjusted outcomes live in swap and trace evidence, not the initialization row.';
   }
 
   async function loadTape(force = false, append = false) {
     if(state.tape.loading) return;
-    if(state.tape.loaded && !force && !append){renderTape();return;}
+    const mode=state.tape.mode;
+    if(state.tape.loaded[mode] && !force && !append){renderTape();return;}
     state.tape.loading=true;$('tape-refresh').disabled=true;$('tape-more').disabled=true;
     if(!append) projectNotice($('tape-error'),'');
     try {
-      const cursor=append&&state.tape.cursor?`&cursor=${encodeURIComponent(state.tape.cursor)}`:'';
-      const requests=[fetch(`/api/tape/pools?limit=100${cursor}`,{headers:{Accept:'application/json'},cache:force?'no-store':'default'})];
+      const cursor=append&&state.tape.cursors[mode]?`&cursor=${encodeURIComponent(state.tape.cursors[mode])}`:'';
+      const requests=[fetch(`/api/tape/${mode}?limit=100${cursor}`,{headers:{Accept:'application/json'},cache:force?'no-store':'default'})];
       if(!append) requests.unshift(fetch('/api/tape/status',{headers:{Accept:'application/json'},cache:force?'no-store':'default'}));
       const responses=await Promise.all(requests);
       const payloads=await Promise.all(responses.map((entry)=>entry.json().catch(()=>null)));
       if(responses.some((entry)=>!entry.ok)) throw new Error('Tape evidence is temporarily unavailable.');
-      const poolsBody=append?payloads[0]:payloads[1];
-      if(!poolsBody || !Array.isArray(poolsBody.pools)) throw new Error('Tape response was incomplete.');
+      const evidenceBody=append?payloads[0]:payloads[1],key=mode;
+      if(!evidenceBody || !Array.isArray(evidenceBody[key])) throw new Error('Tape response was incomplete.');
       if(!append) {
         if(!payloads[0]?.coverage) throw new Error('Tape coverage was incomplete.');
-        state.tape.status=payloads[0];state.tape.pools=poolsBody.pools;
+        state.tape.status=payloads[0];state.tape[key]=evidenceBody[key];
       } else {
-        const existing=new Set(state.tape.pools.map((pool)=>pool.id));
-        state.tape.pools.push(...poolsBody.pools.filter((pool)=>!existing.has(pool.id)));
+        const existing=new Set(state.tape[key].map((entry)=>entry.id));
+        state.tape[key].push(...evidenceBody[key].filter((entry)=>!existing.has(entry.id)));
       }
-      state.tape.cursor=poolsBody.nextCursor || null;state.tape.loaded=true;state.tape.error='';renderTape();
+      state.tape.cursors[mode]=evidenceBody.nextCursor || null;state.tape.loaded[mode]=true;state.tape.error='';renderTape();
     } catch(error) {
       state.tape.error=error.message || 'Tape evidence could not be loaded.';
-      projectNotice($('tape-error'),`${state.tape.error}${state.tape.loaded?' Last loaded evidence is preserved.':''}`,()=>void loadTape(true));
-      if(state.tape.loaded) renderTape();
+      projectNotice($('tape-error'),`${state.tape.error}${state.tape.loaded[mode]?' Last loaded evidence is preserved.':''}`,()=>void loadTape(true));
+      if(state.tape.loaded[mode]) renderTape();
     } finally {state.tape.loading=false;$('tape-refresh').disabled=false;$('tape-more').disabled=false;}
   }
 
@@ -3640,6 +3698,8 @@
     $('tape-refresh').addEventListener('click',()=>void loadTape(true));
     $('tape-more').addEventListener('click',()=>void loadTape(false,true));
     $('tape-search').addEventListener('input',renderTape);
+    $('tape-mode-swaps').addEventListener('click',()=>{state.tape.mode='swaps';void loadTape();});
+    $('tape-mode-pools').addEventListener('click',()=>{state.tape.mode='pools';void loadTape();});
   }
 
   function viewFromHash() {
@@ -3677,8 +3737,10 @@
     else state.projects.detailRequest += 1;
     if (view === 'activity') void loadProjectActivity();
     if (view === 'tape') {
-      const match=location.hash.match(/^#\/tape\/8453\/(0x[0-9a-fA-F]{40})$/);
-      if(match) $('tape-search').value=match[1].toLowerCase();
+      const typed=location.hash.match(/^#\/tape\/(swaps|pools)\/8453\/(0x[0-9a-fA-F]{40})$/);
+      const legacy=location.hash.match(/^#\/tape\/8453\/(0x[0-9a-fA-F]{40})$/);
+      if(typed){state.tape.mode=typed[1];$('tape-search').value=typed[2].toLowerCase();}
+      else if(legacy){state.tape.mode='swaps';$('tape-search').value=legacy[1].toLowerCase();}
       else if(location.hash==='#/tape') $('tape-search').value='';
       void loadTape();
     }

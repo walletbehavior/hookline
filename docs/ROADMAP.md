@@ -50,6 +50,9 @@ Acceptance criteria:
 - Build canonical hook and pool identities with exact source transactions
 - Store raw logs with separate live and bounded historical cursors
 - Publish coverage, pagination, hook filtering, and the Tape browser view
+- Index finalized live PoolManager swaps for already-resolved hooked pools
+- Retain signed pool deltas, emitted swap fee, post-swap state, raw log, and source transaction
+- Publish separate Swaps and Pool births views with independent coverage
 - Keep the shipped runtime-family map current and identify changed forks as separate families
 
 Acceptance criteria met by this slice:
@@ -59,9 +62,8 @@ Acceptance criteria met by this slice:
 - Failed scans preserve the last good evidence and do not advance a cursor.
 - Project-submitted profiles remain visibly separate from chain observations.
 
-## Next: swap outcomes and change intelligence
+## Next: trace-backed outcomes and change intelligence
 
-- Index swap outcomes and hook calls over explicit block ranges
 - Measure the pool-advertised fee separately from observable hook-adjusted token flow
 - Record swap refusals, hook gas, recipients, and return-delta involvement where the evidence supports it
 - Publish short tape rows with links to their source transactions, logs, traces, and derivation version

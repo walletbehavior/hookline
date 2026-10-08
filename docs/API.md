@@ -99,14 +99,20 @@ The first Tape surface indexes the official Uniswap v4 PoolManager on Base at `0
 
 | Route | Response |
 | --- | --- |
-| `GET /api/tape/status` | Finalized head, live and historical cursors, gap size, saved pool and hook counts, source contracts, and derivation version |
+| `GET /api/tape/status` | Pool and swap counts, finalized heads, live and historical cursors, gap or lag, scanner state, source contracts, and derivation versions |
 | `GET /api/tape/pools?limit=50` | Newest saved PoolManager initialization records |
 | `GET /api/tape/pools?hook={address}&limit=50` | Initialization records for one exact normalized hook address |
 | `GET /api/tape/pools?cursor={block}:{logIndex}` | Older records using the prior response's opaque-compatible cursor value |
+| `GET /api/tape/swaps?limit=50` | Newest finalized PoolManager swap records for resolved hooked pools |
+| `GET /api/tape/swaps?hook={address}&limit=50` | Swap rows for one exact normalized hook address |
+| `GET /api/tape/swaps?pool={bytes32}&limit=50` | Swap rows for one exact pool ID |
+| `GET /api/tape/swaps?cursor={block}:{logIndex}` | Older swap rows using the prior response's cursor value |
 
-Each pool row contains the PoolManager, pool ID, hook, currencies, configured LP fee field, tick spacing, initial price and tick, block/hash, transaction/hash, log index, finalized read boundary, retained source log, and derivation version. The API currently proves initialization relationships. It does not claim that a static fee remained current, that a dynamic fee had a particular value, or that a hook extracted a measured amount during a swap.
+Each pool row contains the PoolManager, pool ID, hook, currencies, configured LP fee field, tick spacing, initial price and tick, block/hash, transaction/hash, log index, finalized read boundary, retained source log, and derivation version.
 
-The scanner keeps a finalized live cursor current and advances a separate bounded historical cursor from the PoolManager deployment block. A cursor advances only after its decoded source rows are stored. Failed reads retain the last good evidence and cursor. Public Tape responses are briefly cacheable; the operator scan route is authenticated and never public.
+Each swap row contains the resolved hook and pool, currencies, sender, signed `amount0` and `amount1` pool deltas in raw token base units, post-swap price and liquidity fields, tick, the swap fee emitted by PoolManager, source block and transaction, retained raw log, finalized boundary, and derivation version. The emitted PoolManager fee is not a separately attributed hook fee. Token transfers, hook recipients, reverted attempts, and call-path gas remain unavailable until receipt or trace evidence supports them.
+
+The pool scanner keeps a finalized live cursor current and advances a separate bounded historical cursor from the PoolManager deployment block. The swap scanner has an independent finalized live cursor and retains rows only when Hookline has already resolved the pool-to-hook relationship. Raw swap rows have a seven-day and 200,000-row ceiling, with bounded pruning on each successful scan; the status response publishes those limits. A cursor advances only after its decoded source rows are stored. Failed reads retain the last good evidence and cursor. Public Tape responses are briefly cacheable; the operator scan route is authenticated and never public.
 
 ## Private accounts
 

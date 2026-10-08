@@ -6,7 +6,7 @@ Hookline is the intelligence and coordination layer for onchain hooks. The initi
 
 Hookline gives that ecosystem a shared evidence model and a practical workstation.
 
-The boards are the map. The shipped Projects layer shares configuration reads, selected activity, and changes across a broad ecosystem. The shipped Hook Tape foundation owns finalized Base pool-initialization evidence and exact source transactions. Its next derivations deepen that into block-range measurements of what pools advertised, what hooks changed, which attempts failed, and where measurable value moved.
+The boards are the map. The shipped Projects layer shares configuration reads, selected activity, and changes across a broad ecosystem. The shipped Hook Tape owns finalized Base pool-initialization and live swap evidence with exact source transactions. Its next derivations deepen the swap rows into receipt- and trace-backed measurements of what hooks changed, which attempts failed, and where measurable value moved.
 
 ## Current capabilities
 
@@ -86,11 +86,11 @@ The broad board remains a useful discovery surface. Hookline now also follows fi
 hook, pools, chains, deployers, code versions, events
 ```
 
-The shipped first slice associates initialized pools with their configured hook, currencies, LP fee field, source block, transaction, and raw log. It maintains a live finalized cursor and a separate bounded historical cursor, and advances only after evidence is stored. Swap and liquidity outcomes over explicit block ranges are the next derivation layer.
+Initialization rows associate pools with their configured hook, currencies, LP fee field, source block, transaction, and raw log. A separate finalized live cursor now retains PoolManager swap rows for already-resolved hooked pools, including signed pool deltas and the fee emitted for each swap. Both cursors advance only after evidence is stored. Receipts and traces are the next derivation layer.
 
 ## Hook Tape
 
-The first tape is live on Base and expands only after its derivations are dependable. Initialization rows already answer which pool, hook, currencies, LP fee configuration, block, and transaction established a relationship. The next rows are designed to answer concrete execution questions:
+The first tape is live on Base and expands only after its derivations are dependable. Initialization rows answer which pool, hook, currencies, LP fee configuration, block, and transaction established a relationship. Swap rows answer which known hooked pool traded, its signed PoolManager deltas, emitted swap fee, post-swap tick, and exact source transaction. The next derivations answer deeper execution questions:
 
 - How many swaps touched this hook in the stated block range?
 - How many attempts reverted during the hook path?

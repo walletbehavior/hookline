@@ -378,7 +378,7 @@ test('first-party pool alerts seed silently and carry source evidence',async()=>
   const delivered=await runAlertScan({}, {store,resolveHookMarkets,resolveFirstPartyPools,sendMessage,now:2});
   assert.equal(delivered.delivered,1);assert.match(sent[0].text,/new finalized Base pool/);assert.match(sent[0].text,/Measured Hook/);
   assert.match(sent[0].text,/Source transaction/);assert(sent[0].text.includes(`<code>${pools[0].transactionHash}</code>`));
-  assert.equal(sent[0].options.reply_markup.inline_keyboard[0][0].url,`https://hookline.world/#/tape/8453/${HOOK}`);
+  assert.equal(sent[0].options.reply_markup.inline_keyboard[0][0].url,`https://hookline.world/#/tape/pools/8453/${HOOK}`);
   const before=JSON.parse(alert.baseline_json);
   await runAlertScan({}, {store,resolveHookMarkets,resolveFirstPartyPools:async()=>({available:true,complete:false,pools:[pool('3',113)]}),sendMessage,now:3});
   assert.deepEqual(JSON.parse(alert.baseline_json).firstPartyPools,before.firstPartyPools,'Incomplete coverage must retain the last complete baseline.');

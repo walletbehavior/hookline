@@ -11,7 +11,7 @@ Hookline is a multichain evidence and analytics desk for programmable-liquidity 
 - Live contract inspection on Ethereum, BNB Chain, Base, Arbitrum One, and Robinhood Chain
 - Cross-chain hook board with 1,000+ active hook identities across 10+ chains
 - Broad Projects board with source-linked deployments, coverage labels, shared observations, and selected mechanism events
-- Base Hook Tape foundation built from finalized PoolManager `Initialize` logs, with exact pool, hook, currency, block, and transaction evidence
+- Base Hook Tape built from finalized PoolManager `Initialize` and `Swap` logs, with exact hook, pool, signed pool deltas, reported swap fee, block, and transaction evidence
 - Private API submissions, suggestions, DNS domain claims, and metadata-only profile updates
 - Aggregate indexed pool and swap counts with snapshot timestamps
 - Shareable hook profile URLs, filtered JSON exports, and inline live inspection
@@ -34,7 +34,7 @@ Hookline is a multichain evidence and analytics desk for programmable-liquidity 
 - Free, allowlisted JSON-RPC access
 - x402-protected capacity at 0.01 USDC per request on Base
 
-The board's discovery and aggregate counts come from a timestamped v4.xyz community-indexer snapshot. The Base Tape is separate first-party evidence read from the official PoolManager contract: a current finalized cursor stays live while a bounded cursor fills history from the deployment block. Project descriptions are community-curated, team-authored, agent-reviewed, or Hookline-researched and labeled in the interface. Projects has its own broad registry, source-linked deployments, block-pinned observations, selected mechanism event readers, shared activity, and Telegram follows. Complete swap-outcome indexing, generalized fee attribution, and lifetime payout reconciliation remain roadmap work. A confirmed individual burn transfer is not a lifetime total or investment outcome.
+The board's discovery and aggregate counts come from a timestamped v4.xyz community-indexer snapshot. The Base Tape is separate first-party evidence read from the official PoolManager contract: finalized initialization coverage stays current while a bounded cursor fills history, and a finalized live swap cursor retains rows for already-resolved hooked pools. Swap rows report signed pool deltas and the fee emitted by PoolManager. They do not yet attribute separate hook transfers, recipients, rejected calls, or a hidden spread. Project descriptions are community-curated, team-authored, agent-reviewed, or Hookline-researched and labeled in the interface. Projects has its own broad registry, source-linked deployments, block-pinned observations, selected mechanism event readers, shared activity, and Telegram follows. Generalized fee attribution and lifetime payout reconciliation remain roadmap work. A confirmed individual burn transfer is not a lifetime total or investment outcome.
 
 The October 7 Projects release starts with 39 records, including tokenized projects, launch infrastructure, liquidity mechanisms, and developer tooling. Ten projects have explicitly selected monitoring targets. A listed project is not automatically a monitored or verified deployment. [Release notes and current boundaries](docs/RELEASE_2026-10-07.md) distinguish what is measured from what remains planned.
 

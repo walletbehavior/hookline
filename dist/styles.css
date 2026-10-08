@@ -1563,6 +1563,9 @@ progress::-moz-progress-bar { background: var(--cyan); }
 .tape-coverage-meter span { display:block; width:0; height:100%; background:var(--lime); transition:width .25s ease; }
 .tape-scan-status { grid-column:1 / -1; padding-top:9px; border-top:1px solid #342e29; font-family:var(--font-mono); font-size:.61rem !important; text-transform:uppercase; letter-spacing:.045em; }
 .tape-toolbar { display:flex; align-items:center; gap:16px; padding:10px; border:1px solid var(--tape-line); border-bottom:0; background:#1e1a17; }
+.tape-mode { display:flex; flex:0 0 auto; padding:3px; border:1px solid #413a34; background:#151310; }
+.tape-mode button { min-height:30px; padding:0 11px; border:0; background:transparent; color:#776c62; font-family:var(--font-mono); font-size:.6rem; letter-spacing:.04em; text-transform:uppercase; cursor:pointer; }
+.tape-mode button[aria-pressed="true"] { background:#392d24; color:#d8c9b8; box-shadow:inset 0 0 0 1px #604b3b; }
 .tape-toolbar .project-search { flex:1; }
 .tape-toolbar input { width:100%; height:38px; padding:0 11px; border:1px solid #413a34; background:#151310; color:var(--bone); font-family:var(--font-mono); font-size:.7rem; }
 .tape-toolbar > span { color:#81756a; font-family:var(--font-mono); font-size:.62rem; text-transform:uppercase; white-space:nowrap; }
@@ -1577,6 +1580,7 @@ progress::-moz-progress-bar { background: var(--cyan); }
 .tape-hook-link { color:var(--bone); }.tape-block-link,.tape-tx-link { color:var(--cyan); }
 .tape-hook-identity { display:grid; gap:2px; }.tape-hook-identity>a,.tape-hook-identity>strong { overflow:hidden; font-weight:600; text-overflow:ellipsis; white-space:nowrap; }.tape-hook-identity code { color:#776c62; font-size:.58rem; }
 .tape-table td:last-child { display:flex; align-items:center; gap:8px; }.tape-table td:last-child small { color:#6f655c; }
+.tape-deltas { display:grid; gap:3px; }.tape-deltas code { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .tape-dynamic { color:var(--lime) !important; }
 .tape-scope { display:grid; grid-template-columns:auto minmax(0,1fr); gap:8px 16px; margin-top:13px; padding:14px 16px; border:1px solid var(--tape-line); background:#181513; }
 .tape-scope b { color:#8d8175; font-family:var(--font-mono); font-size:.58rem; letter-spacing:.07em; }
