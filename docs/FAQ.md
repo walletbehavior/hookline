@@ -54,6 +54,8 @@ Angstrom follows include source-bound Ethereum ControllerV1 pool configuration a
 
 Hookr follows cover the manifest-pinned Hookr 1 launcher and shared root on Robinhood Chain. They can report market-family and member-pool openings, dev buys, launch-fee changes and payments, family transfers, per-swap hook fee/refund/burn outcomes, and arb-recapture lane records. Raw quote fees and subject burns remain separate because they are different assets. A Hookr event is evidence from that deployment, not a Hookline endorsement of a launched market.
 
+What the Hook is listed from its official site with its Robinhood hook and `$WTH` token addresses. Its published arbitrage-recapture and profit-sharing description is project metadata. Because the integration is identified as closed source, Hookline does not label it source-bound or infer payouts from the description; only generic pinned contract observations are available until stronger evidence exists.
+
 ## Does every listed project have complete monitoring?
 
 No. The Projects board includes researched and community records, linked deployments, and a smaller set of monitored targets. `linkedDeployments`, `monitoredDeployments`, and `observedDeployments` mean different things. A saved observation does not prove complete event history or current provider health. Profiles show the last successful read, scan status, and event lag.

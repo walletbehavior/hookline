@@ -205,6 +205,17 @@ assert.equal(feeLog.args.burned,3n);
 assert.equal(hookFee.amountField,undefined,'Quote fee and subject burn use different assets and must not be collapsed into one amount.');
 assert.notEqual(hookFee.fieldUnits.earned.basis,hookFee.fieldUnits.burned.basis);
 
+const whatTheHook=seeds.projects.find((project)=>project.id==='what-the-hook');
+const whatTheHookDeployment=whatTheHook.deployments.find((deployment)=>deployment.role==='hook');
+const whatTheHookToken=whatTheHook.deployments.find((deployment)=>deployment.role==='token');
+assert.equal(whatTheHookDeployment.chainId,4663);
+assert.equal(whatTheHookDeployment.address,'0x58a6ef29ddcdb064a72b550a78d84a8e065994c0');
+assert.equal(whatTheHookDeployment.monitor,true);
+assert.equal(whatTheHookToken.address,'0xb8fa8010833463aac5595b55b9045479239eff79');
+assert.equal(whatTheHookToken.monitor,false);
+assert.equal(READERS['what-the-hook'],undefined,'A closed-source project record must not masquerade as a source-bound reader.');
+assert.deepEqual(readerDefinitionsForDeployment('what-the-hook',whatTheHookDeployment),{reads:[],events:[]});
+
 const engram = seeds.projects.find((p) => p.id === 'engram');
 const hook = engram.deployments.find((d) => d.role === 'hook');
 const factory = engram.deployments.find((d) => d.role === 'factory');

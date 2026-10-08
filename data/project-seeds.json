@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-10-08T01:16:11.000Z",
+  "generatedAt": "2026-10-08T01:37:00.000Z",
   "projects": [
     {
       "id": "clanker", "name": "Clanker",
@@ -72,6 +72,19 @@
         {"chainId": 4663, "address": "0x463c82bea1a52f4cc05ca0741a24f0ad24ba4602", "role": "registry", "name": "HookrRegistry", "provenance": "official deployment reference", "sourceUrl": "https://raw.githubusercontent.com/Hookr-fun/hookr-contracts/c947cedf90146915884b927c04e17862b020ecb1/hookr-1/deployments/robinhood-4663.json", "monitor": false},
         {"chainId": 4663, "address": "0x21e438fabe10770afb4407cf6b09d32369cbdce4", "role": "factory", "name": "HookrRootFactory", "provenance": "official deployment reference", "sourceUrl": "https://raw.githubusercontent.com/Hookr-fun/hookr-contracts/c947cedf90146915884b927c04e17862b020ecb1/hookr-1/deployments/robinhood-4663.json", "monitor": false},
         {"chainId": 4663, "address": "0x18e674231a58c239dc7daedcffe15ec3a24cff5c", "role": "token", "name": "HOOKR token", "provenance": "official deployment reference", "sourceUrl": "https://github.com/Hookr-fun/hookr-contracts", "monitor": false}
+      ]
+    },
+    {
+      "id": "what-the-hook", "name": "What the Hook",
+      "summary": "Robinhood Chain hook whose official site describes arbitrage recapture with proceeds shared among traders, liquidity providers, referrals, and the project treasury.",
+      "category": "MEV and execution", "website": "https://www.whatthehook.io/", "provenance": "researched project record",
+      "sources": [
+        {"label": "Official project site and deployment addresses", "url": "https://www.whatthehook.io/"},
+        {"label": "Hookr integration record identifying the WTH executor as closed source", "url": "https://github.com/Hookr-fun/hookr-contracts"}
+      ],
+      "deployments": [
+        {"chainId": 4663, "address": "0x58a6ef29ddcdb064a72b550a78d84a8e065994c0", "role": "hook", "name": "What the Hook", "provenance": "official deployment reference", "sourceUrl": "https://www.whatthehook.io/", "monitor": true},
+        {"chainId": 4663, "address": "0xb8fa8010833463aac5595b55b9045479239eff79", "role": "token", "name": "WTH token", "provenance": "official deployment reference", "sourceUrl": "https://www.whatthehook.io/", "monitor": false}
       ]
     },
     {
