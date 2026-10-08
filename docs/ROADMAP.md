@@ -22,6 +22,7 @@ Status: operating in production.
 - Source-bound CLAUS allocations, accrued balances, and mechanism events, with bounded same-receipt burn-transfer confirmation
 - Source-bound Doppler Airlock launches, migrations, module changes, and fee collections on Base and Robinhood Chain
 - Source-bound Angstrom ControllerV1 authority, pool configuration, and node-set changes on Ethereum
+- Source-bound Hookr 1 launch-family, pool-open, hook-fee, launch-fee, and recapture-lane records on Robinhood Chain
 - Telegram alerts for direct runtime changes, new indexed pool relationships, finalized PoolManager fee moves of at least 10 basis points, and 10% indexed liquidity changes
 - Named alert cards, full copyable contract addresses, and button-first navigation
 - Saved slippage and amount preferences; exact current-balance percentage sizing

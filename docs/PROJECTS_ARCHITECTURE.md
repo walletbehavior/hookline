@@ -88,6 +88,8 @@ Doppler readers are bound independently to the canonical Base and Robinhood Airl
 
 Angstrom reads are bound only to the verified Ethereum ControllerV1 deployment. The reader preserves the controller's distinction between fee configuration, an opaque batch update, pool removal, controller replacement, and node-set changes. Millionths remain millionths, and configured fees are not presented as amounts paid by a swap. The controller ABI never crosses onto the L1 hook, Base hooks, or L2 factory.
 
+Hookr reads are bound to the exact Hookr 1 Robinhood manifest and its source hashes at the recorded repository commit. The shared root and launcher are separate monitored deployments with separate ABI surfaces. A `HookFee` row preserves earned quote, refunded quote, and burned subject as distinct raw amounts because they are not necessarily the same asset. Arb-recapture profit stays labeled executor-reported, a failed optional frame is not mislabeled a failed swap, and a market family launch is not automatically called a new token deployment.
+
 Collector transport uses immutable, method-specific provider lists. Fallback state providers must match the chain and pinned block hash. At most 240 actual HTTP requests and a 42-second wall budget cover a scan, including provider validation and receipt proofs; at most four burn receipts are checked. A rate limit respects cooldown and stops work rather than pretending a smaller log range solved it. Unavailable historical log providers leave visible cursor lag. No provider, visitor, or follow count can expand those limits.
 
 ## Acceptance

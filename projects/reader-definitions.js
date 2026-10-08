@@ -33,6 +33,15 @@ const DOPPLER_DEPLOYMENTS = Object.freeze({
 const ANGSTROM_CONTROLLER = '0x1746484ea5e11c75e009252c102c8c33e0315fd4';
 const ANGSTROM_CONTROLLER_SOURCE = `https://eth.blockscout.com/api/v2/smart-contracts/${ANGSTROM_CONTROLLER}`;
 const ANGSTROM_CONTROLLER_VERSION = 'Verified ControllerV1 source SHA-256 ff1090f9c4b67a8ce7d0c3587de84b43c4fdaa6a14458448bda714c145ced9c2, Solidity 0.8.26, observed 2026-10-07';
+const HOOKR_COMMIT = 'c947cedf90146915884b927c04e17862b020ecb1';
+const HOOKR_MANIFEST = `https://raw.githubusercontent.com/Hookr-fun/hookr-contracts/${HOOKR_COMMIT}/hookr-1/deployments/robinhood-4663.json`;
+const HOOKR_RELEASE_DOCS = `https://raw.githubusercontent.com/Hookr-fun/hookr-contracts/${HOOKR_COMMIT}/hookr-1/README.md`;
+const HOOKR_LAUNCHER_SOURCE = `https://raw.githubusercontent.com/Hookr-fun/hookr-contracts/${HOOKR_COMMIT}/hookr-1/src/periphery/HookrLauncher.sol`;
+const HOOKR_ROOT_SOURCE = `https://raw.githubusercontent.com/Hookr-fun/hookr-contracts/${HOOKR_COMMIT}/hookr-1/src/core/HookrRoot.sol`;
+const HOOKR_LAUNCHER = '0x1cf2748a6670572425eabf9ab9e5bc4eb2eb8ef4';
+const HOOKR_ROOT = '0x89c9fb50d1f03192230ffb1c279bb6e7d3fe6acc';
+const HOOKR_LAUNCHER_VERSION = 'Hookr 1 manifest at c947ced, HookrLauncher source keccak256 0x9a81347a4ac1c5620c7aad977db6acabf3b53833e93dee43f1befac51a862dbc, checked at Robinhood block 82543400';
+const HOOKR_ROOT_VERSION = 'Hookr 1 manifest at c947ced, HookrRoot source keccak256 0xa390d177a63f6d815ed3b8caed8d57fc5bbace1e730eba4c472b26d8090594a0, checked at Robinhood block 82543400';
 const CLAUS_HOOK = '0x37bfb8ac7c960e558657871d41ca70e07e7dbfff';
 const CLAUS_IMPLEMENTATION = '0x767ea7dce972abd91fa81fe90f105eafcc2959fc';
 const CLAUS_TOKEN = '0x1b54e762aa34cf6e28e9c082f2848e28e45da6b8';
@@ -135,6 +144,24 @@ const angstromControllerDefinition = (definition) => ({
 });
 
 const angstromFeeUnit = { unit: 'ppm', denominator: 1_000_000 };
+
+const hookrLauncherDefinition = (definition) => ({
+  chainId: 4663,
+  address: HOOKR_LAUNCHER,
+  sourceUrl: HOOKR_MANIFEST,
+  sourceVersion: HOOKR_LAUNCHER_VERSION,
+  ...definition,
+});
+
+const hookrRootDefinition = (definition) => ({
+  chainId: 4663,
+  address: HOOKR_ROOT,
+  sourceUrl: HOOKR_MANIFEST,
+  sourceVersion: HOOKR_ROOT_VERSION,
+  ...definition,
+});
+
+const hookrRawCurrency = { unit: 'raw-token-units', assetField: 'quote' };
 
 export const READERS = {
   claus: {
@@ -335,6 +362,146 @@ export const READERS = {
         deploymentField: 'token', curveField: 'curve', assetField: 'pairToken',
         description: 'New token and bonding curve created by the documented factory. This is not proof of v4 graduation or a new hook deployment.',
       },
+    ],
+  },
+  hookr: {
+    version: 1,
+    label: 'Hookr 1 source-bound launch and hook records',
+    sources: [
+      { label: 'Hookr 1 exact deployment manifest', url: HOOKR_MANIFEST },
+      { label: 'Hookr 1 release documentation', url: HOOKR_RELEASE_DOCS },
+      { label: 'HookrLauncher source at release commit', url: HOOKR_LAUNCHER_SOURCE },
+      { label: 'HookrRoot source at release commit', url: HOOKR_ROOT_SOURCE },
+    ],
+    reads: [
+      hookrLauncherDefinition({
+        key: 'launcherPoolManager', label: 'Launcher PoolManager', signature: 'poolManager()', returns: 'address',
+        classification: 'configuration',
+        description: 'PoolManager every family pool uses. This is immutable wiring, not an activity count or safety endorsement.',
+      }),
+      hookrLauncherDefinition({
+        key: 'launcherRegistry', label: 'Launcher registry', signature: 'registry()', returns: 'address',
+        classification: 'configuration',
+        description: 'Registry that admits roots, quotes, and modules for this launcher. Admission is not a Hookline verification.',
+      }),
+      hookrRootDefinition({
+        key: 'rootPoolManager', label: 'Root PoolManager', signature: 'poolManager()', returns: 'address',
+        classification: 'configuration',
+        description: 'PoolManager bound immutably to the shared Hookr root.',
+      }),
+      hookrRootDefinition({
+        key: 'rootRegistry', label: 'Root registry', signature: 'registry()', returns: 'address',
+        classification: 'configuration',
+        description: 'Registry bound immutably to the shared root. It governs admissions for new Hookr pools, not existing pool terms.',
+      }),
+      hookrRootDefinition({
+        key: 'rootRouter', label: 'Authenticated router', signature: 'router()', returns: 'address',
+        classification: 'configuration',
+        description: 'Router whose runtime code hash is pinned by the root. This address is configuration, not a promise that every route succeeds.',
+      }),
+      hookrRootDefinition({
+        key: 'rootQuoter', label: 'Hookr quoter', signature: 'quoter()', returns: 'address',
+        classification: 'configuration',
+        description: 'Quoter wired into this root. Quotes remain point-in-time computations rather than execution receipts.',
+      }),
+      hookrRootDefinition({
+        key: 'rootCuratedRouter', label: 'Curated router', signature: 'curatedRouter()', returns: 'address',
+        classification: 'configuration',
+        description: 'Curated router address pinned by the root. It is distinct from the general authenticated router.',
+      }),
+      hookrRootDefinition({
+        key: 'burnAddress', label: 'Auto Burn destination', signature: 'DEAD()', returns: 'address',
+        classification: 'configuration',
+        description: 'Destination used by the source-defined Auto Burn path. A configured destination does not prove any amount was burned.',
+      }),
+    ],
+    events: [
+      hookrLauncherDefinition({
+        key: 'familyLaunched', label: 'Market family launched', classification: 'executed',
+        signature: 'event FamilyLaunched(bytes32 indexed familyId,address indexed owner,address indexed subject,address root)',
+        deploymentField: 'subject', hookField: 'root', fieldLabels: { owner: 'First family owner' },
+        description: 'The launcher recorded a subject market family and its first owner on the named root. The subject may be newly created or existing, so this is not always a token deployment.',
+      }),
+      hookrLauncherDefinition({
+        key: 'memberLaunched', label: 'Family pool opened', classification: 'executed',
+        signature: 'event MemberLaunched(bytes32 indexed familyId,uint8 member,bytes32 indexed poolId,address quote,uint128 liquidity)',
+        poolField: 'poolId', assetField: 'quote',
+        fieldLabels: { member: 'Family member', liquidity: 'Launch liquidity' },
+        fieldUnits: { member: { unit: 'index' }, liquidity: { unit: 'raw-liquidity-units' } },
+        description: 'A family member pool opened with its launch position. Liquidity is a v4 liquidity unit, not token quantity or USD value.',
+      }),
+      hookrLauncherDefinition({
+        key: 'devBuyExecuted', label: 'Launch dev buy executed', classification: 'executed',
+        signature: 'event DevBuyExecuted(bytes32 indexed familyId,bytes32 indexed poolId,address indexed buyer,uint8 member,uint256 quoteIn,uint256 subjectOut,uint160 sqrtPriceX96,uint160 sqrtPriceAfterX96,uint256 lockedUntil)',
+        poolField: 'poolId',
+        fieldLabels: { buyer: 'Family owner and buyer', member: 'Family member', quoteIn: 'Quote spent', subjectOut: 'Subject received', sqrtPriceX96: 'Opening sqrt price', sqrtPriceAfterX96: 'Post-buy sqrt price', lockedUntil: 'Principal unlock block' },
+        fieldUnits: { quoteIn: { unit: 'raw-token-units' }, subjectOut: { unit: 'raw-token-units' }, sqrtPriceX96: { unit: 'sqrt-price-x96' }, sqrtPriceAfterX96: { unit: 'sqrt-price-x96' }, lockedUntil: { unit: 'block' } },
+        description: 'The family owner completed the documented launch buy. Quote and subject amounts use different assets and remain raw units; prices require token ordering and decimals before comparison.',
+      }),
+      hookrLauncherDefinition({
+        key: 'launchFeeSet', label: 'Launch fee configuration changed', classification: 'configured',
+        signature: 'event LaunchFeeSet(uint256 fee,address treasury)',
+        amountField: 'fee', unit: 'wei', asset: 'ETH', fieldLabels: { treasury: 'Treasury contract' },
+        description: 'Fee and treasury configuration for future launches. The treasury contract may resolve a separate payment target, so this is not a transfer.',
+      }),
+      hookrLauncherDefinition({
+        key: 'launchFeePaid', label: 'Launch fee payment recorded', classification: 'transferred',
+        signature: 'event LaunchFeePaid(bytes32 indexed familyId,address indexed target,uint256 fee)',
+        amountField: 'fee', recipientField: 'target', unit: 'wei', asset: 'ETH',
+        description: 'Launcher-recorded native launch-fee payment to the resolved target. It is transaction-level contract evidence, not a lifetime total.',
+      }),
+      hookrLauncherDefinition({
+        key: 'familyTransferred', label: 'Family ownership transferred', classification: 'configured',
+        signature: 'event FamilyTransferred(bytes32 indexed familyId,address indexed owner)',
+        fieldLabels: { owner: 'New family owner' },
+        description: 'A pending family transfer completed. This changes control of that family, not ownership of Hookr as a project.',
+      }),
+      hookrRootDefinition({
+        key: 'poolOpened', label: 'Hookr pool opened', classification: 'executed',
+        signature: 'event PoolOpened(bytes32 indexed id,address indexed launcher,bytes32 indexed policyHash,address rules,address advisory)',
+        poolField: 'id',
+        fieldLabels: { launcher: 'Launcher', policyHash: 'Frozen policy hash', rules: 'Rules contract', advisory: 'Advisory contract' },
+        description: 'The shared root recorded a new pool and the commitment to its pool key, configuration, and module data. Rules and advisory identify mechanisms, not an investment rating.',
+      }),
+      hookrRootDefinition({
+        key: 'hookFee', label: 'Hook fee outcome recorded', classification: 'executed',
+        signature: 'event HookFee(bytes32 indexed id,address indexed quote,uint256 earned,uint256 refund,uint256 burned)',
+        poolField: 'id', assetField: 'quote',
+        fieldLabels: { earned: 'Hook fee paid', refund: 'Quote refunded', burned: 'Subject burned' },
+        fieldUnits: { earned: hookrRawCurrency, refund: hookrRawCurrency, burned: { unit: 'raw-token-units', basis: 'pool subject' } },
+        description: 'Per-swap contract record separating quote fee earned, quote refunded, and subject burned. Earned and refund use the indexed quote currency; burned uses the other pool asset, so the fields must not be summed.',
+      }),
+      hookrRootDefinition({
+        key: 'poolLane', label: 'Arb recapture lane fixed', classification: 'configured',
+        signature: 'event PoolLane(bytes32 indexed id,address indexed executor,bytes32 codeHash,uint16 partnerBps,bytes32 family)',
+        poolField: 'id',
+        fieldLabels: { executor: 'Lane executor', codeHash: 'Frozen executor code hash', partnerBps: 'Partner share', family: 'Lane family' },
+        fieldUnits: { partnerBps: { unit: 'bps', denominator: 10000 } },
+        description: 'Pool initialization froze the executor, its runtime code hash, partner share, and optional lane family. This is configuration, not realized arbitrage profit.',
+      }),
+      hookrRootDefinition({
+        key: 'recaptureSucceeded', label: 'Arb recapture push recorded', classification: 'executed',
+        signature: 'event CorrectionSucceeded(bytes32 indexed id,uint8 indexed phase,address indexed trader,uint256 reportedProfit,uint256 pushed,address currency)',
+        poolField: 'id', assetField: 'currency',
+        fieldLabels: { phase: 'Recapture phase', trader: 'Authenticated trader', reportedProfit: 'Executor-reported profit', pushed: 'Amount pushed' },
+        fieldValueLabels: { phase: { 1: 'Before quote', 2: 'After settlement' } },
+        fieldUnits: { reportedProfit: { unit: 'raw-token-units', assetField: 'currency' }, pushed: { unit: 'raw-token-units', assetField: 'currency' } },
+        description: 'The executor completed a recapture push. Reported profit follows the contract formula and is explicitly not proof of the executor\'s real arbitrage profit.',
+      }),
+      hookrRootDefinition({
+        key: 'recaptureFailed', label: 'Arb recapture attempt failed', classification: 'executed',
+        signature: 'event CorrectionFailed(bytes32 indexed id,uint8 indexed phase,address indexed trader,bytes4 reason)',
+        poolField: 'id',
+        fieldLabels: { phase: 'Recapture phase', trader: 'Authenticated trader', reason: 'Revert selector' },
+        fieldValueLabels: { phase: { 1: 'Before quote', 2: 'After settlement' } },
+        description: 'The optional recapture frame failed and was unwound while the swap continued. This is a recorded non-success outcome for the module, not a failed swap.',
+      }),
+      hookrRootDefinition({
+        key: 'laneCodeChanged', label: 'Lane executor code mismatch detected', classification: 'configured',
+        signature: 'event LaneCodeChanged(bytes32 indexed id,uint8 indexed phase)',
+        poolField: 'id', fieldLabels: { phase: 'Recapture phase' }, fieldValueLabels: { phase: { 1: 'Before quote' } },
+        description: 'The root skipped the recapture lane because the executor runtime no longer matched the code hash frozen at pool opening. The underlying swap may still continue.',
+      }),
     ],
   },
   doppler: {

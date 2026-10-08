@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-10-07T21:07:25.000Z",
+  "generatedAt": "2026-10-08T01:16:11.000Z",
   "projects": [
     {
       "id": "clanker", "name": "Clanker",
@@ -55,6 +55,23 @@
       "deployments": [
         {"chainId": 4663, "address": "0xe5e702641ea86f4ae6cc3cdaed2b886f976be044", "role": "hook", "name": "Pons v2 meme hook", "provenance": "official deployment reference", "sourceUrl": "https://docs.ponsfamily.com/v2", "monitor": true},
         {"chainId": 4663, "address": "0x7ed598bcef8bd9edd8c97a195c6d13f40801ec7e", "role": "factory", "name": "Pons v2 factory", "provenance": "official deployment reference", "sourceUrl": "https://docs.ponsfamily.com/v2", "monitor": true}
+      ]
+    },
+    {
+      "id": "hookr", "name": "Hookr",
+      "summary": "Robinhood Chain launch and market infrastructure for immutable pool rules, multi-pool families, fee routing, arb recapture, and composable hook modules.",
+      "category": "Hook infrastructure", "website": "https://hookr.fun/", "provenance": "researched project record",
+      "sources": [
+        {"label": "Official Hookr contract repository", "url": "https://github.com/Hookr-fun/hookr-contracts"},
+        {"label": "Hookr 1 exact deployment manifest", "url": "https://raw.githubusercontent.com/Hookr-fun/hookr-contracts/c947cedf90146915884b927c04e17862b020ecb1/hookr-1/deployments/robinhood-4663.json"},
+        {"label": "Hookr product documentation", "url": "https://hookr.fun/docs"}
+      ],
+      "deployments": [
+        {"chainId": 4663, "address": "0x89c9fb50d1f03192230ffb1c279bb6e7d3fe6acc", "role": "hook", "name": "HookrRoot shared hook", "provenance": "official deployment reference", "sourceUrl": "https://raw.githubusercontent.com/Hookr-fun/hookr-contracts/c947cedf90146915884b927c04e17862b020ecb1/hookr-1/deployments/robinhood-4663.json", "monitor": true},
+        {"chainId": 4663, "address": "0x1cf2748a6670572425eabf9ab9e5bc4eb2eb8ef4", "role": "factory", "name": "HookrLauncher", "provenance": "official deployment reference", "sourceUrl": "https://raw.githubusercontent.com/Hookr-fun/hookr-contracts/c947cedf90146915884b927c04e17862b020ecb1/hookr-1/deployments/robinhood-4663.json", "monitor": true},
+        {"chainId": 4663, "address": "0x463c82bea1a52f4cc05ca0741a24f0ad24ba4602", "role": "registry", "name": "HookrRegistry", "provenance": "official deployment reference", "sourceUrl": "https://raw.githubusercontent.com/Hookr-fun/hookr-contracts/c947cedf90146915884b927c04e17862b020ecb1/hookr-1/deployments/robinhood-4663.json", "monitor": false},
+        {"chainId": 4663, "address": "0x21e438fabe10770afb4407cf6b09d32369cbdce4", "role": "factory", "name": "HookrRootFactory", "provenance": "official deployment reference", "sourceUrl": "https://raw.githubusercontent.com/Hookr-fun/hookr-contracts/c947cedf90146915884b927c04e17862b020ecb1/hookr-1/deployments/robinhood-4663.json", "monitor": false},
+        {"chainId": 4663, "address": "0x18e674231a58c239dc7daedcffe15ec3a24cff5c", "role": "token", "name": "HOOKR token", "provenance": "official deployment reference", "sourceUrl": "https://github.com/Hookr-fun/hookr-contracts", "monitor": false}
       ]
     },
     {

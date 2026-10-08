@@ -52,6 +52,8 @@ Doppler follows include source-bound Airlock launches, migrations, module-role c
 
 Angstrom follows include source-bound Ethereum ControllerV1 pool configuration and removal, accepted controller replacements, and node-set changes. Current controller authorities and counts are block-pinned. The L1 and L2 hook deployments remain separate contracts; Hookline does not apply the controller ABI to them or call a configured fee an observed trade charge.
 
+Hookr follows cover the manifest-pinned Hookr 1 launcher and shared root on Robinhood Chain. They can report market-family and member-pool openings, dev buys, launch-fee changes and payments, family transfers, per-swap hook fee/refund/burn outcomes, and arb-recapture lane records. Raw quote fees and subject burns remain separate because they are different assets. A Hookr event is evidence from that deployment, not a Hookline endorsement of a launched market.
+
 ## Does every listed project have complete monitoring?
 
 No. The Projects board includes researched and community records, linked deployments, and a smaller set of monitored targets. `linkedDeployments`, `monitoredDeployments`, and `observedDeployments` mean different things. A saved observation does not prove complete event history or current provider health. Profiles show the last successful read, scan status, and event lag.

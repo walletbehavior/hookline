@@ -155,6 +155,56 @@ assert.equal(configuredLog.args.asset1, asset1);
 assert.equal(String(configuredLog.args.bundleFee), '1200');
 assert.equal(poolConfigured.fieldUnits.bundleFee.denominator, 1_000_000);
 
+const hookrSource=JSON.parse(await readFile(new URL('../projects/sources/hookr-release-2026-10-07.json',import.meta.url),'utf8'));
+const hookr=seeds.projects.find((p)=>p.id==='hookr');
+const hookrLauncher=hookr.deployments.find((d)=>d.address===hookrSource.contracts.launcher.address);
+const hookrRoot=hookr.deployments.find((d)=>d.address===hookrSource.contracts.root.address);
+assert(hookrLauncher && hookrRoot,'The Hookr release must identify its launcher and shared root independently.');
+assert.equal(hookr.deployments.find((d)=>d.name==='HOOKR token').address,hookrSource.contracts.token.address);
+assert.equal(hookr.deployments.filter((d)=>d.monitor).length,2);
+assert.equal(hookrLauncher.role,'factory');
+assert.equal(hookrRoot.role,'hook');
+const hookrLauncherDefinitions=readerDefinitionsForDeployment('hookr',hookrLauncher);
+const hookrRootDefinitions=readerDefinitionsForDeployment('hookr',hookrRoot);
+assert.equal(hookrLauncherDefinitions.reads.length,2);
+assert.equal(hookrLauncherDefinitions.events.length,6);
+assert.equal(hookrRootDefinitions.reads.length,6);
+assert.equal(hookrRootDefinitions.events.length,6);
+assert.equal(readerDefinitionsForDeployment('hookr',{...hookrRoot,address:hookrSource.contracts.registry.address}).events.length,0,'Root events must not leak onto the registry.');
+assert.equal(readerDefinitionsForDeployment('hookr',{...hookrLauncher,chainId:8453}).events.length,0,'Robinhood definitions must remain chain-bound.');
+for(const read of READERS.hookr.reads) assert.equal(toFunctionSelector(read.signature),hookrSource.readSelectors[read.signature]);
+for(const event of READERS.hookr.events) {
+  const name=parseAbiItem(event.signature).name;
+  assert.equal(toEventSelector(parseAbiItem(event.signature)),hookrSource.eventTopics[name],`${name} must remain byte-for-byte bound to the release ABI.`);
+}
+const familyLaunch=hookrLauncherDefinitions.events.find((event)=>event.key==='familyLaunched');
+const familyLaunchAbi=parseAbiItem(familyLaunch.signature);
+const hookrSubject='0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+const hookrOwner='0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
+const hookrFamily=`0x${'c'.repeat(64)}`;
+const familyLog=decodeEventLog({
+  abi:[familyLaunchAbi],
+  topics:encodeEventTopics({abi:[familyLaunchAbi],eventName:'FamilyLaunched',args:{familyId:hookrFamily,owner:hookrOwner,subject:hookrSubject}}),
+  data:encodeAbiParameters(familyLaunchAbi.inputs.filter((input)=>!input.indexed),[hookrSource.contracts.root.address]),strict:true,
+});
+assert.equal(familyLog.args[familyLaunch.deploymentField].toLowerCase(),hookrSubject);
+assert.equal(familyLog.args[familyLaunch.hookField].toLowerCase(),hookrSource.contracts.root.address);
+assert.equal(familyLog.args.owner.toLowerCase(),hookrOwner);
+const hookFee=hookrRootDefinitions.events.find((event)=>event.key==='hookFee');
+const hookFeeAbi=parseAbiItem(hookFee.signature);
+const quote='0xdddddddddddddddddddddddddddddddddddddddd';
+const feeLog=decodeEventLog({
+  abi:[hookFeeAbi],topics:encodeEventTopics({abi:[hookFeeAbi],eventName:'HookFee',args:{id:hookrFamily,quote}}),
+  data:encodeAbiParameters(hookFeeAbi.inputs.filter((input)=>!input.indexed),[11n,2n,3n]),strict:true,
+});
+assert.equal(feeLog.args[hookFee.poolField],hookrFamily);
+assert.equal(feeLog.args[hookFee.assetField].toLowerCase(),quote);
+assert.equal(feeLog.args.earned,11n);
+assert.equal(feeLog.args.refund,2n);
+assert.equal(feeLog.args.burned,3n);
+assert.equal(hookFee.amountField,undefined,'Quote fee and subject burn use different assets and must not be collapsed into one amount.');
+assert.notEqual(hookFee.fieldUnits.earned.basis,hookFee.fieldUnits.burned.basis);
+
 const engram = seeds.projects.find((p) => p.id === 'engram');
 const hook = engram.deployments.find((d) => d.role === 'hook');
 const factory = engram.deployments.find((d) => d.role === 'factory');

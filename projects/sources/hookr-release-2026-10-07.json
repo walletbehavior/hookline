@@ -1,0 +1,59 @@
+{
+  "chainId": 4663,
+  "release": "hookr-1",
+  "repositoryCommit": "c947cedf90146915884b927c04e17862b020ecb1",
+  "artifactPacketSha256": "0x83962c12ff55df431612ffae8bfc66a30041eb310035cfc30eab1bb9bdc0e031",
+  "compiler": "0.8.37+commit.f401782d",
+  "checkedAtBlock": 82543400,
+  "manifestUrl": "https://raw.githubusercontent.com/Hookr-fun/hookr-contracts/c947cedf90146915884b927c04e17862b020ecb1/hookr-1/deployments/robinhood-4663.json",
+  "contracts": {
+    "launcher": {
+      "address": "0x1cf2748a6670572425eabf9ab9e5bc4eb2eb8ef4",
+      "runtimeKeccak256": "0x96b8c338c38a072ceef8b947ad93d3d7a46d2d7c70189d2b4ee92efb2a5e1d5d",
+      "creationTransaction": "0xa48e4cf08e0020fbfb40067a041fcacd3bb0bb4c6dcd3358c10d16021d49a31f",
+      "source": "hookr-1/src/periphery/HookrLauncher.sol",
+      "sourceKeccak256": "0x9a81347a4ac1c5620c7aad977db6acabf3b53833e93dee43f1befac51a862dbc"
+    },
+    "root": {
+      "address": "0x89c9fb50d1f03192230ffb1c279bb6e7d3fe6acc",
+      "runtimeKeccak256": "0xd336de325837e60a74cea11d87b5ebd1cc8961911f611f38de0508d23b6e779f",
+      "creationTransaction": "0x042e3b06fd28c56f01c71e1b2719f6d0d8fe79a5eb5bde431bd63ac958213af1",
+      "source": "hookr-1/src/core/HookrRoot.sol",
+      "sourceKeccak256": "0xa390d177a63f6d815ed3b8caed8d57fc5bbace1e730eba4c472b26d8090594a0"
+    },
+    "registry": {
+      "address": "0x463c82bea1a52f4cc05ca0741a24f0ad24ba4602",
+      "runtimeKeccak256": "0xc16e7681583d8d9af8e8c54962f7e890b967687dee4cf32dbd676d4d547d2359"
+    },
+    "rootFactory": {
+      "address": "0x21e438fabe10770afb4407cf6b09d32369cbdce4",
+      "runtimeKeccak256": "0xed0774e92af31e9799c7b91b764c4508d33fee4323a564801713714897183849"
+    },
+    "token": {
+      "address": "0x18e674231a58c239dc7daedcffe15ec3a24cff5c",
+      "symbol": "HOOKR"
+    }
+  },
+  "readSelectors": {
+    "poolManager()": "0xdc4c90d3",
+    "registry()": "0x7b103999",
+    "router()": "0xf887ea40",
+    "quoter()": "0xc6bbd5a7",
+    "curatedRouter()": "0x46704139",
+    "DEAD()": "0x03fd2a45"
+  },
+  "eventTopics": {
+    "FamilyLaunched": "0x3b41416921e185324b2a8777038aafbafeafbe3bb28fdc94ffb0aa885474d7fe",
+    "MemberLaunched": "0xa5092e5568be0e9512815abe7525bd3235e856996dba02977a093430e6669b77",
+    "DevBuyExecuted": "0xa3fb762d87d75ef51e8cba291c1f49c08e8ff48dbbd2e971cb9057300463f1ab",
+    "LaunchFeeSet": "0x7014cddf31939086ee5eee70998d68d785cff7c473f8660d6ac28d4b382aba24",
+    "LaunchFeePaid": "0x3ec56e3531106dbe659dd39cad06138865dad8d15b7b954d8db1aa6e1fd42afc",
+    "FamilyTransferred": "0x2e21df9700a346095eb5ff74972a91fe1f393624f0f2b589136a77462c20221c",
+    "PoolOpened": "0x366c00088d45edb204e629f530656d05ada67bcfb3debe56d9e97635b4fb6343",
+    "HookFee": "0x6470b6d1a5a7edc0757449ffc6fa7d454961fb95a71ad019cd8a9d0efd800ecb",
+    "PoolLane": "0x659ead2575515a7edf04321ba0ff4b148375282d57f66d555e3cfc3601fac92d",
+    "CorrectionSucceeded": "0x4821ced33e4e1b3f7f03da77b20bd4b5a6d109fb855f81922d879e6bf79d3af6",
+    "CorrectionFailed": "0xdd8b0ea35fd12f0b82af3809e87197afc6aa4017089320a871addc82dd0e8c9a",
+    "LaneCodeChanged": "0xc58332bc2f782dde8220e1f9e29d9943b9aadeb0416818d7987b0490bda5ed8e"
+  }
+}

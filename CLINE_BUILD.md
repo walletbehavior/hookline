@@ -58,6 +58,20 @@ Uniswap v4 is the initial wedge. The underlying model should later support other
 - Do not display invented prices, balances, volume, users, partnerships, or returns.
 - Keep keyboard focus, labels, live feedback, reduced motion, and narrow-screen behavior intact.
 
+## Implementation lane
+
+- Default bounded implementation, test repair, documentation, and first-pass review work to Cline using a local Ollama coding model.
+- Keep architecture decisions, source/evidence semantics, security boundaries, external writes, deployment, and final acceptance under the lead agent.
+- Give local agents narrow file lists and explicit stop conditions. They must not receive credentials, deploy, commit, post, access wallets, or broaden scope on their own.
+- Reuse passing test evidence. Do not rerun the entire stack after a documentation-only edit unless the release artifact changes.
+
+## Public project updates
+
+- Keep X updates to one to three short lines and do not use em dashes.
+- Use a verified cashtag when the project has a known ticker.
+- Include the full official token contract address when an official source establishes it. Never infer or shorten an unverified address into a project post.
+- Link to the Hookline evidence profile and describe only what the live reader currently supports.
+
 ## Acceptance checks
 
 - `node --check dist/app.js`
