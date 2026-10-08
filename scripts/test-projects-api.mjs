@@ -49,7 +49,12 @@ function assets() {
     { id: 'beta', name: 'Beta Hooks', website: 'https://beta-hooks.org/', summary: 'Another liquidity mechanism.', category: 'Liquidity', provenance: 'researched project record', sources: [{ label: 'Docs', url: 'https://beta-hooks.org/docs' }], deployments: [{ chainId: 8453, address: secondAddress, name: 'Beta hook', role: 'hook', monitor: false, provenance: 'official deployment reference', sourceUrl: 'https://beta-hooks.org/docs' }] },
     { id: 'gamma', name: 'Gamma Tools', website: 'https://gamma-hooks.org/', summary: 'Developer tools without a token or linked deployment.', category: 'Developer tools', provenance: 'researched project record', sources: [{ label: 'Docs', url: 'https://gamma-hooks.org/docs' }], deployments: [] },
   ];
-  return { hooks: JSON.stringify({ schemaVersion: 1, generatedAt: new Date(NOW).toISOString(), projects: [], hooks: [] }), projects: JSON.stringify({ schemaVersion: 1, generatedAt: new Date(NOW).toISOString(), projects }) };
+  const fingerprint='f'.repeat(64),deploymentIds=[`1_${address}`,`8453_${secondAddress}`];
+  return { hooks: JSON.stringify({ schemaVersion: 1, generatedAt: new Date(NOW).toISOString(), projects: [], hooks: [] }),
+    projects: JSON.stringify({ schemaVersion: 1, generatedAt: new Date(NOW).toISOString(), projects }),
+    runtimeFamilies: JSON.stringify({schemaVersion:1,generatedAt:new Date(NOW).toISOString(),source:{kind:'offline fixture'},
+      deployments:[{id:deploymentIds[0],chainId:1,address,name:'Alpha hook',fingerprint},{id:deploymentIds[1],chainId:8453,address:secondAddress,name:'Beta hook',fingerprint}],
+      families:[{runtimeFingerprint:fingerprint,codeByteLength:42,deploymentCount:2,chainIds:[1,8453],representativeName:'Alpha hook',deployments:deploymentIds}]})};
 }
 async function api(e, source, path, { method = 'GET', body, token, headers = {} } = {}) {
   const request = new Request(`https://hookline.world${path}`, { method, headers: { ...(body ? { 'content-type': 'application/json' } : {}), ...(token ? { authorization: `Bearer ${token}` } : {}), ...headers }, ...(body ? { body: JSON.stringify(body) } : {}) });
@@ -73,7 +78,7 @@ async function addObservation(e, { id, projectId = 'alpha', chainId = 1, contrac
   return observation;
 }
 async function addEvent(e, { id, projectId = 'alpha', chainId = 1, blockNumber = 120, canonical = 1, observedAt = NOW }) {
-  const event = { id, projectId, projectName: projectId, chainId, address, blockNumber, observedAt: new Date(observedAt).toISOString(), kind: 'observed_change', title: 'Configuration changed', before: 10, after: 20, evidence: { scope: 'between pinned observations', fromBlock: 100, toBlock: blockNumber, source: 'Offline pinned RPC fixture' } };
+  const event = { id, projectId, projectName: projectId, chainId, address, blockNumber, observedAt: new Date(observedAt).toISOString(), kind: 'observed_change', title: 'Configuration changed', classification:'configuration', before: 10, after: 20, evidence: { scope: 'between pinned observations', fromBlock: 100, toBlock: blockNumber, source: 'Offline pinned RPC fixture' } };
   await e.DB.prepare('INSERT INTO project_events(id,project_id,chain_id,address,block_number,block_hash,observed_at,kind,payload_json,canonical) VALUES(?,?,?,?,?,?,?,?,?,?)').bind(id, projectId, chainId, address, blockNumber, hash(blockNumber), observedAt, event.kind, JSON.stringify(event), canonical).run();
   return event;
 }
@@ -131,6 +136,8 @@ test('HTTP directory and profiles expose only canonical observations, chain-awar
   assert.match(list.response.headers.get('cache-control'), /public/);
   const alpha = list.body.projects.find((project) => project.id === 'alpha');
   assert.equal(alpha.coverage.observedDeployments, 1, 'Historical snapshots must not inflate deployment coverage.');
+  assert.equal(alpha.coverage.runtimeFamilies,1);
+  assert.equal(alpha.coverage.repeatedRuntimeFamilies,1);
   assert.equal(alpha.latestObservedAt, new Date(NOW).toISOString());
   assert.equal(list.body.projects.find((project) => project.id === 'beta').coverage.observedDeployments, 0);
   const detail = await api(e, source, '/api/projects/alpha');
@@ -140,10 +147,17 @@ test('HTTP directory and profiles expose only canonical observations, chain-awar
   assert.equal(detail.body.observations[0].fields.owner, null);
   assert.equal(detail.body.events.length, 1);
   assert.equal(detail.body.events[0].evidence.fromBlock, 100);
+  assert.equal(detail.body.runtimeFamilies.length,1);
+  assert.equal(detail.body.runtimeFamilies[0].deploymentCount,2);
+  assert.equal(detail.body.runtimeFamilies[0].relatedProjects[0].id,'beta');
+  assert.match(detail.body.runtimeFamilies[0].evidence.scope,/not proof of affiliation/);
   assert.equal(detail.body.related[0].id, 'beta');
   assert.match(detail.body.related[0].reason, /not deployment affiliation/);
   const activity = await api(e, source, '/api/project-activity');
   assert.equal(activity.body.events.length, 2);
+  assert.equal(activity.body.filters.focus,'important');
+  assert.equal((await api(e, source, '/api/project-activity?focus=outcome')).body.events.length,0);
+  assert.equal((await api(e, source, '/api/project-activity?focus=configuration&history=current')).body.events.length,2);
   assert.equal((await api(e, source, '/api/project-activity?project=alpha')).body.events.length, 1);
   const comparison = await api(e, source, '/api/project-comparison?ids=alpha,beta');
   assert.equal(comparison.response.status, 200);
@@ -154,6 +168,7 @@ test('HTTP directory and profiles expose only canonical observations, chain-awar
 test('HTTP missing projects, invalid comparisons, methods, and unrelated paths fail clearly', async () => {
   const e = env(), source = assets();
   for (const path of ['/api/projects/missing', '/api/project-activity?project=missing']) assert.equal((await api(e, source, path)).response.status, 404);
+  for (const path of ['/api/project-activity?focus=nope','/api/project-activity?history=future']) assert.equal((await api(e,source,path)).response.status,400);
   for (const path of ['/api/project-comparison?ids=alpha', '/api/project-comparison?ids=alpha,missing', '/api/project-comparison?ids=alpha,alpha']) assert.equal((await api(e, source, path)).response.status, 400);
   for (const path of ['/api/projects', '/api/projects/alpha', '/api/project-activity', '/api/project-comparison']) assert.equal((await api(e, source, path, { method: 'POST', body: {} })).response.status, 405);
   assert.equal((await api(e, source, '/api/elsewhere')).response, null);

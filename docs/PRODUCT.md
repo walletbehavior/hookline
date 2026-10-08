@@ -6,7 +6,7 @@ Hookline is the intelligence and coordination layer for onchain hooks. The initi
 
 Hookline gives that ecosystem a shared evidence model and a practical workstation.
 
-The boards are the map. The shipped Projects layer shares configuration reads, selected activity, and changes across a broad ecosystem. The shipped Hook Tape owns finalized Base pool-initialization and live swap evidence with exact source transactions. It also summarizes retained swaps over explicit block windows, ranks currently active hooks, alerts on material changes to the PoolManager-reported fee for the same resolved pool, attaches bounded receipt-level ERC-20 flows, and samples successful traces for hook callbacks, return deltas, LP-fee overrides, native value, and direct call-frame gas. Receipt flows and call frames remain observations, not automatic fee claims. The next derivations add failed-attempt coverage and defensible hook-level attribution.
+The boards are the map. The shipped Projects layer shares configuration reads, selected activity, exact-runtime relationships, and changes across a broad ecosystem. The activity feed separates configuration, executed outcomes, transfers, deferred actions, and routine accrual records so one noisy event class cannot bury the signal. The shipped Hook Tape owns finalized Base pool-initialization and live swap evidence with exact source transactions. It also summarizes retained swaps over explicit block windows, ranks currently active hooks, alerts on material changes to the PoolManager-reported fee for the same resolved pool, attaches bounded receipt-level ERC-20 flows, and selects successful traces for hook callbacks, return deltas, LP-fee overrides, native value, and direct call-frame gas. Receipt flows and call frames remain observations, not automatic fee claims. The next derivations add failed-attempt coverage and defensible hook-level attribution.
 
 ## Current capabilities
 
@@ -18,7 +18,7 @@ Discovery and aggregate pool and swap counts come from a timestamped v4.xyz comm
 
 ### Projects and shared activity
 
-A project can span factories, hooks, implementations, fee recipients, model contracts, and pools. A token is optional. All projects use one registry, deployment identity, observation envelope, and change feed; project-specific readers fill that schema instead of spawning separate dashboards.
+A project can span factories, hooks, implementations, fee recipients, model contracts, and pools. A token is optional. All projects use one registry, deployment identity, observation envelope, and change feed; project-specific readers fill that schema instead of spawning separate dashboards. Profiles also connect hook deployments to the exact-runtime map, while keeping bytecode identity separate from ownership, affiliation, configuration, and measured behavior.
 
 Descriptions, domain-controlled team updates, direct configuration reads, contract events, and reconciled outcomes are distinct. A configured buyback allocation is not an executed buyback. A payment event is not proof of every reward being distributed. Runtime equality is a research hint, not proof of shared project ownership or a new launch.
 

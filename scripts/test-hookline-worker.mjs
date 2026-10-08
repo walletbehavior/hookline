@@ -143,6 +143,16 @@ const executionDb = {
   },
 };
 
+const emptyProjectDb = {
+  prepare() {
+    return {
+      bind() { return this; },
+      async all() { return { results: [] }; },
+    };
+  },
+  async batch() { return []; },
+};
+
 function upstreamChainId(url) {
   if (url === 'https://eth.drpc.org') return '0x1';
   if (url === 'https://bsc-dataseed.bnbchain.org') return '0x38';
@@ -418,8 +428,19 @@ try {
   assert.match(appSource, /matchPermissionPattern/);
   assert.match(appSource, /delete next\.error/);
   assert.match(appSource, /delete next\.marketError/);
+  assert.match(appSource, /fetch\(path, \{ cache: 'no-store'/);
   assert.doesNotMatch(appSource, /FEE_WALLET|strip-copy-fee/);
   assert.doesNotMatch(appSource, /\.innerHTML\s*=/);
+
+  const defaultProjectActivity = await request('/api/project-activity', {}, { DB: emptyProjectDb });
+  assert.equal(defaultProjectActivity.status, 200);
+  assert.deepEqual((await defaultProjectActivity.json()).filters, { project: null, focus: 'important', history: 'all' });
+  const outcomeProjectActivity = await request('/api/project-activity?focus=outcome&history=current', {}, { DB: emptyProjectDb });
+  assert.equal(outcomeProjectActivity.status, 200);
+  assert.deepEqual((await outcomeProjectActivity.json()).filters, { project: null, focus: 'outcome', history: 'current' });
+  const projectCacheKeys = [...edgeResponses.keys()].filter((key) => key.includes('/__project-cache/2/api/project-activity'));
+  assert.ok(projectCacheKeys.some((key) => key.includes('focus=important') && key.includes('history=all')));
+  assert.ok(projectCacheKeys.some((key) => key.includes('focus=outcome') && key.includes('history=current')));
 
   const railResponse = await request('/execution-rail.js');
   assert.equal(railResponse.status, 200);

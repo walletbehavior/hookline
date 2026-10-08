@@ -57,7 +57,7 @@ The Worker centralizes supported upstreams, validates JSON-RPC envelopes, applie
 
 The x402 route separates machine-payable capacity from public access. Payment terms are advertised in a standard HTTP 402 challenge and settle in Base USDC.
 
-The Projects release adds a broad sourced registry, shared block-pinned observations, selected contract-event readers, and a common change feed. Deployment coverage is explicit. A project may represent a launch platform, liquidity mechanism, tokenized experiment, or developer tool; it need not have a token. Readers attach factory, implementation, fee, recipient, model, and distribution observations to common objects rather than inventing a separate dashboard for every integration.
+The Projects release adds a broad sourced registry, shared block-pinned observations, selected contract-event readers, a signal-filtered common change feed, and exact-runtime relationships. Deployment coverage is explicit. A project may represent a launch platform, liquidity mechanism, tokenized experiment, or developer tool; it need not have a token. Readers attach factory, implementation, fee, recipient, model, and distribution observations to common objects rather than inventing a separate dashboard for every integration.
 
 Private submissions and expiring DNS domain claims support team-authored metadata without granting control over observations. A scheduled authenticated reviewer can process ordinary requests against primary sources. Claims, paid services, and execution volume do not rank or alter the evidence feed.
 

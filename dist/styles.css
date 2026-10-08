@@ -1400,7 +1400,7 @@ progress::-moz-progress-bar { background: var(--cyan); }
 .projects-result-line { display: flex; justify-content: space-between; align-items: center; gap: 15px; min-height: 50px; color: var(--bone-mute); font: .69rem var(--font-mono); }
 .projects-result-line p { margin: 0; }
 .projects-list { border: 1px solid var(--project-line); background: #181513; }
-.project-card { display: grid; grid-template-columns: minmax(0, 1fr) 230px 150px; gap: 24px; align-items: center; padding: 24px; border-bottom: 1px solid var(--project-line); }
+.project-card { display: grid; grid-template-columns: minmax(0, 1fr) 285px 150px; gap: 24px; align-items: center; padding: 24px; border-bottom: 1px solid var(--project-line); }
 .project-card:last-child { border-bottom: 0; }
 .project-card:hover { background: #1c1815; }
 .project-card-identity, .project-card-coverage, .project-card-action { min-width: 0; }
@@ -1409,7 +1409,7 @@ progress::-moz-progress-bar { background: var(--cyan); }
 .project-card-summary { max-width: 650px; margin: 0 0 10px; color: var(--bone-dim); font-size: .78rem; line-height: 1.65; }
 .project-chain-tags { display: flex; gap: 5px; flex-wrap: wrap; }
 .project-chain-tags span { padding: 3px 7px; border: 1px solid #39312a; color: #a59b90; font: .61rem var(--font-mono); }
-.project-card-coverage { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.project-card-coverage { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 14px; }
 .project-card-coverage > div { min-width: 0; }
 .project-card-coverage strong { display: block; margin-bottom: 4px; color: var(--bone); font: 1.05rem var(--font-mono); overflow-wrap: anywhere; }
 .project-card-coverage strong.unavailable { font: .69rem var(--font-sans); color: var(--bone-mute); }
@@ -1463,8 +1463,17 @@ progress::-moz-progress-bar { background: var(--cyan); }
 .project-related small { color: var(--bone-mute); font-size: .61rem; text-align: right; }
 .profile-project-directory { display: flex; flex-direction: column; gap: 4px; margin: 12px 0; padding: 10px 12px; border-left: 2px solid var(--lime-dim); background: #211b17; font-size: .73rem; }
 .profile-project-directory small { color: var(--bone-mute); font-size: .62rem; }
-.activity-toolbar { display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; }
-.activity-toolbar select { max-width: 300px; }
+.activity-toolbar { grid-template-columns: minmax(180px,1fr) minmax(150px,.7fr) minmax(150px,.7fr) auto; align-items: center; margin-bottom: 20px; }
+.activity-toolbar select { max-width: none; }
+.project-event-kind { padding: 2px 6px; border: 1px solid #4a3d33; color: #c8a58e; font: .56rem var(--font-mono); letter-spacing: .04em; text-transform: uppercase; }
+.project-event-kind.muted { color: var(--bone-mute); border-color: #38322d; }
+.project-runtime-card { padding: 16px 0; border-bottom: 1px solid var(--project-line); }
+.project-runtime-card:last-child { border-bottom: 0; }
+.project-runtime-related { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; margin-top: 12px; color: var(--bone-mute); font-size: .66rem; }
+.project-runtime-related a { color: #d8a488; }
+.project-runtime-deployments { display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 7px 12px; margin-top: 13px; padding-top: 11px; border-top: 1px solid #302923; }
+.project-runtime-deployments a { min-width: 0; color: var(--bone-dim); font: .65rem var(--font-mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.project-runtime-deployments small { color: var(--bone-mute); font-size: .59rem; }
 .project-event-list { max-width: 980px; }
 .project-event { padding: 19px 0; border-bottom: 1px solid var(--project-line); }
 .project-event-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; color: var(--bone-mute); font-size: .67rem; }
@@ -1516,6 +1525,7 @@ progress::-moz-progress-bar { background: var(--cyan); }
 }
 @media (max-width: 900px) {
   .projects-toolbar { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .activity-toolbar #project-activity-generated { grid-column: 1 / -1; }
   .project-search { grid-column: 1 / -1; }
   .project-card { grid-template-columns: minmax(0, 1fr) 160px; }
   .project-card-action { grid-column: 1 / -1; display: flex; gap: 16px; align-items: center; justify-content: space-between; text-align: left; }
@@ -1548,7 +1558,8 @@ progress::-moz-progress-bar { background: var(--cyan); }
   .project-event-delta { grid-template-columns: minmax(0, 1fr); }
   .project-contribution-dialog { padding: 20px 16px; max-height: calc(100dvh - 18px); }
   .project-dialog-head h2 { font-size: 1.7rem; }
-  .activity-toolbar { align-items: flex-start; flex-direction: column; gap: 10px; }
+  .activity-toolbar { grid-template-columns: minmax(0,1fr); align-items: flex-start; gap: 10px; }
+  .activity-toolbar #project-activity-generated { grid-column: auto; }
 }
 
 /* ---- Hook Tape ---- */

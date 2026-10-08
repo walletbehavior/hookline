@@ -13,7 +13,7 @@ Hookline is a multichain evidence and analytics desk for programmable-liquidity 
 - Broad Projects board with source-linked deployments, coverage labels, shared observations, and selected mechanism events
 - Base Hook Tape built from finalized PoolManager `Initialize` and `Swap` logs, with exact hook, pool, signed pool deltas, reported swap fee, block, and transaction evidence
 - Bounded successful-receipt enrichment retaining relevant ERC-20 transfers that touch the hook or a pool currency, explicitly separate from fee attribution
-- Bounded successful-transaction trace sampling for direct hook callbacks, decoded swap-return deltas, explicit LP-fee overrides, hook-linked native value, and provider-reported hook call-frame gas
+- Bounded successful-transaction trace selection for direct hook callbacks, decoded swap-return deltas, explicit LP-fee overrides, hook-linked native value, and provider-reported hook call-frame gas
 - Explicit block-window swap activity summaries, active-hook rankings, and sourced Telegram alerts for PoolManager fee moves of 10 basis points or more
 - Private API submissions, suggestions, DNS domain claims, and metadata-only profile updates
 - Aggregate indexed pool and swap counts with snapshot timestamps
@@ -110,7 +110,7 @@ See [Product documentation](docs/PRODUCT.md), [API reference](docs/API.md), [Whi
 | `GET /data/hooks.json` | Timestamped cross-chain hook-board snapshot |
 | `GET /api/projects` | Project registry, sources, and actual observed coverage |
 | `GET /api/projects/{id}` | Deployment state, selected event history, and scan progress |
-| `GET /api/project-activity` | Shared project change feed |
+| `GET /api/project-activity` | Shared project change feed with project, signal, and history filters |
 | `GET /api/project-comparison?ids={ids}` | Two to four projects using a common evidence schema |
 | `GET /api/tape/status` | Base PoolManager index coverage, cursors, and saved evidence counts |
 | `GET /api/tape/pools` | Finalized Base pool initialization evidence, optionally filtered by hook |

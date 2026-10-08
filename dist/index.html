@@ -193,7 +193,12 @@
     <section id="view-activity" class="view projects-view" aria-labelledby="project-activity-title">
       <header class="projects-hero"><div><p class="eyebrow">THE SHARED CHANGE FEED</p><h1 id="project-activity-title">What changed.</h1><p>Contract activity and changes between pinned observations. Each record keeps its source and block window.</p></div><button id="project-activity-refresh" class="btn btn-secondary" type="button">Refresh feed</button></header>
       <nav class="projects-tabs" aria-label="Ecosystem views"><a href="#/projects">Projects</a><a href="#/activity" aria-current="page">Activity</a></nav>
-      <div class="projects-toolbar activity-toolbar"><select id="project-activity-filter" aria-label="Filter activity by project"><option value="all">All projects</option></select><span id="project-activity-generated"></span></div>
+      <div class="projects-toolbar activity-toolbar">
+        <select id="project-activity-filter" aria-label="Filter activity by project"><option value="all">All projects</option></select>
+        <select id="project-activity-focus" aria-label="Filter activity by evidence type"><option value="important">Changes + outcomes</option><option value="configuration">Configuration</option><option value="outcome">Executed outcomes</option><option value="accrual">Accrual records</option><option value="all">Everything</option></select>
+        <select id="project-activity-history" aria-label="Filter historical activity"><option value="all">Current + backfill</option><option value="current">New activity only</option></select>
+        <span id="project-activity-generated"></span>
+      </div>
       <div id="project-activity-status" class="projects-notice" role="status" hidden></div>
       <div id="project-activity-list" class="project-event-list"></div>
     </section>

@@ -27,7 +27,7 @@ const nodes = new Map([...html.matchAll(/<([a-z]+)[^>]*\bid="([^"]+)"/g)].map(([
 const storage = new Map();
 const document = { readyState: 'loading', body: new Element('body'), createElement: (tag) => new Element(tag), getElementById: (id) => nodes.get(id), addEventListener: () => {}, querySelectorAll: () => [] };
 let fetcher = async () => { throw new Error('Unexpected network request'); };
-const context = vm.createContext({ document, window: {}, location: { hash: '#/projects', origin: 'https://hookline.world' }, URL, AbortSignal, Date, setTimeout, clearTimeout, console,
+const context = vm.createContext({ document, window: {}, location: { hash: '#/projects', origin: 'https://hookline.world' }, URL, URLSearchParams, AbortSignal, Date, setTimeout, clearTimeout, console,
   sessionStorage: { getItem: (key) => storage.get(key) || null, setItem: (key, value) => storage.set(key, value) },
   fetch: (...args) => fetcher(...args),
 });
@@ -37,10 +37,11 @@ const ui = context.window.__ProjectsTest;
 const address = '0x' + '1'.repeat(40);
 const other = '0x' + '2'.repeat(40);
 const tx = '0x' + 'a'.repeat(64);
-const project = { id: 'alpha', name: 'Alpha Hooks', summary: 'A sourced ecosystem project', category: 'Dynamic fees', website: 'https://alpha.example', provenance: 'researched project record', sources: [{ label: 'Docs', url: 'https://alpha.example/docs' }], deployments: [{ chainId: 1, address, role: 'hook', name: 'Alpha hook', provenance: 'official deployment reference', sourceUrl: 'https://alpha.example/docs', pools: null, swaps: null }], coverage: { linkedDeployments: 1, monitoredDeployments: 1, observedDeployments: 0 } };
+const project = { id: 'alpha', name: 'Alpha Hooks', summary: 'A sourced ecosystem project', category: 'Dynamic fees', website: 'https://alpha.example', provenance: 'researched project record', sources: [{ label: 'Docs', url: 'https://alpha.example/docs' }], deployments: [{ chainId: 1, address, role: 'hook', name: 'Alpha hook', provenance: 'official deployment reference', sourceUrl: 'https://alpha.example/docs', pools: null, swaps: null }], coverage: { linkedDeployments: 1, monitoredDeployments: 1, observedDeployments: 0, runtimeFamilies: 1 } };
 const second = { ...project, id: 'beta', name: '<script>Beta</script>', category: 'Rewards', deployments: [{ ...project.deployments[0], chainId: 8453, address: other }], coverage: { linkedDeployments: 1, monitoredDeployments: 1, observedDeployments: 1 } };
 ui.state.projects.registry = { schemaVersion: 1, generatedAt: new Date().toISOString(), projects: [project, second] };
 for (const id of ['projects-category', 'projects-chain', 'project-activity-filter']) nodes.get(id).value = 'all';
+nodes.get('project-activity-focus').value='important';nodes.get('project-activity-history').value='all';
 nodes.get('projects-sort').value = 'name';
 ui.syncProjectFilters();
 
@@ -80,16 +81,20 @@ assert.match(observed.textContent, /Unavailable/);
 assert.match(observed.textContent, /No implementation in slot/);
 assert.match(observed.textContent, /0 bps/);
 assert.match(observed.textContent, /Block 100/);
-const event = { id: 'event1', projectId: 'alpha', projectName: 'Alpha', chainId: 1, address, observedAt: new Date().toISOString(), kind: 'observed_change', title: 'Fee changed', before: 0, after: 20, evidence: { scope: 'between pinned observations', fromBlock: 100, toBlock: 120 } };
+const event = { id: 'event1', projectId: 'alpha', projectName: 'Alpha', chainId: 1, address, observedAt: new Date().toISOString(), kind: 'observed_change', title: 'Fee changed', classification:'configuration', before: 0, after: 20, evidence: { scope: 'between pinned observations', fromBlock: 100, toBlock: 120, backfill:true } };
 const change = ui.renderProjectEvent(event);
 assert.match(change.textContent, /blocks 100 to 120/);
+assert.match(change.textContent,/configuration/);
+assert.match(change.textContent,/historical backfill/);
 assert.doesNotMatch(change.textContent, /Transaction /);
 const transaction = ui.renderProjectEvent({ ...event, transactionHash: tx, evidence: { scope: 'contract event' } });
 assert.match(transaction.textContent, /Transaction /);
 
 ui.state.board = { items: [{ chainId: 1, address }] };
-ui.renderProjectDetail({ project, observations: [observation], events: [event], related: [{ ...second, reason: 'Shared mechanism category' }] });
+ui.renderProjectDetail({ project, observations: [observation], events: [event], runtimeFamilies:[{runtimeFingerprint:'f'.repeat(64),codeByteLength:42,deploymentCount:2,chainIds:[1,8453],projectDeployments:[{chainId:1,address,name:'Alpha hook'}],otherDeployments:[{chainId:8453,address:other,name:'Second hook'}],relatedProjects:[{id:'beta',name:'Beta Hooks'}],evidence:{generatedAt:new Date().toISOString()}}], related: [{ ...second, reason: 'Shared mechanism category' }] });
 assert.match(nodes.get('project-detail').textContent, /not proof of affiliation/);
+assert.match(nodes.get('project-detail').textContent,/2 exact deployments/);
+assert.match(nodes.get('project-detail').textContent,/Also linked toBeta Hooks/);
 assert.match(nodes.get('project-detail').textContent, /Open hook profile/);
 assert.doesNotMatch(nodes.get('project-detail').textContent, /0 pools|0 swaps/, 'Null counts must not become zero.');
 ui.renderHookProjectLinks({ chainId: 1, address });

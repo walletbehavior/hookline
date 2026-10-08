@@ -82,8 +82,8 @@ Upstream failures are returned as explicit errors and are not converted into suc
 | Route | Response |
 | --- | --- |
 | `GET /api/projects` | Registry, metadata provenance, sourced deployments, linked/monitored/observed counts |
-| `GET /api/projects/{id}` | Project, latest pinned observations, retained events, per-target monitoring status, related categories |
-| `GET /api/project-activity?project={id}` | Optional project-scoped canonical event feed, excluding orphaned evidence |
+| `GET /api/projects/{id}` | Project, latest pinned observations, exact-runtime relationships, retained events, per-target monitoring status, related categories |
+| `GET /api/project-activity?project={id}&focus={focus}&history={history}` | Canonical event feed with optional project, evidence-type, and backfill filters; `focus` is `important`, `configuration`, `outcome`, `accrual`, or `all`, and `history` is `all` or `current` |
 | `GET /api/project-comparison?ids=clanker,pons` | Two to four known project records and observations using the same schema |
 | `POST /api/project-submissions` | Private listing, suggestion, correction, or domain-claim receipt |
 

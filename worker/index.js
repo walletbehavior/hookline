@@ -2010,7 +2010,17 @@ export default {
       // snapshots amortize database reads across visitors, not across identities.
       const cacheable=method==='GET' && !request.headers.has('authorization') &&
         (url.pathname==='/api/projects' || /^\/api\/projects\/[a-z0-9-]{1,60}$/.test(url.pathname) || url.pathname==='/api/project-activity');
-      const projectKey=cacheable?new Request(`https://hookline.world/__project-cache/1${url.pathname}${url.pathname==='/api/project-activity' && url.searchParams.has('project')?'?project='+encodeURIComponent(url.searchParams.get('project')):''}`):null;
+      let projectKey=null;
+      if(cacheable) {
+        const cacheUrl=new URL(`https://hookline.world/__project-cache/2${url.pathname}`);
+        if(url.pathname==='/api/project-activity') {
+          const project=url.searchParams.get('project');
+          if(project) cacheUrl.searchParams.set('project',project);
+          cacheUrl.searchParams.set('focus',url.searchParams.get('focus') || 'important');
+          cacheUrl.searchParams.set('history',url.searchParams.get('history') || 'all');
+        }
+        projectKey=new Request(cacheUrl.toString());
+      }
       if(projectKey && globalThis.caches?.default) {
         const cached=await caches.default.match(projectKey);
         if(cached) return cached;

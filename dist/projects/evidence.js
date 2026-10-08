@@ -122,13 +122,28 @@ export async function latestProjectObservations(env,projectId) {
     ORDER BY o.observed_at DESC LIMIT 40`).bind(projectId).all();
   return (rows.results || []).map(parsed);
 }
-export async function listProjectEvents(env,projectId=null,limit=60) {
+const ACTIVITY_FOCUS = Object.freeze({
+  important:['configuration','configured','direct_observation','executed','transferred','deferred'],
+  configuration:['configuration','configured','direct_observation'],
+  outcome:['executed','transferred','deferred'],
+  accrual:['accrued'],
+});
+
+export async function listProjectEvents(env,projectId=null,limit=60,{focus='all',history='all'}={}) {
   if (!env.DB) return [];
   limit=boundedLimit(limit,100,60);
   if (!limit) return [];
-  const statement=projectId
-    ? env.DB.prepare('SELECT payload_json FROM project_events WHERE project_id=? AND canonical=1 ORDER BY observed_at DESC,id DESC LIMIT ?').bind(projectId,limit)
-    : env.DB.prepare('SELECT payload_json FROM project_events WHERE canonical=1 ORDER BY observed_at DESC,id DESC LIMIT ?').bind(limit);
+  if(!['all',...Object.keys(ACTIVITY_FOCUS)].includes(focus) || !['all','current'].includes(history)) throw new Error('project_activity_filter_invalid');
+  const where=['canonical=1'],values=[];
+  if(projectId){where.push('project_id=?');values.push(projectId);}
+  if(focus!=='all') {
+    const classes=ACTIVITY_FOCUS[focus],marks=classes.map(()=>'?').join(',');
+    where.push(`COALESCE(json_extract(payload_json,'$.classification'),'') IN (${marks})`);values.push(...classes);
+  }
+  if(history==='current') where.push("COALESCE(json_extract(payload_json,'$.evidence.backfill'),0)=0");
+  values.push(limit);
+  const statement=env.DB.prepare(`SELECT payload_json FROM project_events WHERE ${where.join(' AND ')}
+    ORDER BY COALESCE(occurred_at,observed_at) DESC,observed_at DESC,id DESC LIMIT ?`).bind(...values);
   return ((await statement.all()).results || []).map(parsed);
 }
 

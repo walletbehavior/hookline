@@ -2922,7 +2922,7 @@
   }
 
   async function projectApi(path, options = {}) {
-    const response = await fetch(path, { ...options, signal: options.signal || AbortSignal.timeout(20000), headers: { Accept: 'application/json', ...(options.body ? { 'Content-Type': 'application/json' } : {}), ...options.headers } });
+    const response = await fetch(path, { cache: 'no-store', ...options, signal: options.signal || AbortSignal.timeout(20000), headers: { Accept: 'application/json', ...(options.body ? { 'Content-Type': 'application/json' } : {}), ...options.headers } });
     let body;
     try { body = await response.json(); } catch (_) { throw new Error('The service returned an unreadable response. Please retry.'); }
     if (!response.ok) throw new Error(cleanString(body?.error?.message || body?.message || (typeof body?.error === 'string' ? body.error : ''), 300) || `Request failed (${response.status}). Please retry.`);
@@ -3017,7 +3017,7 @@
       if (!chains.length) tags.append(makeElement('span', '', 'Deployment links pending'));
       identity.append(tags);
       const coverage = makeElement('div', 'project-card-coverage');
-      [['Linked deployments', projectCount(project, 'linkedDeployments')], ['Observed deployments', projectCount(project, 'observedDeployments')]].forEach(([label, value]) => {
+      [['Linked deployments', projectCount(project, 'linkedDeployments')], ['Observed deployments', projectCount(project, 'observedDeployments')], ['Runtime families', projectCount(project, 'runtimeFamilies')]].forEach(([label, value]) => {
         const metric = makeElement('div', '');
         metric.append(makeElement('strong', value == null ? 'unavailable' : '', value == null ? 'Unavailable' : formatNumber(value)), makeElement('span', '', label));
         coverage.append(metric);
@@ -3179,6 +3179,8 @@
     const header = makeElement('div', 'project-event-meta');
     if (showProject && event.projectId) header.append(projectInternalLink(`#/projects/${encodeURIComponent(event.projectId)}`, event.projectName || event.projectId));
     if (event.chainId != null) header.append(makeElement('span', '', projectChainName(event.chainId)));
+    if (event.classification) header.append(makeElement('span', 'project-event-kind', String(event.classification).replace(/_/g, ' ')));
+    if (event.evidence?.backfill === true) header.append(makeElement('span', 'project-event-kind muted', 'historical backfill'));
     header.append(projectTimeNode(event.occurredAt || event.observedAt, event.occurredAt ? '' : 'Observed '));
     card.append(header, makeElement('h3', '', event.title || 'Contract observation'));
     const evidence = event.evidence && typeof event.evidence === 'object' ? event.evidence : {};
@@ -3239,6 +3241,40 @@
     return card;
   }
 
+  function renderProjectRuntimeFamilies(families) {
+    const section = projectSection('Runtime identity', 'Exact deployed bytecode. A match is not proof of affiliation, ownership, or identical configuration.');
+    if (!Array.isArray(families) || !families.length) {
+      section.append(makeElement('p', 'projects-empty compact', 'No project hook is linked to the current runtime-family snapshot.'));
+      return section;
+    }
+    families.forEach((family) => {
+      const card=makeElement('article','project-runtime-card');
+      const head=makeElement('div','project-deployment-head');
+      head.append(makeElement('strong','',`${formatNumber(Number(family.deploymentCount))} exact deployment${Number(family.deploymentCount)===1?'':'s'}`),makeElement('span','project-category',`${(family.chainIds || []).length} chain${(family.chainIds || []).length===1?'':'s'}`));
+      const fingerprint=makeElement('code','project-address',family.runtimeFingerprint || 'Fingerprint unavailable');
+      fingerprint.title=family.runtimeFingerprint || '';
+      card.append(head,fingerprint);
+      if(family.codeByteLength!=null) card.append(makeElement('p','project-index-counts',`${formatNumber(Number(family.codeByteLength))} runtime bytes`));
+      if(Array.isArray(family.relatedProjects)&&family.relatedProjects.length) {
+        const related=makeElement('div','project-runtime-related');
+        related.append(makeElement('span','','Also linked to'));
+        family.relatedProjects.forEach((item)=>related.append(projectInternalLink(`#/projects/${encodeURIComponent(item.id)}`,item.name)));
+        card.append(related);
+      }
+      const others=makeElement('div','project-runtime-deployments');
+      (family.otherDeployments || []).slice(0,6).forEach((deployment)=>{
+        const link=projectInternalLink(`#/board/${deployment.chainId}/${deployment.address}`,deployment.name || shorten(deployment.address,8,6));
+        link.title=deployment.address;others.append(link,makeElement('small','',projectChainName(deployment.chainId)));
+      });
+      if(others.children.length) card.append(others);
+      const remaining=Math.max(0,Number(family.deploymentCount || 0)-Number(family.projectDeployments?.length || 0)-Math.min(6,Number(family.otherDeployments?.length || 0)));
+      if(remaining) card.append(makeElement('p','project-provenance',`+ ${formatNumber(remaining)} more exact deployment${remaining===1?'':'s'} in the family snapshot`));
+      if(family.evidence?.generatedAt) card.append(projectTimeNode(family.evidence.generatedAt,'Snapshot updated '));
+      section.append(card);
+    });
+    return section;
+  }
+
   function renderProjectDetail(body) {
     const project = body.project;
     const root = $('project-detail');
@@ -3274,7 +3310,7 @@
     else body.events.slice(0, 30).forEach((event) => events.append(renderProjectEvent(event, false)));
     primary.append(events);
     const side = makeElement('aside', 'project-detail-side');
-    side.append(renderProjectDeployments(project));
+    side.append(renderProjectDeployments(project),renderProjectRuntimeFamilies(body.runtimeFamilies));
     if (body.related?.length) {
       const related = projectSection('Explore related mechanisms', 'Shared category, not proof of affiliation or identical code.');
       body.related.forEach((item) => {
@@ -3314,8 +3350,7 @@
   }
 
   function renderProjectActivity() {
-    const filter = $('project-activity-filter').value;
-    const events = state.projects.events.filter((event) => filter === 'all' || event.projectId === filter);
+    const events = state.projects.events;
     const list = $('project-activity-list');
     list.replaceChildren();
     if (!events.length) list.append(makeElement('p', 'projects-empty', state.projects.activityLoaded ? 'No change records in this view yet. First observations establish the baseline.' : 'Loading observed activity…'));
@@ -3323,14 +3358,19 @@
     $('project-activity-generated').replaceChildren(projectTimeNode(state.projects.activityGeneratedAt, 'Feed updated '));
   }
 
-  async function loadProjectActivity() {
+  async function loadProjectActivity(reset = false) {
     const request = ++state.projects.activityRequest;
     const button = $('project-activity-refresh');
     button.disabled = true;
     void loadProjects();
+    if(reset){state.projects.events=[];state.projects.activityLoaded=false;renderProjectActivity();}
     if (!state.projects.activityLoaded) renderProjectActivity();
     try {
-      const body = await projectApi('/api/project-activity');
+      const params=new URLSearchParams();
+      const project=$('project-activity-filter').value,focus=$('project-activity-focus').value,history=$('project-activity-history').value;
+      if(project&&project!=='all') params.set('project',project);
+      params.set('focus',focus || 'important');params.set('history',history || 'all');
+      const body = await projectApi(`/api/project-activity?${params}`);
       if (request !== state.projects.activityRequest) return;
       if (!Array.isArray(body.events)) throw new Error('Activity records were incomplete.');
       state.projects.events = body.events;
@@ -3544,7 +3584,7 @@
     $('projects-submit').addEventListener('click', () => openProjectContribution('project'));
     $('projects-requests').addEventListener('click', () => openProjectContribution('receipts'));
     $('project-activity-refresh').addEventListener('click', () => void loadProjectActivity());
-    $('project-activity-filter').addEventListener('change', renderProjectActivity);
+    ['project-activity-filter','project-activity-focus','project-activity-history'].forEach((id)=>$(id).addEventListener('change',()=>void loadProjectActivity(true)));
     $('project-contribution-close').addEventListener('click', () => $('project-contribution-dialog').close());
     $('project-contribution-kind').addEventListener('change', updateProjectContributionFields);
     $('project-contribution-form').addEventListener('submit', submitProjectContribution);
