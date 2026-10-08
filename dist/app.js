@@ -3189,14 +3189,16 @@
     if (event.after && typeof event.after === 'object' && evidence.scope === 'contract event') {
       const facts = makeElement('dl', 'project-observation-fields');
       const candidates = [event.deploymentField,event.hookField,event.poolField,event.amountField,event.recipientField,event.assetField,...Object.keys(event.fieldUnits || {}),
+        ...Object.keys(event.fieldLabels || {}),
         'tokenName','tokenSymbol','tokenAddress','token','hook','poolHook','mind','implementation','newOwner','recipient','to','eth','tag','version'];
       const keys = [...new Set(candidates.filter((key) => key && event.after[key] != null))].slice(0, 6);
       keys.forEach((key) => {
         const row = makeElement('div', '');
         const meta = event.fieldUnits?.[key] || (key === event.amountField ? {unit:event.unit,asset:event.asset} : {});
         const raw = event.after[key];
-        const label = key === event.recipientField ? 'Recipient' : key === event.amountField ? 'Amount' : key.replace(/([a-z])([A-Z])/g, '$1 $2');
-        const display = /^0x[0-9a-f]{40}$/i.test(String(raw)) ? projectExternalLink(explorerAddressUrl(event.chainId, raw), shorten(raw, 10, 8)) : makeElement('span', '', projectValue(raw, meta));
+        const label = event.fieldLabels?.[key] || (key === event.recipientField ? 'Recipient' : key === event.amountField ? 'Amount' : key.replace(/([a-z])([A-Z])/g, '$1 $2'));
+        const mapped = event.fieldValueLabels?.[key]?.[String(raw)];
+        const display = /^0x[0-9a-f]{40}$/i.test(String(raw)) ? projectExternalLink(explorerAddressUrl(event.chainId, raw), shorten(raw, 10, 8)) : makeElement('span', '', mapped ? `${mapped} (${raw})` : projectValue(raw, meta));
         const value = makeElement('dd', ''); value.append(display || String(raw));
         row.append(makeElement('dt', '', label), value); facts.append(row);
       });

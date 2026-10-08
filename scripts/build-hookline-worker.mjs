@@ -136,6 +136,7 @@ for (const [name, content] of [
 // signals that the embedded assets are immutable.
 const assetsBlock =
   `const ASSETS = Object.freeze({\n` +
+  `  version: ${JSON.stringify(assetVersion)},\n` +
   `  html: ${JSON.stringify(versionedHtml)},\n` +
   `  css: ${JSON.stringify(css)},\n` +
   `  app: ${JSON.stringify(app)},\n` +

@@ -22,6 +22,8 @@ A project can span factories, hooks, implementations, fee recipients, model cont
 
 Descriptions, domain-controlled team updates, direct configuration reads, contract events, and reconciled outcomes are distinct. A configured buyback allocation is not an executed buyback. A payment event is not proof of every reward being distributed. Runtime equality is a research hint, not proof of shared project ownership or a new launch.
 
+Source-bound adapters currently include project-specific evidence for CLAUS, Clanker, Pons, Zora, ENGRAM, and Doppler. Doppler's canonical Base and Robinhood Airlock contracts contribute launches, migrations, module-role changes, and fee-collection records. An Airlock `Create` record keeps its initializer and `poolOrHook` semantics explicit because the emitted address can represent a v3 pool or a v4 hook.
+
 Profiles disclose linked, monitored, and actually observed deployment counts. Selected targets rotate through bounded scans on the existing 10-minute schedule. Reorg checks, per-target cursors, backfill labels, and last-good observations keep partial coverage explicit. Public browsing uses cached snapshots rather than starting a new scan for every visitor.
 
 Teams and users can submit through the website, API, or Telegram, without email. Expiring DNS challenges verify control of the researched domain for metadata edits only. Suggestions enter a private authenticated agent queue. That workstation-based reviewer can publish supported metadata, not rewrite financial evidence or grant a safety endorsement.

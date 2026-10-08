@@ -353,6 +353,14 @@ test('monitoring exposes observation freshness separately from event cursor lag 
     Date.now=()=>NOW+2*60*60_000;assert.equal((await projectMonitoring(e,'alpha')).status,'partial');
   } finally {Date.now=realNow;}
 });
+test('monitoring can hide retired scan targets without deleting their historical evidence',async()=>{
+  const e=env();const rpc=new RPC();await runProjectScan(e,{registry:registry(),rpc:rpc.rpc,now:NOW});
+  const current=await projectMonitoring(e,'alpha',[deployment(A,8453,{monitor:true})]);
+  assert.equal(current.targets.length,1);assert.equal(current.targets[0].address,A);
+  const retired=await projectMonitoring(e,'alpha',[deployment(B,8453,{monitor:true})]);
+  assert.equal(retired.targets.length,0);assert.equal(retired.status,'not_started');
+  assert.equal((await latestProjectObservations(e,'alpha')).length,1,'Retargeting must not erase historical observations.');
+});
 test('follows are private, user scoped, idempotent, and disabled follows disappear',async()=>{
   const e=env();await assert.rejects(()=>followProject(e,{projectId:'alpha',userId:'123',chatId:'-100',now:NOW}),/privately/);
   await followProject(e,{projectId:'alpha',userId:'123',chatId:'123',now:NOW});await followProject(e,{projectId:'alpha',userId:'123',chatId:'123',now:NOW+1});

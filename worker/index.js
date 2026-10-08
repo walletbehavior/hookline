@@ -2012,7 +2012,10 @@ export default {
         (url.pathname==='/api/projects' || /^\/api\/projects\/[a-z0-9-]{1,60}$/.test(url.pathname) || url.pathname==='/api/project-activity');
       let projectKey=null;
       if(cacheable) {
-        const cacheUrl=new URL(`https://hookline.world/__project-cache/2${url.pathname}`);
+        // Static project metadata ships inside the Worker. Key shared snapshots
+        // by the same content hash as the browser bundle so a new deployment
+        // cannot inherit an older registry/profile response from Cache API.
+        const cacheUrl=new URL(`https://hookline.world/__project-cache/${ASSETS.version}${url.pathname}`);
         if(url.pathname==='/api/project-activity') {
           const project=url.searchParams.get('project');
           if(project) cacheUrl.searchParams.set('project',project);

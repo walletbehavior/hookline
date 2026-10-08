@@ -20,6 +20,16 @@ const PONS_DOCS = 'https://docs.ponsfamily.com/v2';
 const PONS_FACTORY = '0x7ed598bcef8bd9edd8c97a195c6d13f40801ec7e';
 const CLANKER_ABI = 'https://raw.githubusercontent.com/clanker-devco/v4-contracts/main/base_mainnet_abis/Clanker.sol/Clanker.json';
 const CLANKER_FACTORY = '0xe85a59c628f7d27878aceb4bf3b35733630083a9';
+const DOPPLER_DEPLOYMENTS = Object.freeze({
+  8453: {
+    address: '0x660eaaedebc968f8f3694354fa8ec0b4c5ba8d12',
+    commit: '9b23399',
+  },
+  4663: {
+    address: '0xeb7c034704ef8dcd2d32324c1545f62fb4ad0862',
+    commit: 'bda077cf',
+  },
+});
 const CLAUS_HOOK = '0x37bfb8ac7c960e558657871d41ca70e07e7dbfff';
 const CLAUS_IMPLEMENTATION = '0x767ea7dce972abd91fa81fe90f105eafcc2959fc';
 const CLAUS_TOKEN = '0x1b54e762aa34cf6e28e9c082f2848e28e45da6b8';
@@ -72,6 +82,46 @@ const clankerDefinition = (definition) => ({
   sourceVersion: 'Base v4.0 published factory ABI, observed 2026-10-07',
   ...definition,
 });
+
+const dopplerAirlockDefinition = (chainId, definition) => {
+  const deployment = DOPPLER_DEPLOYMENTS[chainId];
+  return {
+    chainId,
+    address: deployment.address,
+    sourceUrl: `https://raw.githubusercontent.com/whetstoneresearch/doppler/${deployment.commit}/src/Airlock.sol`,
+    sourceVersion: `Canonical Airlock deployment commit ${deployment.commit}, observed 2026-10-07`,
+    ...definition,
+  };
+};
+
+const dopplerAirlockEvents = (chainId) => [
+  dopplerAirlockDefinition(chainId, {
+    key: 'assetCreated', label: 'Asset launch created', classification: 'executed',
+    signature: 'event Create(address asset, address indexed numeraire, address initializer, address poolOrHook)',
+    deploymentField: 'asset', assetField: 'numeraire',
+    fieldLabels: { initializer: 'Pool initializer', poolOrHook: 'Pool or hook' },
+    description: 'Airlock created an asset and recorded its numeraire, initializer, and initial pool address. For a v4 initializer, poolOrHook is a hook; for v3 it is a pool. This event does not establish token quality or current liquidity.',
+  }),
+  dopplerAirlockDefinition(chainId, {
+    key: 'assetMigrated', label: 'Asset liquidity migrated', classification: 'executed',
+    signature: 'event Migrate(address indexed asset, address indexed pool)',
+    deploymentField: 'asset', poolField: 'pool',
+    description: 'Airlock recorded an asset migration and the pool address emitted by this deployment. The transaction is the evidence; the event alone does not measure post-migration liquidity.',
+  }),
+  dopplerAirlockDefinition(chainId, {
+    key: 'moduleStateChanged', label: 'Airlock module state changed', classification: 'configured',
+    signature: 'event SetModuleState(address indexed module, uint8 indexed state)',
+    deploymentField: 'module', fieldLabels: { state: 'Module state' },
+    fieldValueLabels: { state: { 0: 'Not whitelisted', 1: 'Token factory', 2: 'Governance factory', 3: 'Pool initializer', 4: 'Liquidity migrator' } },
+    description: 'The Airlock owner changed a module allowlist role. The numeric enum is decoded against the source-bound Airlock commit for this chain.',
+  }),
+  dopplerAirlockDefinition(chainId, {
+    key: 'feesCollected', label: 'Airlock fee collection recorded', classification: 'transferred',
+    signature: 'event Collect(address indexed to, address indexed token, uint256 amount)',
+    recipientField: 'to', assetField: 'token', amountField: 'amount', unit: 'raw-token-units',
+    description: 'Airlock recorded a protocol or integrator fee collection to the named recipient. Amount is raw units of token; the zero address denotes native currency. This is contract-reported transfer evidence, not USD value.',
+  }),
+];
 
 export const READERS = {
   claus: {
@@ -273,6 +323,17 @@ export const READERS = {
         description: 'New token and bonding curve created by the documented factory. This is not proof of v4 graduation or a new hook deployment.',
       },
     ],
+  },
+  doppler: {
+    version: 1,
+    label: 'Doppler canonical Airlock launch records',
+    sources: [
+      { label: 'Canonical deployment directory', url: 'https://docs.doppler.lol/reference/contract-addresses' },
+      { label: 'Base Airlock source at deployment commit', url: 'https://raw.githubusercontent.com/whetstoneresearch/doppler/9b23399/src/Airlock.sol' },
+      { label: 'Robinhood Airlock source at deployment commit', url: 'https://raw.githubusercontent.com/whetstoneresearch/doppler/bda077cf/src/Airlock.sol' },
+    ],
+    reads: [],
+    events: [...dopplerAirlockEvents(8453), ...dopplerAirlockEvents(4663)],
   },
   engram: {
     version: 1,

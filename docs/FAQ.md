@@ -48,6 +48,8 @@ Automated validation handles limits and DNS verification. An authenticated sched
 
 Selected changes observed on monitored contracts, such as implementation/configuration changes, supported factory launches, registry updates, and model/payment events. The website feed defaults to changes and outcomes so routine accrual history cannot bury higher-signal records; configuration, outcomes, accruals, and historical backfill can be filtered independently. A rotating 10-minute scan uses bounded chain-specific windows. Profiles show actual source blocks, lag, and coverage. Baselines and historical catch-up are not sent as newly occurring activity. A log labeled payment is a recorded contract event, not a reconciliation of the entire project's payouts.
 
+Doppler follows include source-bound Airlock launches, migrations, module-role changes, and fee collections on Base and Robinhood Chain. A launch record preserves both the pool initializer and the emitted pool-or-hook address; Hookline does not relabel every Doppler launch as a v4 hook.
+
 ## Does every listed project have complete monitoring?
 
 No. The Projects board includes researched and community records, linked deployments, and a smaller set of monitored targets. `linkedDeployments`, `monitoredDeployments`, and `observedDeployments` mean different things. A saved observation does not prove complete event history or current provider health. Profiles show the last successful read, scan status, and event lag.

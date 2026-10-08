@@ -147,7 +147,7 @@ export async function listProjectEvents(env,projectId=null,limit=60,{focus='all'
   return ((await statement.all()).results || []).map(parsed);
 }
 
-export async function projectMonitoring(env,projectId) {
+export async function projectMonitoring(env,projectId,currentDeployments=null) {
   const limits={configTargetsPerRun:SCAN_LIMIT,maxConfigReadsPerTarget:CONFIG_READ_LIMIT,maxReceiptProofsPerRun:RECEIPT_PROOF_LIMIT,
     eventPagesPerTarget:LOG_PAGE_LIMIT,maxEventPageReads:EVENT_PAGE_READ_LIMIT,maxRpcCalls:RPC_CALL_LIMIT,maxContractEventsPerRun:EVENT_WRITE_LIMIT,
     maxScanSeconds:SCAN_WALL_LIMIT_MS/1000,chainBlockRanges:CHAIN_LOG_RANGES};
@@ -156,6 +156,8 @@ export async function projectMonitoring(env,projectId) {
   const rows=(await env.DB.prepare('SELECT * FROM project_scan_state WHERE substr(target,1,length(?))=? ORDER BY target')
     .bind(prefix,prefix).all()).results || [];
   const iso=value=>value==null?null:new Date(Number(value)).toISOString();
+  const currentTargets=Array.isArray(currentDeployments) ? new Set(currentDeployments.filter(item=>item?.monitor===true)
+    .map(item=>`${Number(item.chainId)}:${String(item.address || '').toLowerCase()}`)) : null;
   const targets=rows.map(row=>{
     const [,chain,address]=row.target.split(':');
     return {chainId:Number(chain),address,lastCheckedAt:iso(row.last_checked_at),lastObservationAt:iso(row.last_success_at),
@@ -163,7 +165,7 @@ export async function projectMonitoring(env,projectId) {
       eventTipBlock:row.log_tip ?? null,eventLagBlocks:row.log_lag_blocks ?? null,eventStatus:row.log_status || 'not_started',
       eventCoverageStartBlock:row.log_coverage_start ?? null,eventThroughAt:iso(row.log_cursor_timestamp),
       observationFailure:row.failure || null,eventFailure:row.log_failure || null};
-  });
+  }).filter(target=>!currentTargets || currentTargets.has(`${target.chainId}:${target.address.toLowerCase()}`));
   const status=!targets.length?'not_started':targets.some(target=>target.observationFailure || target.eventFailure
     || !target.lastObservationAt || Date.now()-Date.parse(target.lastCheckedAt)>ALERT_MAX_AGE_MS)?'partial'
     :targets.some(target=>target.eventStatus!=='caught_up')?'behind':'current';
@@ -363,6 +365,8 @@ async function scanLogs(env,project,deployment,{rpc,block,now,state,budget}) {
         deploymentField:interpreted?definition.deploymentField || null:null,hookField:interpreted?definition.hookField || null:null,poolField:interpreted?definition.poolField || null:null,
         curveField:interpreted?definition.curveField || null:null,description:interpreted?definition.description || null:null,
         fieldUnits:interpreted?definition.fieldUnits || null:null,
+        fieldLabels:interpreted?definition.fieldLabels || null:null,
+        fieldValueLabels:interpreted?definition.fieldValueLabels || null:null,
         evidence:{scope:'contract event',backfill:n<=notificationAfter || occurredMs<now-ALERT_MAX_AGE_MS,
           fromBlock:from,toBlock:to,blockHash:log.blockHash,logIndex:quantity(log.logIndex),finality:block.finality,
           signature:definition.signature,source:definition.sourceUrl || READERS[project.id]?.sources?.[0]?.url || 'configured chain RPC',
@@ -537,7 +541,10 @@ function eventDetailLines(event) {
     `Before: ${format(event.before,event.unit,event.asset)}`,`After: ${format(event.after,event.unit,event.asset)}`,
   ];
   const args=event.after || {}, details=[], used=new Set();
-  const add=(label,field)=>{if(field && args[field]!=null){details.push(`${label}: ${format(args[field])}`);used.add(field);}};
+  const add=(label,field)=>{if(field && args[field]!=null){
+    const mapped=event.fieldValueLabels?.[field]?.[String(args[field])];
+    details.push(`${label}: ${mapped ? `${mapped} (${args[field]})` : format(args[field])}`);used.add(field);
+  }};
   if (event.amountField && /^\d+$/.test(String(args[event.amountField]))) {
     details.push(`Amount recorded: ${format(args[event.amountField],event.unit,event.asset)}`);used.add(event.amountField);
   }
@@ -547,6 +554,7 @@ function eventDetailLines(event) {
     ['newTeamFeeRecipient','Fee recipient'],['enabled','Enabled'],['deprecated','Deprecated'],['launchConfigId','Launch config']]) {
     if (!used.has(field)) add(label,field);
   }
+  for (const [field,label] of Object.entries(event.fieldLabels || {})) if (!used.has(field)) add(label,field);
   return details.slice(0,4);
 }
 

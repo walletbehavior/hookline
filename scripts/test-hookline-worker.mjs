@@ -438,7 +438,7 @@ try {
   const outcomeProjectActivity = await request('/api/project-activity?focus=outcome&history=current', {}, { DB: emptyProjectDb });
   assert.equal(outcomeProjectActivity.status, 200);
   assert.deepEqual((await outcomeProjectActivity.json()).filters, { project: null, focus: 'outcome', history: 'current' });
-  const projectCacheKeys = [...edgeResponses.keys()].filter((key) => key.includes('/__project-cache/2/api/project-activity'));
+  const projectCacheKeys = [...edgeResponses.keys()].filter((key) => /\/__project-cache\/[a-f0-9]{12}\/api\/project-activity/.test(key));
   assert.ok(projectCacheKeys.some((key) => key.includes('focus=important') && key.includes('history=all')));
   assert.ok(projectCacheKeys.some((key) => key.includes('focus=outcome') && key.includes('history=current')));
 

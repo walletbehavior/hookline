@@ -125,7 +125,7 @@ export async function handleProjectsApi(request,env,assets) {
     }
     const id=path.split('/').pop(), project=registry.projects.find(p=>p.id===id);
     if (!project) return reply({error:'project_not_found'},404,0);
-    const [observations,events,monitoring]=await Promise.all([latestProjectObservations(env,id),listProjectEvents(env,id),projectMonitoring(env,id)]);
+    const [observations,events,monitoring]=await Promise.all([latestProjectObservations(env,id),listProjectEvents(env,id),projectMonitoring(env,id,project.deployments)]);
     const related=registry.projects.filter(p=>p.id!==id && p.category===project.category).slice(0,8).map(p=>({...p,reason:'Shared mechanism category, not deployment affiliation'}));
     return reply({schemaVersion:2,project,observations,events,monitoring,runtimeFamilies:projectRuntimeFamilies(project,observations,registry,assets),related,generatedAt:new Date().toISOString()});
   } catch {

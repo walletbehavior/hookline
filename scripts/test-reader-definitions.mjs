@@ -57,7 +57,7 @@ for (const [projectId, reader] of Object.entries(READERS)) {
     assert(matched.reads.length<=maxReads, 'Do not create an unbounded per-observation RPC fan-out.');
     assert(matched.events.length<=6, 'Bound event topics per emitting deployment, not per project label.');
   }
-  assert.equal(new Set([...reader.reads, ...reader.events].map((d) => d.key)).size, reader.reads.length + reader.events.length);
+  assert.equal(new Set([...reader.reads, ...reader.events].map((d) => `${d.chainId}:${d.address}:${d.key}`)).size, reader.reads.length + reader.events.length);
   for (const definition of [...reader.reads, ...reader.events]) {
     assert(project.deployments.some((d) => d.chainId === definition.chainId && d.address === definition.address));
     safeHttps(definition.sourceUrl);
@@ -82,6 +82,8 @@ for (const [projectId, reader] of Object.entries(READERS)) {
     if (event.amountField) assert(abi.inputs.some((input) => input.name === event.amountField && input.type === 'uint256'));
     if (event.recipientField) assert(abi.inputs.some((input) => input.name === event.recipientField && input.type === 'address'));
     for(const key of Object.keys(event.fieldUnits || {})) assert(abi.inputs.some(input=>input.name===key),`Units refer to a decoded field: ${key}`);
+    for(const key of Object.keys(event.fieldLabels || {})) assert(abi.inputs.some(input=>input.name===key),`Labels refer to a decoded field: ${key}`);
+    for(const key of Object.keys(event.fieldValueLabels || {})) assert(abi.inputs.some(input=>input.name===key),`Value labels refer to a decoded field: ${key}`);
     if(event.receiptProof) {
       const proof=event.receiptProof;
       assert.equal(proof.kind,'erc20_transfer');
@@ -93,6 +95,39 @@ for (const [projectId, reader] of Object.entries(READERS)) {
 assert(Object.keys(READERS).length >= 4, 'Project-specific coverage must not stop at two examples.');
 assert(READERS.clanker.events.some((event) => event.key === 'tokenCreated'));
 assert(READERS.pons.events.some((event) => event.key === 'tokenLaunched'));
+
+const doppler = seeds.projects.find((p) => p.id === 'doppler');
+const baseAirlock = doppler.deployments.find((d) => d.chainId === 8453 && d.name === 'Airlock');
+const robinhoodAirlock = doppler.deployments.find((d) => d.chainId === 4663 && d.name === 'Airlock');
+const dopplerInitializer = doppler.deployments.find((d) => d.chainId === 8453 && d.role === 'hook');
+assert.equal(readerDefinitionsForDeployment('doppler', baseAirlock).events.length, 4);
+assert.equal(readerDefinitionsForDeployment('doppler', robinhoodAirlock).events.length, 4);
+assert.equal(readerDefinitionsForDeployment('doppler', dopplerInitializer).events.length, 0, 'Airlock ABI must not leak onto an initializer.');
+assert.equal(baseAirlock.monitor, true);
+assert.equal(robinhoodAirlock.monitor, true);
+const baseCreate = readerDefinitionsForDeployment('doppler', baseAirlock).events.find((event) => event.key === 'assetCreated');
+const createAbi = parseAbiItem(baseCreate.signature);
+const asset = '0x4444444444444444444444444444444444444444';
+const numeraire = '0x5555555555555555555555555555555555555555';
+const initializer = '0x6666666666666666666666666666666666666666';
+const poolOrHook = '0x7777777777777777777777777777777777777777';
+const createLog = decodeEventLog({
+  abi: [createAbi],
+  topics: encodeEventTopics({ abi: [createAbi], eventName: 'Create', args: { numeraire } }),
+  data: encodeAbiParameters(createAbi.inputs.filter((input) => !input.indexed), [asset, initializer, poolOrHook]),
+});
+assert.equal(createLog.args[baseCreate.deploymentField], asset);
+assert.equal(createLog.args[baseCreate.assetField], numeraire);
+assert.equal(createLog.args.poolOrHook, poolOrHook);
+const moduleState = readerDefinitionsForDeployment('doppler', baseAirlock).events.find((event) => event.key === 'moduleStateChanged');
+const moduleStateAbi = parseAbiItem(moduleState.signature);
+const moduleLog = decodeEventLog({
+  abi: [moduleStateAbi],
+  topics: encodeEventTopics({ abi: [moduleStateAbi], eventName: 'SetModuleState', args: { module: initializer, state: 3 } }),
+  data: '0x',
+});
+assert.equal(moduleLog.args.state, 3);
+assert.equal(moduleState.fieldValueLabels.state[3], 'Pool initializer');
 
 const engram = seeds.projects.find((p) => p.id === 'engram');
 const hook = engram.deployments.find((d) => d.role === 'hook');
