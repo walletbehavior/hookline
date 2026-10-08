@@ -14,7 +14,7 @@ import {
 import { normalizeTokenIdentity, validateEvmAddress } from './wallets.js';
 import { renderTokenCard } from './token-view.js';
 import { renderHookView } from './hook-view.js';
-import { handleProjectMessage, handleProjectCallback, projectAlertSubscriptions } from '../projects/telegram.js';
+import { handleProjectMessage, handleProjectCallback, projectAlertSubscriptions, runtimeFamilyAlertSubscriptions } from '../projects/telegram.js';
 import { MAIN_MENU, navigationRows, alertNavigationRows, menuButton, privateConversation, cleanLabel,alertHtml } from './navigation.js';
 import { alertIdentities } from './alert-identity.js';
 import { renderTradingSettings,settingsInputPrompt,saveSettingsInput,saveSettingsPreset,renderTradeHandoff,validateTradeInput,EXECUTION_CHAINS } from './trading-settings.js';
@@ -137,7 +137,7 @@ export async function handleUpdate(update, ctx = {}) {
     const client=makeClient(ctx.env);
     if(!client) return {handled:false,reason:'telegram_not_configured'};
     if(!privateConversation(event.callback_query.message?.chat?.id,userId,event.callback_query.from?.id)) return invalidCallback(client,event.callback_query,'Open Hookline in your own private chat to use these buttons.');
-    if(/^(pr:|project_follow:)/.test(String(event.callback_query.data || ''))) setSession(userId,{...getSession(userId),pendingInput:null});
+    if(/^(pr:|mf:|project_follow:)/.test(String(event.callback_query.data || ''))) setSession(userId,{...getSession(userId),pendingInput:null});
     const projectResult=await handleProjectCallback(client,event.callback_query,ctx,userId);
     return projectResult || handleCallback(event.callback_query, ctx, userId);
   }
@@ -323,7 +323,7 @@ async function alertsCommand(client, parsed, ctx, userId) {
     const identity=(await alertIdentities(ctx,[row])).get(row);
     const reply = await client.reply(parsed.chatId, alertHtml([
       'Enable hook alert?', '', identity.name, `${CHAIN_CONFIG[chainId]?.name || chainId} · Hook changes`, {address},
-      '', 'Checks every 10 minutes for runtime changes and indexed market changes. A hook alert covers its related markets, not a token-price threshold.',
+      '', 'Checks every 10 minutes for runtime changes, finalized Tape activity, and indexed market changes. A hook alert covers its related markets, not a token-price threshold.',
     ]), {parse_mode:'HTML',reply_markup:{inline_keyboard:[[
       {text:'Enable alert',callback_data:`tg:ae:${chainId}:${address}`},
       menuButton('Cancel','alerts'),
@@ -332,13 +332,15 @@ async function alertsCommand(client, parsed, ctx, userId) {
   }
 
   try {
-    const [list,projectFollows,projects]=await Promise.all([
+    const [list,projectFollows,familyFollows,projects]=await Promise.all([
       alertsStore(ctx).listUserAlerts(userId,{includePaused:true}),
       projectAlertSubscriptions(ctx,userId,parsed.chatId),
+      runtimeFamilyAlertSubscriptions(ctx,userId,parsed.chatId),
       Promise.resolve().then(()=>ctx.services?.projects?.listProjects?.() || []).catch(()=>[]),
     ]);
     const safeList=list.filter(row=>String(row.telegram_user_id)===String(userId) && String(row.chat_id)===String(parsed.chatId));
-    const entries=[...projectFollows.map(follow=>({kind:'project',follow,project:projects.find(p=>p.id===follow.project_id)})),...safeList.map(alert=>({kind:'contract',alert}))];
+    const entries=[...projectFollows.map(follow=>({kind:'project',follow,project:projects.find(p=>p.id===follow.project_id)})),
+      ...familyFollows.map(follow=>({kind:'family',follow})),...safeList.map(alert=>({kind:'contract',alert}))];
     const offset=Math.max(0,Math.min(Math.max(entries.length-1,0),Number.parseInt(args,10)||0));
     const page=entries.slice(offset,offset+5);
     const identities=await alertIdentities(ctx,page.filter(entry=>entry.alert).map(entry=>entry.alert),projects);
@@ -351,15 +353,20 @@ async function alertsCommand(client, parsed, ctx, userId) {
         const {follow,project}=entry;
         const enabled=Number(follow.enabled)===1,name=cleanLabel(project?.name || follow.project_id);
         const chains=[...new Set((project?.deployments || []).map(d=>CHAIN_CONFIG[d.chainId]?.name || `Chain ${d.chainId}`))];
-        lines.push(`${name}`,`Project · ${enabled?'Active':'Paused'}${chains.length?` · ${chains.join(', ')}`:''}`,'Observed configuration changes and retained contract events.','');
+        lines.push(`${name}`,`Project · ${enabled?'Active':'Paused'}${chains.length?` · ${chains.join(', ')}`:''}`,'Factory launches, implementation changes, fee configuration, and retained outcomes when the project reader supports them.','');
         keyboard.push([{text:`Details · ${name.slice(0,30)}`,callback_data:`pr:view:${follow.project_id}`},{text:enabled?'Pause':'Resume',callback_data:`pr:${enabled?'off':'on'}:${follow.project_id}`}]);
+      } else if(entry.kind==='family') {
+        const {follow}=entry,enabled=Number(follow.enabled)===1,fingerprint=String(follow.fingerprint || ''),prefix=fingerprint.slice(0,48);
+        const name=cleanLabel(follow.label || `Runtime ${fingerprint.slice(0,12)}`,80);
+        lines.push(name,`Runtime family · ${enabled?'Active':'Paused'}`,{address:fingerprint},'New Hookline-observed exact-runtime appearances.','');
+        keyboard.push([{text:`Details · ${name.slice(0,30)}`,callback_data:`mf:view:${prefix}`},{text:enabled?'Pause':'Resume',callback_data:`mf:${enabled?'off':'on'}:${prefix}`}]);
       } else {
         const alert=entry.alert,identity=identities.get(alert),enabled=Number(alert.enabled)===1;
         lines.push(identity.name,`${CHAIN_CONFIG[Number(alert.chain_id)]?.name || `Chain ${alert.chain_id}`} · ${identity.kind==='token'?'Token':'Hook'} · ${enabled?'Active':'Paused'}`,{address:alert.target_address},identity.source,'');
         keyboard.push([{text:`Details · ${identity.name.slice(0,30)}`,callback_data:`tg:av:${alert.chain_id}:${alert.target_address}`},{text:enabled?'Pause':'Resume',callback_data:`tg:${enabled?'ad':'ae'}:${alert.chain_id}:${alert.target_address}`}]);
       }
     }
-    if(entries.length) lines.push(`${active} of ${MAX_ALERTS_PER_USER} hook alert slots used. ${projectFollows.filter(row=>Number(row.enabled)===1).length} projects followed.`);
+    if(entries.length) lines.push(`${active} of ${MAX_ALERTS_PER_USER} hook alert slots used. ${projectFollows.filter(row=>Number(row.enabled)===1).length} projects and ${familyFollows.filter(row=>Number(row.enabled)===1).length} runtime families followed.`);
     const paging=[];
     if(offset>0) paging.push({text:'Previous alerts',callback_data:`tg:al:${Math.max(0,offset-5)}`});
     if(offset+5<entries.length) paging.push({text:'More alerts',callback_data:`tg:al:${offset+5}`});

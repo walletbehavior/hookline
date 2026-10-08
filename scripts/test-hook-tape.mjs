@@ -5,7 +5,7 @@ import {
   BASE_CHAIN_ID, BASE_POOL_MANAGER, BASE_POOL_MANAGER_DEPLOYMENT_BLOCK, INITIALIZE_TOPIC,
   SWAP_TOPIC, TRANSFER_TOPIC, TAPE_SCAN_ID, decodeInitializeLog, decodeSwapLog, decodeSwapReceipt,
   decodeSwapTrace,
-  handleTapeApi, liveTapePoolsForHook, liveTapeSwapFeesForHook, runBaseTapeScan,
+  handleTapeApi, liveTapeActivityForHook, liveTapePoolsForHook, liveTapeSwapFeesForHook, runBaseTapeScan,
 } from '../projects/tape.js';
 
 class D1 {
@@ -205,6 +205,15 @@ test('scanner stores recent finalized evidence, bounded history, and explicit co
   assert.equal(activity.body.window.complete,false,'A requested window older than retained live coverage must stay partial.');
   const latestFees=await liveTapeSwapFeesForHook(env,BASE_CHAIN_ID,address('5'));
   assert.equal(latestFees.available,true);assert.equal(latestFees.complete,true);assert.equal(latestFees.pools[0].feeRaw,4321);
+  const seededActivity=await liveTapeActivityForHook(env,BASE_CHAIN_ID,address('5'));
+  assert.equal(seededActivity.newSwaps,0);assert.equal(seededActivity.cursor.blockNumber,liveBlock+1);
+  const emptySeed=await liveTapeActivityForHook(env,BASE_CHAIN_ID,address('9'));
+  assert.equal(emptySeed.newSwaps,0);assert.equal(emptySeed.cursor.blockNumber,tip);
+  transport.tip=tip+10;transport.swapLogs.push(swapLog({blockNumber:tip+2,pool:2,fee:5555,transaction:991122}));
+  await runBaseTapeScan(env,{rpc:transport.install(),now:NOW+600_000});
+  const newActivity=await liveTapeActivityForHook(env,BASE_CHAIN_ID,address('5'),{cursor:seededActivity.cursor});
+  assert.equal(newActivity.complete,true);assert.equal(newActivity.newSwaps,1);assert.equal(newActivity.pools,1);
+  assert.equal(newActivity.poolManagerFee.minRaw,5555);assert.equal(newActivity.cursor.blockNumber,tip+2);
 });
 
 test('reruns are idempotent and historical catch-up meets the live boundary',async()=>{

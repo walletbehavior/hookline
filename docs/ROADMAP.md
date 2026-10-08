@@ -10,7 +10,8 @@ Status: operating in production.
 - Cross-chain hook board and project directory
 - Broad Projects board with source-linked, chain-aware deployment relationships
 - Shared pinned-state observations and selected project mechanism event readers
-- Source-linked project activity, scan-coverage disclosure, and Telegram follows
+- Source-linked project activity with normalized launch, implementation, fee, runtime, configuration, and outcome signals
+- Telegram project follows and exact-runtime-family follows, with silent historical baselines
 - Free API, website, and Telegram submissions, corrections, and DNS domain claims
 - Metadata-only team updates, private receipts, and agent review with audit history
 - Timestamped indexed pool and swap aggregates
@@ -23,7 +24,7 @@ Status: operating in production.
 - Source-bound Doppler Airlock launches, migrations, module changes, and fee collections on Base and Robinhood Chain
 - Source-bound Angstrom ControllerV1 authority, pool configuration, and node-set changes on Ethereum
 - Source-bound Hookr 1 launch-family, pool-open, hook-fee, launch-fee, and recapture-lane records on Robinhood Chain
-- Telegram alerts for direct runtime changes, new indexed pool relationships, finalized PoolManager fee moves of at least 10 basis points, and 10% indexed liquidity changes
+- Telegram alerts for direct runtime changes, new indexed pool relationships, batches of 25 newly finalized Tape swaps, finalized PoolManager fee moves of at least 10 basis points, and 10% indexed liquidity changes
 - Named alert cards, full copyable contract addresses, and button-first navigation
 - Saved slippage and amount preferences; exact current-balance percentage sizing
 - Same-chain comparisons
@@ -60,6 +61,9 @@ Acceptance criteria:
 - Publish separate Swaps and Pool births views with independent coverage
 - Publish explicit block-window activity summaries and active-hook rankings from retained finalized swaps
 - Alert on material same-pool PoolManager fee changes with before/after values and source transactions
+- Name Tape activity from sourced project, verified-contract, or exact-runtime-family identity without inventing affiliation
+- Accumulate complete finalized reads and alert on 25 new swaps with their block and PoolManager-fee range
+- Follow exact runtime families and alert on later first Hookline observations on monitored deployments
 - Keep the shipped runtime-family map current and identify changed forks as separate families
 
 Acceptance criteria met by this slice:
@@ -74,7 +78,7 @@ Acceptance criteria met by this slice:
 - Measure the pool-advertised fee separately from trace-attributed hook-adjusted token flow
 - Extend the shipped successful-call coverage to record failed swap attempts, refusal windows, recipients, and attributable hook deltas where the evidence supports it
 - Publish short tape rows with links to their source transactions, logs, traces, and derivation version
-- Alert on attributed hook-fee deltas, refusal-rate changes, and new deployments of known runtime families
+- Alert on attributed hook-fee deltas and refusal-rate changes; broaden family-appearance discovery beyond monitored deployments without implying deployment time
 
 Acceptance criteria:
 
@@ -89,7 +93,7 @@ Acceptance criteria:
 - Compare pool price with the hook-adjusted execution result before user signing
 - Add measured hook fees beside the already-live Hookline fee and instant rebate
 - Detect runtime, owner, permission, and dependency changes
-- Add saved-search, runtime-family, and watchlist alerts
+- Add saved-search and watchlist alerts
 - Provide activity, change, and dependency timelines
 - Add CSV and JSON dataset exports
 - Extend the shared execution interface with reviewed funding and bridging flows

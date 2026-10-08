@@ -3242,7 +3242,9 @@
     const header = makeElement('div', 'project-event-meta');
     if (showProject && event.projectId) header.append(projectInternalLink(`#/projects/${encodeURIComponent(event.projectId)}`, event.projectName || event.projectId));
     if (event.chainId != null) header.append(makeElement('span', '', projectChainName(event.chainId)));
-    if (event.classification) header.append(makeElement('span', 'project-event-kind', String(event.classification).replace(/_/g, ' ')));
+    const signalLabel = ({ factory_launch: 'factory launch', implementation_change: 'implementation change', fee_configuration_change: 'fee configuration', runtime_change: 'runtime change', configuration_change: 'configuration change', outcome: 'observed outcome' })[event.signalType];
+    if (signalLabel) header.append(makeElement('span', 'project-event-kind', signalLabel));
+    else if (event.classification) header.append(makeElement('span', 'project-event-kind', String(event.classification).replace(/_/g, ' ')));
     if (event.evidence?.backfill === true) header.append(makeElement('span', 'project-event-kind muted', 'historical backfill'));
     header.append(projectTimeNode(event.occurredAt || event.observedAt, event.occurredAt ? '' : 'Observed '));
     card.append(header, makeElement('h3', '', event.title || 'Contract observation'));
@@ -3319,6 +3321,7 @@
       const fingerprint=makeElement('code','project-address',family.runtimeFingerprint || 'Fingerprint unavailable');
       fingerprint.title=family.runtimeFingerprint || '';
       card.append(head,fingerprint);
+      if(family.runtimeFingerprint) card.append(projectExternalLink(`https://t.me/HooklineTradeBot?start=fam_${family.runtimeFingerprint.slice(0,48)}`,'Follow runtime family','btn btn-secondary btn-compact'));
       if(family.codeByteLength!=null) card.append(makeElement('p','project-index-counts',`${formatNumber(Number(family.codeByteLength))} runtime bytes`));
       if(Array.isArray(family.relatedProjects)&&family.relatedProjects.length) {
         const related=makeElement('div','project-runtime-related');
@@ -3565,8 +3568,9 @@
     if (!state.projects.activityLoaded) renderProjectActivity();
     try {
       const params=new URLSearchParams();
-      const project=$('project-activity-filter').value,focus=$('project-activity-focus').value,history=$('project-activity-history').value;
+      const project=$('project-activity-filter').value,signal=$('project-activity-signal').value,focus=$('project-activity-focus').value,history=$('project-activity-history').value;
       if(project&&project!=='all') params.set('project',project);
+      params.set('signal',signal || 'all');
       params.set('focus',focus || 'important');params.set('history',history || 'all');
       const body = await projectApi(`/api/project-activity?${params}`);
       if (request !== state.projects.activityRequest) return;
@@ -3790,7 +3794,7 @@
       if (location.hash.startsWith('#/projects/compare/')) location.hash = '#/projects';
     });
     $('project-activity-refresh').addEventListener('click', () => void loadProjectActivity());
-    ['project-activity-filter','project-activity-focus','project-activity-history'].forEach((id)=>$(id).addEventListener('change',()=>void loadProjectActivity(true)));
+    ['project-activity-filter','project-activity-signal','project-activity-focus','project-activity-history'].forEach((id)=>$(id).addEventListener('change',()=>void loadProjectActivity(true)));
     $('project-contribution-close').addEventListener('click', () => $('project-contribution-dialog').close());
     $('project-contribution-kind').addEventListener('change', updateProjectContributionFields);
     $('project-contribution-form').addEventListener('submit', submitProjectContribution);
@@ -3818,7 +3822,9 @@
   function tapeHookName(address) {
     if (address === ZERO_ADDRESS) return 'No hook';
     const item=state.board?.items?.find((candidate)=>candidate.id===`8453_${address}`);
-    return item?boardItemName(item):'Unnamed hook';
+    if(!item) return 'Unnamed hook';
+    if(item.project?.name || item.verifiedContract?.name) return boardItemName(item);
+    return item.runtime?.representativeName ? `Runtime · ${item.runtime.representativeName}` : (item.runtime?.deploymentCount>1 ? `Runtime family · ${shorten(item.runtime.fingerprint,8,6)}` : 'Unlabeled hook');
   }
 
   function tapeDelta(value) {
@@ -3904,7 +3910,7 @@
     const query=$('tape-search').value.trim().toLowerCase();
     const body=$('tape-body');body.replaceChildren();
     const swaps=state.tape.mode==='swaps',source=swaps?state.tape.swaps:state.tape.pools;
-    const rows=source.filter((entry)=>!query || [entry.hookAddress,entry.poolId,entry.transactionHash,entry.sender,...(entry.currencies || [])].some((value)=>String(value || '').toLowerCase().includes(query)));
+    const rows=source.filter((entry)=>!query || [tapeHookName(entry.hookAddress),entry.hookAddress,entry.poolId,entry.transactionHash,entry.sender,...(entry.currencies || [])].some((value)=>String(value || '').toLowerCase().includes(query)));
     tapeHeadings(swaps?['Block','Hook','Pool','Pool deltas','Swap fee','Evidence']:['Block','Hook','Pool','Currencies','LP fee config','Evidence']);
     $('tape-table').setAttribute('aria-label',swaps?'Finalized Base PoolManager swap evidence':'Finalized Base pool initialization evidence');
     rows.forEach((pool)=>{

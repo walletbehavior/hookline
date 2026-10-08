@@ -1497,12 +1497,13 @@ progress::-moz-progress-bar { background: var(--cyan); }
 .project-related small { color: var(--bone-mute); font-size: .61rem; text-align: right; }
 .profile-project-directory { display: flex; flex-direction: column; gap: 4px; margin: 12px 0; padding: 10px 12px; border-left: 2px solid var(--lime-dim); background: #211b17; font-size: .73rem; }
 .profile-project-directory small { color: var(--bone-mute); font-size: .62rem; }
-.activity-toolbar { grid-template-columns: minmax(180px,1fr) minmax(150px,.7fr) minmax(150px,.7fr) auto; align-items: center; margin-bottom: 20px; }
+.activity-toolbar { grid-template-columns: minmax(180px,1fr) repeat(3,minmax(145px,.7fr)) auto; align-items: center; margin-bottom: 20px; }
 .activity-toolbar select { max-width: none; }
 .project-event-kind { padding: 2px 6px; border: 1px solid #4a3d33; color: #c8a58e; font: .56rem var(--font-mono); letter-spacing: .04em; text-transform: uppercase; }
 .project-event-kind.muted { color: var(--bone-mute); border-color: #38322d; }
 .project-runtime-card { padding: 16px 0; border-bottom: 1px solid var(--project-line); }
 .project-runtime-card:last-child { border-bottom: 0; }
+.project-runtime-card > .btn { width: fit-content; margin-top: 10px; }
 .project-runtime-related { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; margin-top: 12px; color: var(--bone-mute); font-size: .66rem; }
 .project-runtime-related a { color: #d8a488; }
 .project-runtime-deployments { display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 7px 12px; margin-top: 13px; padding-top: 11px; border-top: 1px solid #302923; }

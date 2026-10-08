@@ -114,6 +114,28 @@ export function observationChanges(previous,current) {
       title:`${current.fieldMeta[key]?.label || key} changed`,before:previous.fields[key],after:current.fields[key]}));
 }
 
+export const PROJECT_SIGNAL_TYPES=Object.freeze(['all','factory_launch','implementation_change','fee_configuration_change','runtime_change','configuration_change','outcome']);
+
+export function projectEventSignal(event) {
+  if(PROJECT_SIGNAL_TYPES.includes(event?.signalType) && event.signalType!=='all') return event.signalType;
+  const key=String(event?.field || event?.kind || '').toLowerCase();
+  const title=String(event?.title || '').toLowerCase();
+  const classification=String(event?.classification || '').toLowerCase();
+  if(key==='implementation' || key==='implementation_upgrade' || /implementation.+(?:changed|upgraded)/.test(title)) return 'implementation_change';
+  if(key==='runtimefingerprint' || key==='runtime_change' || /runtime (?:bytecode |fingerprint )?(?:changed|appeared)/.test(title)) return 'runtime_change';
+  if((event?.deploymentField || event?.hookField) && ['executed','transferred'].includes(classification)
+    && /launch|deploy|creat|open/.test(`${key} ${title}`)) return 'factory_launch';
+  if(['configuration','configured','direct_observation'].includes(classification)
+    && /fee|charge|allocation|recipient|treasury/.test(`${key} ${title}`)) return 'fee_configuration_change';
+  if(['configuration','configured','direct_observation'].includes(classification)) return 'configuration_change';
+  return 'outcome';
+}
+
+export function projectSignalLabel(signal) {
+  return ({factory_launch:'Factory launch',implementation_change:'Implementation change',fee_configuration_change:'Fee configuration',
+    runtime_change:'Runtime change',configuration_change:'Configuration change',outcome:'Observed outcome'})[signal] || 'Observed change';
+}
+
 export async function latestProjectObservations(env,projectId) {
   if (!env.DB) return [];
   const rows=await env.DB.prepare(`SELECT o.payload_json FROM project_observations o
@@ -129,11 +151,12 @@ const ACTIVITY_FOCUS = Object.freeze({
   accrual:['accrued'],
 });
 
-export async function listProjectEvents(env,projectId=null,limit=60,{focus='all',history='all'}={}) {
+export async function listProjectEvents(env,projectId=null,limit=60,{focus='all',history='all',signal='all'}={}) {
   if (!env.DB) return [];
   limit=boundedLimit(limit,100,60);
   if (!limit) return [];
-  if(!['all',...Object.keys(ACTIVITY_FOCUS)].includes(focus) || !['all','current'].includes(history)) throw new Error('project_activity_filter_invalid');
+  if(!['all',...Object.keys(ACTIVITY_FOCUS)].includes(focus) || !['all','current'].includes(history)
+    || !PROJECT_SIGNAL_TYPES.includes(signal)) throw new Error('project_activity_filter_invalid');
   const where=['canonical=1'],values=[];
   if(projectId){where.push('project_id=?');values.push(projectId);}
   if(focus!=='all') {
@@ -141,10 +164,11 @@ export async function listProjectEvents(env,projectId=null,limit=60,{focus='all'
     where.push(`COALESCE(json_extract(payload_json,'$.classification'),'') IN (${marks})`);values.push(...classes);
   }
   if(history==='current') where.push("COALESCE(json_extract(payload_json,'$.evidence.backfill'),0)=0");
-  values.push(limit);
+  values.push(signal==='all'?limit:Math.min(300,Math.max(limit*5,100)));
   const statement=env.DB.prepare(`SELECT payload_json FROM project_events WHERE ${where.join(' AND ')}
     ORDER BY COALESCE(occurred_at,observed_at) DESC,observed_at DESC,id DESC LIMIT ?`).bind(...values);
-  return ((await statement.all()).results || []).map(parsed);
+  const events=((await statement.all()).results || []).map(parsed).filter(Boolean).map(event=>({...event,signalType:projectEventSignal(event)}));
+  return (signal==='all'?events:events.filter(event=>event.signalType===signal)).slice(0,limit);
 }
 
 export async function projectMonitoring(env,projectId,currentDeployments=null) {
@@ -188,6 +212,7 @@ async function saveObservation(env,project,current) {
         fromBlock:previous.blockNumber,toBlock:current.blockNumber,
         fromTimestamp:previous.blockTimestamp || previous.observedAt,toTimestamp:current.blockTimestamp,
         before:blockSummary(previous),after:blockSummary(current),source:current.source,readerVersion:current.readerVersion}};
+    event.signalType=projectEventSignal(event);
     statements.push(eventInsert(env,event,current.blockNumber,current.blockHash));
   }
   await env.DB.batch(statements);
@@ -373,6 +398,7 @@ async function scanLogs(env,project,deployment,{rpc,block,now,state,budget}) {
           sourceVersion:definition.sourceVersion || null,implementationAddress:definition.implementationAddress || null,
           interpretation:interpreted?'source_bound':'implementation_unverified',...(receiptProof?{receiptProof}:{}),
           raw:{topics:log.topics,data:log.data},readerVersion:READERS[project.id]?.version || 'generic-1'}};
+      event.signalType=projectEventSignal(event);
       pending.push(eventInsert(env,event,n,log.blockHash));
     }
     const endBlock=await header(to);
@@ -572,10 +598,11 @@ export async function deliverProjectEvents(env,{send,now=Date.now()}) {
       .bind(row.follow_id,row.event_id,'sending',now).first();
     if (!claimed) continue;
     const event=parsed(row);
+    event.signalType=projectEventSignal(event);
     const evidenceUrl=`https://hookline.world/#/projects/${encodeURIComponent(event.projectId)}`;
     const html=value=>String(value).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
       .replace(/\b0x[0-9a-f]{40}\b/gi,address=>`<code>${address}</code>`);
-    const text=[`${event.projectName}, ${event.title}`,event.evidence.scope==='contract event'?`Chain ${event.chainId}, block ${event.blockNumber}`:`Chain ${event.chainId}, observed between blocks ${event.evidence.fromBlock} and ${event.evidence.toBlock}`,
+    const text=[`${event.projectName}, ${event.title}`,projectSignalLabel(event.signalType),event.evidence.scope==='contract event'?`Chain ${event.chainId}, block ${event.blockNumber}`:`Chain ${event.chainId}, observed between blocks ${event.evidence.fromBlock} and ${event.evidence.toBlock}`,
       ...(ADDRESS.test(event.address)?[`Contract: ${event.address}`]:[]),...eventDetailLines(event),evidenceUrl].map(html).join('\n');
     try {
       await send(row.chat_id,text,{parse_mode:'HTML',disable_web_page_preview:true,

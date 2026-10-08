@@ -14,6 +14,7 @@ export const SCAN_CAP_PER_RUN = 25;
 export const SCAN_CAP_PER_USER = 10;
 export const LIQUIDITY_CHANGE_THRESHOLD = 0.10;
 export const POOL_FEE_CHANGE_THRESHOLD_RAW = 1000; // 10 basis points
+export const TAPE_ACTIVITY_SWAP_THRESHOLD = 25;
 
 function runtimeFingerprintOf(inspection) {
   const value = inspection?.runtimeFingerprint;
@@ -31,7 +32,21 @@ function normalizeSwapFees(source) {
       &&Number.isSafeInteger(pool.blockNumber)&&/^0x[0-9a-f]{64}$/.test(pool.transactionHash)&&Number.isSafeInteger(pool.logIndex));
 }
 
-function marketBaseline(result, inspection = null, firstParty = null, swapFees = null) {
+function normalizeTapeActivity(source,previous=null) {
+  if(source?.available!==true || source?.complete!==true) return null;
+  const cursor=source.cursor&&Number.isSafeInteger(Number(source.cursor.blockNumber))&&Number.isSafeInteger(Number(source.cursor.logIndex))
+    ?{blockNumber:Number(source.cursor.blockNumber),logIndex:Number(source.cursor.logIndex),transactionHash:String(source.cursor.transactionHash || '').toLowerCase()}:previous?.cursor || null;
+  const fresh=Math.max(0,Number(source.newSwaps)||0),prior=Math.max(0,Number(previous?.pendingSwaps)||0);
+  const priorFee=previous?.poolManagerFee || {},freshFee=source.poolManagerFee || {};
+  const feeMins=[priorFee.minRaw,freshFee.minRaw].map(Number).filter(Number.isFinite),feeMaxes=[priorFee.maxRaw,freshFee.maxRaw].map(Number).filter(Number.isFinite);
+  return {cursor,pendingSwaps:prior+fresh,pendingPools:Math.max(Number(previous?.pendingPools)||0,Number(source.pools)||0),
+    pendingFromBlock:previous?.pendingSwaps?previous.pendingFromBlock:source.fromBlock ?? null,
+    pendingToBlock:source.toBlock ?? previous?.pendingToBlock ?? null,
+    latestTransactionHash:String(source.latestTransactionHash || previous?.latestTransactionHash || '').toLowerCase() || null,
+    poolManagerFee:feeMins.length?{minRaw:Math.min(...feeMins),maxRaw:Math.max(...feeMaxes)}:null};
+}
+
+function marketBaseline(result, inspection = null, firstParty = null, swapFees = null, tapeActivity = null,previous=null) {
   const markets = Array.isArray(result?.markets) ? result.markets : [];
   const poolIds = [...new Set(markets
     .map((market) => String(market?.pairAddress || market?.poolId || '').toLowerCase())
@@ -51,6 +66,7 @@ function marketBaseline(result, inspection = null, firstParty = null, swapFees =
         .filter((pool)=>/^0x[0-9a-f]{64}$/.test(pool.poolId)&&/^0x[0-9a-f]{64}$/.test(pool.transactionHash)&&Number.isSafeInteger(pool.blockNumber)&&Number.isSafeInteger(pool.logIndex))
       : null,
     firstPartySwapFees:normalizeSwapFees(swapFees),
+    firstPartyActivity:normalizeTapeActivity(tapeActivity,previous?.firstPartyActivity),
   };
 }
 
@@ -72,6 +88,14 @@ function parseBaseline(value) {
         blockNumber:Number(pool?.blockNumber),logIndex:Number(pool?.logIndex),
       })).filter((pool)=>/^0x[0-9a-f]{64}$/.test(pool.poolId)&&/^0x[0-9a-f]{64}$/.test(pool.transactionHash)&&Number.isSafeInteger(pool.blockNumber)&&Number.isSafeInteger(pool.logIndex)):null,
       firstPartySwapFees:Array.isArray(parsed.firstPartySwapFees)?normalizeSwapFees({available:true,complete:true,pools:parsed.firstPartySwapFees}):null,
+      firstPartyActivity:parsed.firstPartyActivity&&typeof parsed.firstPartyActivity==='object'?{
+        cursor:parsed.firstPartyActivity.cursor&&Number.isSafeInteger(Number(parsed.firstPartyActivity.cursor.blockNumber))&&Number.isSafeInteger(Number(parsed.firstPartyActivity.cursor.logIndex))?{
+          blockNumber:Number(parsed.firstPartyActivity.cursor.blockNumber),logIndex:Number(parsed.firstPartyActivity.cursor.logIndex),transactionHash:String(parsed.firstPartyActivity.cursor.transactionHash || '').toLowerCase()}:null,
+        pendingSwaps:Math.max(0,Number(parsed.firstPartyActivity.pendingSwaps)||0),pendingPools:Math.max(0,Number(parsed.firstPartyActivity.pendingPools)||0),
+        pendingFromBlock:Number.isSafeInteger(Number(parsed.firstPartyActivity.pendingFromBlock))?Number(parsed.firstPartyActivity.pendingFromBlock):null,
+        pendingToBlock:Number.isSafeInteger(Number(parsed.firstPartyActivity.pendingToBlock))?Number(parsed.firstPartyActivity.pendingToBlock):null,
+        latestTransactionHash:String(parsed.firstPartyActivity.latestTransactionHash || '').toLowerCase() || null,poolManagerFee:parsed.firstPartyActivity.poolManagerFee || null,
+      }:null,
     };
   } catch {
     return null;
@@ -123,6 +147,12 @@ export function alertEvents(previous, current) {
       eventKey: `runtime:${current.runtimeFingerprint}`,
     });
   }
+  if(current.firstPartyActivity?.pendingSwaps>=TAPE_ACTIVITY_SWAP_THRESHOLD) {
+    const activity=current.firstPartyActivity;
+    events.push({kind:'tape_activity',swaps:activity.pendingSwaps,pools:activity.pendingPools,fromBlock:activity.pendingFromBlock,toBlock:activity.pendingToBlock,
+      latestTransactionHash:activity.latestTransactionHash,poolManagerFee:activity.poolManagerFee,
+      eventKey:`tape_activity:${activity.cursor?.blockNumber || 0}:${activity.cursor?.logIndex || 0}`});
+  }
   if (newPools.length) {
     events.push({
       kind: 'new_pool',
@@ -155,10 +185,13 @@ function formatNotification(alert, event, previous, current,result) {
       ? `PoolManager fee changed by at least 10 bps in ${event.count} pool${event.count === 1 ? '' : 's'}`
     : event.kind === 'new_pool'
       ? `${event.count} new indexed pool relationship${event.count === 1 ? '' : 's'}`
+    : event.kind === 'tape_activity'
+      ? `${event.swaps} new finalized Tape swaps${event.pools?` touching at least ${event.pools} pool${event.pools===1?'':'s'}`:''}`
       : `Indexed liquidity ${event.ratio >= 0 ? 'rose' : 'fell'} ${Math.abs(event.ratio * 100).toFixed(1)}%`;
   const lines = [
     'Hookline alert',
-    cleanLabel(result?.profile?.project?.name || result?.profile?.verifiedContract?.name || result?.profile?.verifiedContract?.contractName || result?.hookName || 'Unnamed hook'),
+    cleanLabel(result?.profile?.project?.name || result?.profile?.verifiedContract?.name || result?.profile?.verifiedContract?.contractName
+      || (result?.profile?.runtime?.representativeName?`Runtime · ${result.profile.runtime.representativeName}`:null) || result?.hookName || 'Unnamed hook'),
     `${chainName} · Hook changes`,
     {address:alert.target_address},
     change,
@@ -177,6 +210,10 @@ function formatNotification(alert, event, previous, current,result) {
     lines.push(`Block: ${after.blockNumber}`);
     lines.push('Source transaction');
     lines.push({address:after.transactionHash});
+  } else if(event.kind==='tape_activity') {
+    if(event.fromBlock!=null && event.toBlock!=null) lines.push(`Finalized blocks: ${event.fromBlock}, ${event.toBlock}`);
+    if(event.poolManagerFee?.minRaw!=null && event.poolManagerFee?.maxRaw!=null) lines.push(`PoolManager fee range: ${(event.poolManagerFee.minRaw/10000).toFixed(4)}%, ${(event.poolManagerFee.maxRaw/10000).toFixed(4)}%`);
+    if(/^0x[0-9a-f]{64}$/.test(event.latestTransactionHash || '')) {lines.push('Latest source transaction');lines.push({address:event.latestTransactionHash});}
   } else if(previous.liquidityComplete && current.liquidityComplete) {
     lines.push(`Indexed liquidity: ${money(previous.aggregateLiquidityUsd)}, ${money(current.aggregateLiquidityUsd)}`);
   }
@@ -203,6 +240,7 @@ export async function runAlertScan(env, options = {}) {
   const inspectHook = options.inspectHook || null;
   const resolveFirstPartyPools=options.resolveFirstPartyPools || null;
   const resolveFirstPartySwapFees=options.resolveFirstPartySwapFees || null;
+  const resolveFirstPartyActivity=options.resolveFirstPartyActivity || null;
   const sendMessage = options.sendMessage || ((chatId, text,sendOptions) => defaultSend(env, chatId, text,sendOptions));
   const due = await store.listDueAlerts({
     now,
@@ -217,14 +255,15 @@ export async function runAlertScan(env, options = {}) {
 
   for (const alert of due) {
     try {
-      const [result, inspection, firstParty, swapFees] = await Promise.all([
+      const previous = parseBaseline(alert.baseline_json);
+      const [result, inspection, firstParty, swapFees, tapeActivity] = await Promise.all([
         resolveHookMarkets(Number(alert.chain_id), String(alert.target_address)),
         inspectHook ? inspectHook(Number(alert.chain_id), String(alert.target_address)) : Promise.resolve(null),
         resolveFirstPartyPools ? Promise.resolve().then(()=>resolveFirstPartyPools(Number(alert.chain_id),String(alert.target_address))).catch(()=>null) : Promise.resolve(null),
         resolveFirstPartySwapFees ? Promise.resolve().then(()=>resolveFirstPartySwapFees(Number(alert.chain_id),String(alert.target_address))).catch(()=>null) : Promise.resolve(null),
+        resolveFirstPartyActivity ? Promise.resolve().then(()=>resolveFirstPartyActivity(Number(alert.chain_id),String(alert.target_address),previous?.firstPartyActivity?.cursor || null)).catch(()=>null) : Promise.resolve(null),
       ]);
-      const previous = parseBaseline(alert.baseline_json);
-      const current = marketBaseline(result, inspection, firstParty, swapFees);
+      const current = marketBaseline(result, inspection, firstParty, swapFees,tapeActivity,previous);
       // Empty/failed market coverage is not evidence that the old pools vanished.
       // Preserve identities for recovery; no liquidity alert uses this read.
       if(previous && !current.poolIds.length) {
@@ -233,6 +272,7 @@ export async function runAlertScan(env, options = {}) {
       }
       if(previous && current.firstPartyPools===null) current.firstPartyPools=previous.firstPartyPools;
       if(previous && current.firstPartySwapFees===null) current.firstPartySwapFees=previous.firstPartySwapFees;
+      if(previous && current.firstPartyActivity===null) current.firstPartyActivity=previous.firstPartyActivity;
       if (!previous) {
         await store.updateBaseline({ id: alert.id, baseline: current, now });
         seeded += 1;
@@ -240,15 +280,17 @@ export async function runAlertScan(env, options = {}) {
         continue;
       }
 
-      for (const event of alertEvents(previous, current)) {
+      const events=alertEvents(previous, current);
+      for (const event of events) {
         if (await store.hasDelivery(alert.id, event.eventKey)) continue;
         await sendMessage(String(alert.chat_id), formatNotification(alert, event, previous, current,result),{
           parse_mode:'HTML',disable_web_page_preview:true,
-          reply_markup:{inline_keyboard:[[{text:'Details',url:event.kind==='first_party_pool'?`https://hookline.world/#/tape/pools/${alert.chain_id}/${alert.target_address}`:event.kind==='pool_fee_change'?`https://hookline.world/#/tape/swaps/${alert.chain_id}/${alert.target_address}`:`https://hookline.world/#/board/${alert.chain_id}/${alert.target_address}`},{text:'Pause alert',callback_data:`tg:ad:${alert.chain_id}:${alert.target_address}`}],...alertNavigationRows()]},
+          reply_markup:{inline_keyboard:[[{text:'Details',url:event.kind==='first_party_pool'?`https://hookline.world/#/tape/pools/${alert.chain_id}/${alert.target_address}`:['pool_fee_change','tape_activity'].includes(event.kind)?`https://hookline.world/#/tape/swaps/${alert.chain_id}/${alert.target_address}`:`https://hookline.world/#/board/${alert.chain_id}/${alert.target_address}`},{text:'Pause alert',callback_data:`tg:ad:${alert.chain_id}:${alert.target_address}`}],...alertNavigationRows()]},
         });
         await store.recordDelivery(alert.id, event.eventKey, now);
         delivered += 1;
       }
+      if(events.some(event=>event.kind==='tape_activity') && current.firstPartyActivity) current.firstPartyActivity={...current.firstPartyActivity,pendingSwaps:0,pendingPools:0,pendingFromBlock:null,pendingToBlock:null,latestTransactionHash:null,poolManagerFee:null};
       await store.updateBaseline({ id: alert.id, baseline: current, now });
       checked += 1;
     } catch (error) {

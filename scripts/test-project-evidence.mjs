@@ -8,7 +8,7 @@ import { projectId, publicUrl, createProjectRegistry, mergeProjectOverrides } fr
 import {
   SCAN_LIMIT, LOG_BLOCK_LIMIT, RETENTION_DAYS, digest, observeDeployment, observationChanges,
   latestProjectObservations, listProjectEvents, runProjectScan, followProject, projectFollows,
-  deliverProjectEvents, projectMonitoring, verifyEventReceiptProof,
+  deliverProjectEvents, projectEventSignal, projectMonitoring, verifyEventReceiptProof,
 } from '../projects/evidence.js';
 
 // Real SQLite checks SQL predicates, RETURNING, transactions, and uniqueness.
@@ -174,6 +174,14 @@ test('unsupported targets, malformed runtime/quantities, and changing source blo
   for(const code of ['0x','0x0','garbage']) { rpc.code=code;await assert.rejects(()=>observeDeployment(project(),deployment(),{rpc:rpc.rpc,block:rpc.block(),now:NOW}),/deployed_code_unavailable/); }
   rpc.code='0x60016002';const pinned=rpc.block();rpc.headers.set(rpc.tip,hash(999));
   await assert.rejects(()=>observeDeployment(project(),deployment(),{rpc:rpc.rpc,block:pinned,now:NOW}),/source_block_changed/);
+});
+test('project events normalize launch, implementation, fee, runtime, configuration, and outcome signals',()=>{
+  assert.equal(projectEventSignal({field:'implementation',classification:'direct_observation'}),'implementation_change');
+  assert.equal(projectEventSignal({field:'runtimeFingerprint',title:'Runtime SHA-256 changed',classification:'direct_observation'}),'runtime_change');
+  assert.equal(projectEventSignal({kind:'tokenCreated',title:'Token deployed',classification:'executed',deploymentField:'tokenAddress'}),'factory_launch');
+  assert.equal(projectEventSignal({kind:'launchFeeSet',title:'Launch fee configuration changed',classification:'configured'}),'fee_configuration_change');
+  assert.equal(projectEventSignal({kind:'controllerAccepted',classification:'configured'}),'configuration_change');
+  assert.equal(projectEventSignal({kind:'buybackBurnRecorded',classification:'executed'}),'outcome');
 });
 test('change detection requires same target, forward blocks, and two valid observations',async()=>{
   const rpc=new RPC();const previous=await observeDeployment(project(),deployment(),{rpc:rpc.rpc,block:rpc.block(),now:NOW});

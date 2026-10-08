@@ -115,6 +115,8 @@ test('canonical and public contexts await storage and preserve distinct authorit
   assert.equal(canonicalProjectRegistry(source).projects.length, 3);
   assert.equal((await context.getCanonicalProject('alpha')).website, 'https://alpha-hooks.org/');
   assert.equal((await context.getProject('alpha')).name, 'Alpha Hooks');
+  assert.equal((await context.getRuntimeFamily('f'.repeat(48))).deploymentCount,2);
+  assert.equal(await context.getRuntimeFamily('0'.repeat(48)),null);
   assert.equal((await context.listProjects()).length, 3);
   assert.equal(await context.getCanonicalProject('missing'), null);
   assert.equal(await context.getProject('missing'), null);
@@ -159,8 +161,12 @@ test('HTTP directory and profiles expose only canonical observations, chain-awar
   assert.equal(detail.body.related[0].id, 'beta');
   assert.match(detail.body.related[0].reason, /not deployment affiliation/);
   const activity = await api(e, source, '/api/project-activity');
+  assert.equal(activity.body.schemaVersion,3);
   assert.equal(activity.body.events.length, 2);
+  assert.equal(activity.body.events[0].signalType,'configuration_change');
   assert.equal(activity.body.filters.focus,'important');
+  assert.equal((await api(e,source,'/api/project-activity?signal=configuration_change')).body.events.length,2);
+  assert.equal((await api(e,source,'/api/project-activity?signal=factory_launch')).body.events.length,0);
   assert.equal((await api(e, source, '/api/project-activity?focus=outcome')).body.events.length,0);
   assert.equal((await api(e, source, '/api/project-activity?focus=configuration&history=current')).body.events.length,2);
   assert.equal((await api(e, source, '/api/project-activity?project=alpha')).body.events.length, 1);
@@ -173,7 +179,7 @@ test('HTTP directory and profiles expose only canonical observations, chain-awar
 test('HTTP missing projects, invalid comparisons, methods, and unrelated paths fail clearly', async () => {
   const e = env(), source = assets();
   for (const path of ['/api/projects/missing', '/api/project-activity?project=missing']) assert.equal((await api(e, source, path)).response.status, 404);
-  for (const path of ['/api/project-activity?focus=nope','/api/project-activity?history=future']) assert.equal((await api(e,source,path)).response.status,400);
+  for (const path of ['/api/project-activity?focus=nope','/api/project-activity?history=future','/api/project-activity?signal=nope']) assert.equal((await api(e,source,path)).response.status,400);
   for (const path of ['/api/project-comparison?ids=alpha', '/api/project-comparison?ids=alpha,missing', '/api/project-comparison?ids=alpha,alpha']) assert.equal((await api(e, source, path)).response.status, 400);
   for (const path of ['/api/projects', '/api/projects/alpha', '/api/project-activity', '/api/project-comparison']) assert.equal((await api(e, source, path, { method: 'POST', body: {} })).response.status, 405);
   assert.equal((await api(e, source, '/api/elsewhere')).response, null);

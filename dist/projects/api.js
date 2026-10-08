@@ -1,5 +1,5 @@
 import { createProjectRegistry,mergeProjectOverrides } from './registry.js';
-import { latestProjectObservations,listProjectEvents,projectMonitoring } from './evidence.js';
+import { latestProjectObservations,listProjectEvents,projectMonitoring,PROJECT_SIGNAL_TYPES } from './evidence.js';
 import { handleContributionRequest,readProjectOverrides,readProjectAuthority } from './contributions.js';
 import { READERS,readerDefinitionsForDeployment } from './reader-definitions.js';
 
@@ -91,6 +91,12 @@ export function projectContext(assets,env) {
       return authority?{...base,...authority}:base;
     },
     getProject:async id=>(env?await publicProjectRegistry(env,assets):registry).projects.find(p=>p.id===id) || null,
+    getRuntimeFamily:async value=>{
+      const prefix=String(value || '').trim().toLowerCase();
+      if(!/^[0-9a-f]{16,64}$/.test(prefix)) return null;
+      const matches=[...runtimeIndex(assets).families.values()].filter(family=>family.runtimeFingerprint.startsWith(prefix));
+      return matches.length===1?matches[0]:null;
+    },
     listProjects:async()=>(env?await publicProjectRegistry(env,assets):registry).projects};
 }
 function reply(body,status=200,cache=30) {
@@ -129,8 +135,9 @@ export async function handleProjectsApi(request,env,assets) {
       const id=url.searchParams.get('project');
       if (id && !registry.projects.some(p=>p.id===id)) return reply({error:'project_not_found'},404,0);
       const focus=String(url.searchParams.get('focus') || 'important'),history=String(url.searchParams.get('history') || 'all');
-      if(!['all','important','configuration','outcome','accrual'].includes(focus) || !['all','current'].includes(history)) return reply({error:'invalid_activity_filter'},400,0);
-      return reply({schemaVersion:2,events:await listProjectEvents(env,id,60,{focus,history}),filters:{project:id || null,focus,history},generatedAt:new Date().toISOString(),
+      const signal=String(url.searchParams.get('signal') || 'all');
+      if(!['all','important','configuration','outcome','accrual'].includes(focus) || !['all','current'].includes(history) || !PROJECT_SIGNAL_TYPES.includes(signal)) return reply({error:'invalid_activity_filter'},400,0);
+      return reply({schemaVersion:3,events:await listProjectEvents(env,id,60,{focus,history,signal}),filters:{project:id || null,focus,history,signal},generatedAt:new Date().toISOString(),
         coverage:'Monitored deployments and decoded event types only. Historical coverage begins at each retained scan window.'});
     }
     if (path==='/api/project-comparison') {

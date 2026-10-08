@@ -1,8 +1,9 @@
 import { latestProjectObservations,followProject,projectFollows } from './evidence.js';
 import { submitContribution,listActorSubmissions,issueClaimChallenge,verifyClaim } from './contributions.js';
-import { navigationRows,menuButton,privateConversation,cleanLabel } from '../bot/navigation.js';
+import { followRuntimeFamily,runtimeFamilyFollows } from './mechanisms.js';
+import { navigationRows,menuButton,privateConversation,cleanLabel,alertHtml } from '../bot/navigation.js';
 
-const commands=new Set(['projects','project','follow','unfollow','following','submitproject','suggest','claim','verifyclaim','myrequests']);
+const commands=new Set(['projects','project','follow','unfollow','following','family','followfamily','unfollowfamily','submitproject','suggest','claim','verifyclaim','myrequests']);
 function plain(value) {return typeof value==='string'?value:JSON.stringify(value);}
 const projectUrl=id=>`https://hookline.world/#/projects/${encodeURIComponent(id)}`;
 function privateOptions(parsed,userId,services) {
@@ -21,10 +22,11 @@ function challengeText(result) {
 export async function handleProjectMessage(client,parsed,ctx,userId) {
   let command=parsed.command?.toLowerCase().split('@')[0], args=String(parsed.args || '').trim();
   if(command==='start' && /^project_[a-z0-9-]{1,48}$/.test(args)) {command='project';args=args.slice(8);}
+  if(command==='start' && /^fam_[0-9a-f]{16,48}$/i.test(args)) {command='family';args=args.slice(4).toLowerCase();}
   if(!commands.has(command)) return null;
   const services=ctx.services?.projects;
-  const reply=async(text,buttons)=> {
-    const response=await client.reply(parsed.chatId,text,{disable_web_page_preview:true,reply_markup:{inline_keyboard:buttons || navigationRows()}});
+  const reply=async(text,buttons,htmlMode=false)=> {
+    const response=await client.reply(parsed.chatId,text,{disable_web_page_preview:true,parse_mode:htmlMode?'HTML':undefined,reply_markup:{inline_keyboard:buttons || navigationRows()}});
     return {handled:true,messageId:response?.message_id};
   };
   if(!services) return reply('Project services are temporarily unavailable. https://hookline.world/#/projects');
@@ -46,13 +48,30 @@ export async function handleProjectMessage(client,parsed,ctx,userId) {
       const ids=await projectFollows(ctx.env,userId);
       return reply(ids.length?`Following\n${ids.map(id=>`/project ${id}`).join('\n')}\n\n/unfollow <project> to stop.`:'No project follows yet. Use /projects to find one.');
     }
+    if(command==='family' || command==='followfamily' || command==='unfollowfamily') {
+      privateOptions(parsed,userId,services);
+      const family=await services.getRuntimeFamily?.(args);
+      if(!family) return reply('Runtime family not found. Open a project profile on Hookline and use Follow runtime family.');
+      const fingerprint=family.runtimeFingerprint,prefix=fingerprint.slice(0,48);
+      const label=cleanLabel(family.representativeName || `Runtime ${fingerprint.slice(0,12)}`,80);
+      if(command!=='family') {
+        const enabled=command==='followfamily';
+        await followRuntimeFamily(ctx.env,{fingerprint,label,deployments:family.deployments,userId,chatId:parsed.chatId,enabled});
+        return reply(alertHtml([enabled?`Following ${label}`:`Paused ${label}`,'Exact runtime bytecode family',{address:fingerprint},
+          enabled?'You’ll get an alert when Hookline first observes this exact runtime on another monitored deployment.':'Resume it whenever you want from My alerts.',
+          'A runtime match is not proof of project affiliation or deployment time.']),[[{text:'Family details',callback_data:`mf:view:${prefix}`},{text:enabled?'Pause':'Resume',callback_data:`mf:${enabled?'off':'on'}:${prefix}`}],...navigationRows()],true);
+      }
+      return reply(alertHtml([label,'Exact runtime bytecode family',{address:fingerprint},
+        `${family.deploymentCount || family.deployments?.length || 0} indexed exact deployment${Number(family.deploymentCount || family.deployments?.length || 0)===1?'':'s'} across ${(family.chainIds || []).length} chain${(family.chainIds || []).length===1?'':'s'}.`,
+        'Alerts fire on first Hookline observation of this runtime on another monitored deployment.']),[[{text:'Follow runtime family',callback_data:`mf:on:${prefix}`}],...navigationRows()],true);
+    }
     if(command==='project' || command==='follow' || command==='unfollow') {
       const project=await services.getProject(args);
       if(!project) return reply('Project not found. Use /projects to see project IDs.');
       if(command!=='project') {
         privateOptions(parsed,userId,services);
         await followProject(ctx.env,{projectId:project.id,userId,chatId:parsed.chatId,enabled:command==='follow'});
-        return reply(command==='follow'?`Following ${project.name}. You'll receive new observed changes from its monitored deployments.\n${projectUrl(project.id)}`:`Paused ${project.name}. You can resume it below.`,[[{text:'Project details',callback_data:`pr:view:${project.id}`},{text:command==='follow'?'Pause alerts':'Resume alerts',callback_data:`pr:${command==='follow'?'off':'on'}:${project.id}`}],...navigationRows()]);
+        return reply(command==='follow'?`Following ${project.name}. You'll receive supported factory launches, implementation changes, fee configuration changes, and observed outcomes from its monitored deployments.\n${projectUrl(project.id)}`:`Paused ${project.name}. You can resume it below.`,[[{text:'Project details',callback_data:`pr:view:${project.id}`},{text:command==='follow'?'Pause alerts':'Resume alerts',callback_data:`pr:${command==='follow'?'off':'on'}:${project.id}`}],...navigationRows()]);
       }
       const observations=await latestProjectObservations(ctx.env,project.id);
       const lines=[project.name,project.summary || '',`${project.deployments?.length || 0} linked deployments, ${observations.length} with saved direct observations.`];
@@ -100,13 +119,18 @@ export async function handleProjectMessage(client,parsed,ctx,userId) {
 }
 export async function handleProjectCallback(client,callback,ctx,userId) {
   const old=String(callback.data || '').match(/^project_follow:([a-z0-9-]{1,48})$/);
+  const family=String(callback.data || '').match(/^mf:(view|on|off):([0-9a-f]{16,48})$/i);
   const match=String(callback.data || '').match(/^pr:(view|on|off|claim|verify|list)(?::([a-z0-9-]{1,48}))$|^pr:(requests)$/);
-  if(!match && !old) return null;
+  if(!match && !old && !family) return null;
   if(!privateConversation(callback.message?.chat?.id,userId,callback.from?.id ?? userId)) {
     await client.answer(callback.id,{text:'Open Hookline in your private chat to manage projects.',show_alert:true});
     return {handled:true,reason:'private_chat_required'};
   }
   await client.answer(callback.id);
+  if(family) {
+    const commands={view:'family',on:'followfamily',off:'unfollowfamily'};
+    return handleProjectMessage(client,{command:commands[family[1]],args:family[2],chatId:callback.message?.chat?.id,messageId:callback.message?.message_id?`${callback.message.message_id}:${family[1]}`:undefined},ctx,userId);
+  }
   const action=old?'on':match[1]||match[3];
   const commands={view:'project',on:'follow',off:'unfollow',claim:'claim',verify:'verifyclaim',list:'projects',requests:'myrequests'};
   return handleProjectMessage(client,{command:commands[action],args:old?old[1]:match[2]||'',chatId:callback.message?.chat?.id,messageId:callback.message?.message_id?`${callback.message.message_id}:${action}`:undefined},ctx,userId);
@@ -119,4 +143,9 @@ export async function projectAlertSubscriptions(ctx,userId,chatId) {
   if(!ctx.env?.DB) return [];
   const rows=await ctx.env.DB.prepare('SELECT project_id,enabled FROM project_follows WHERE telegram_user_id=? AND chat_id=? ORDER BY enabled DESC,created_at ASC LIMIT 40').bind(String(userId),String(chatId)).all();
   return rows.results || [];
+}
+
+export async function runtimeFamilyAlertSubscriptions(ctx,userId,chatId) {
+  if(!privateConversation(chatId,userId)) throw new Error('Open Hookline in your private chat to manage projects.');
+  return runtimeFamilyFollows(ctx.env,userId,chatId);
 }

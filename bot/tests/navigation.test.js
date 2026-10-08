@@ -11,9 +11,10 @@ import {renderTokenCard} from '../token-view.js';
 import {renderHookView} from '../hook-view.js';
 
 const HOOK='0x'+'1'.repeat(40),TOKEN='0x'+'2'.repeat(40),UNKNOWN='0x'+'3'.repeat(40);
+const FINGERPRINT='a'.repeat(64);
 const BOT_TOKEN='123456789:abcdefghijklmnopqrstuvwxyzABCDE';
 class D1 {
-  constructor(){this.sqlite=new DatabaseSync(':memory:');this.sqlite.exec('PRAGMA foreign_keys=ON');for(const name of ['0000_fearless_silver_samurai.sql','0002_project_contributions.sql','0003_project_evidence.sql','0004_trading_preferences.sql'])this.sqlite.exec(readFileSync(new URL(`../../drizzle/${name}`,import.meta.url),'utf8'));}
+  constructor(){this.sqlite=new DatabaseSync(':memory:');this.sqlite.exec('PRAGMA foreign_keys=ON');for(const name of ['0000_fearless_silver_samurai.sql','0002_project_contributions.sql','0003_project_evidence.sql','0004_trading_preferences.sql','0011_mechanism_subscriptions.sql'])this.sqlite.exec(readFileSync(new URL(`../../drizzle/${name}`,import.meta.url),'utf8'));}
   prepare(sql){const db=this;let values=[];const statement={bind(...v){values=v;return statement;},async first(){return db.sqlite.prepare(sql).get(...values)||null;},async all(){return {results:db.sqlite.prepare(sql).all(...values)};},async run(){return statement._run();},_run(){const result=db.sqlite.prepare(sql).run(...values);return {success:true,meta:{changes:Number(result.changes),last_row_id:Number(result.lastInsertRowid)}};}};return statement;}
   async batch(statements){this.sqlite.exec('BEGIN');try{const results=statements.map(s=>s._run());this.sqlite.exec('COMMIT');return results;}catch(error){this.sqlite.exec('ROLLBACK');throw error;}}
 }
@@ -24,7 +25,7 @@ class Client {
   async answerCallbackQuery(id,options={}){Client.calls.push({kind:'answer',id,options});return true;}
 }
 const project={id:'alpha',name:'Alpha Project',summary:'A source-linked project.',category:'Liquidity',deployments:[{chainId:8453,address:HOOK,name:'Alpha Market Hook',provenance:'official deployment reference'}]};
-function context(){return {env:{DB:new D1(),TELEGRAM_BOT_TOKEN:BOT_TOKEN},services:{projects:{listProjects:async()=>[project],getProject:async(id)=>id==='alpha'?project:null},resolveAlertIdentity:async(chainId,address,type)=>address===TOKEN?{name:'Token Two',kind:'token',symbol:'TWO',source:'Token index'}:address===HOOK?{name:'Indexed Alpha Hook',source:'Verified-source name'}:null,resolveTokenHooks:async()=>({relationships:[]})}};}
+function context(){return {env:{DB:new D1(),TELEGRAM_BOT_TOKEN:BOT_TOKEN},services:{projects:{listProjects:async()=>[project],getProject:async(id)=>id==='alpha'?project:null,getRuntimeFamily:async(prefix)=>FINGERPRINT.startsWith(prefix)?{runtimeFingerprint:FINGERPRINT,representativeName:'Alpha runtime',deploymentCount:3,chainIds:[8453,4663]}:null},resolveAlertIdentity:async(chainId,address,type)=>address===TOKEN?{name:'Token Two',kind:'token',symbol:'TWO',source:'Token index'}:address===HOOK?{name:'Indexed Alpha Hook',source:'Verified-source name'}:null,resolveTokenHooks:async()=>({relationships:[]})}};}
 function command(text,userId=71,chatId=userId){return {update_id:1,message:{message_id:1,from:{id:userId},chat:{id:chatId},text}};}
 function callback(data,userId=71,chatId=userId){return {update_id:2,callback_query:{id:'callback',from:{id:userId},data,message:{message_id:10,chat:{id:chatId}}}};}
 function card(){return Client.calls.findLast(c=>c.kind==='send'||c.kind==='edit');}
@@ -55,6 +56,18 @@ test('empty alerts offer Add alert, Projects and Main menu without command typin
   await handleUpdate(command(UNKNOWN),ctx);
   assert.match(card().text,/Choose the hook’s chain/);
   assert(buttons().some(b=>b.text==='Base'&&b.callback_data===`tg:as:8453:${UNKNOWN}`));
+});
+test('runtime-family follows use bounded callbacks and stay manageable from My alerts',async()=>{
+  const ctx=context(),prefix=FINGERPRINT.slice(0,48);
+  await handleUpdate(command(`/start fam_${prefix}`),ctx);
+  assert.match(card().text,/Alpha runtime/);assert(buttons().some(button=>button.callback_data===`mf:on:${prefix}`));
+  assert.ok(Buffer.byteLength(`mf:on:${prefix}`)<=64);
+  await handleUpdate(callback(`mf:on:${prefix}`),ctx);
+  assert.match(card().text,/Following Alpha runtime/);
+  await handleUpdate(command('/alerts'),ctx);
+  assert.match(card().text,/Runtime family · Active/);assert(card().text.includes(`<code>${FINGERPRINT}</code>`));
+  await handleUpdate(callback(`mf:off:${prefix}`),ctx);
+  assert.match(card().text,/Paused Alpha runtime/);
 });
 test('account links use authenticated private Telegram identity and never create trading authority',async()=>{
   const ctx=context();let identity;

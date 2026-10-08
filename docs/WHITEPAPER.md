@@ -110,7 +110,7 @@ Runtime fingerprints group byte-identical deployments into runtime families. Ide
 
 ### Monitoring and alerts
 
-Hook profiles support bounded Telegram alerts for direct runtime changes, newly indexed pool relationships, material PoolManager fee moves for the same finalized pool, and material indexed-liquidity movement across a stable, fully measured pool set. Fee alerts preserve the distinction between PoolManager's emitted swap fee and a separately proven hook charge. Project follows use the shared configuration-change and decoded-event feed. Backfill is not promoted to newly occurring activity. Deeper outcome, dependency, family, and upstream-health subscriptions remain planned.
+Hook profiles support bounded Telegram alerts for direct runtime changes, newly indexed pool relationships, batches of 25 newly finalized Tape swaps, material PoolManager fee moves for the same finalized pool, and material indexed-liquidity movement across a stable, fully measured pool set. Fee alerts preserve the distinction between PoolManager's emitted swap fee and a separately proven hook charge. Project follows use normalized factory-launch, implementation, fee-configuration, runtime, other-configuration, and outcome signals backed by the original shared event. Exact-runtime-family follows notify only on a later first Hookline observation on another monitored deployment. Backfill and pre-subscription appearances are not promoted to new activity. Dependency, broader family-discovery, and upstream-health subscriptions remain planned.
 
 ### Reviewed execution
 

@@ -6,7 +6,7 @@ Hookline is the intelligence and coordination layer for onchain hooks. The initi
 
 Hookline gives that ecosystem a shared evidence model and a practical workstation.
 
-The boards are the map. The shipped Projects layer shares configuration reads, selected activity, exact-runtime relationships, and changes across a broad ecosystem. The activity feed separates configuration, executed outcomes, transfers, deferred actions, and routine accrual records so one noisy event class cannot bury the signal. The shipped Hook Tape owns finalized Base pool-initialization and live swap evidence with exact source transactions. It also summarizes retained swaps over explicit block windows, ranks currently active hooks, alerts on material changes to the PoolManager-reported fee for the same resolved pool, attaches bounded receipt-level ERC-20 flows, and selects successful traces for hook callbacks, return deltas, LP-fee overrides, native value, and direct call-frame gas. Receipt flows and call frames remain observations, not automatic fee claims. The next derivations add failed-attempt coverage and defensible hook-level attribution.
+The boards are the map. The shipped Projects layer shares configuration reads, selected activity, exact-runtime relationships, and changes across a broad ecosystem. The activity feed separates factory launches, implementation changes, fee configuration, other configuration, observed outcomes, and routine accrual records so one noisy event class cannot bury the signal. The shipped Hook Tape owns finalized Base pool-initialization and live swap evidence with exact source transactions. It also summarizes retained swaps over explicit block windows, ranks currently active hooks, alerts on material changes to the PoolManager-reported fee for the same resolved pool and batches of 25 newly finalized swaps, attaches bounded receipt-level ERC-20 flows, and selects successful traces for hook callbacks, return deltas, LP-fee overrides, native value, and direct call-frame gas. Receipt flows and call frames remain observations, not automatic fee claims. The next derivations add failed-attempt coverage and defensible hook-level attribution.
 
 ## Current capabilities
 
@@ -27,6 +27,8 @@ Source-bound adapters currently include project-specific evidence for CLAUS, Cla
 What the Hook is included from its official website with its Robinhood hook and `$WTH` token addresses. The integration is labeled closed-source, so Hookline applies only generic pinned bytecode, implementation-slot, and owner-probe observations. It does not present WTH's published mechanism or payout split as source-verified contract behavior.
 
 Profiles disclose linked, monitored, and actually observed deployment counts. Directory rows identify whether coverage is a source-bound reader, generic pinned state, linked deployments, or metadata only, and the board filters on those evidence tiers independently of chain or mechanism. Selected targets rotate through bounded scans on the existing 10-minute schedule. Reorg checks, per-target cursors, backfill labels, and last-good observations keep partial coverage explicit. Public browsing uses versioned cached snapshots rather than starting a new scan for every visitor.
+
+Project follows deliver the normalized signals supported by each reader: factory launches, implementation changes, fee-configuration changes, other configuration, and observed outcomes. Exact-runtime cards can also open a private Telegram family follow keyed to the full SHA-256 fingerprint. Existing appearances seed silently. A later alert means Hookline first observed that exact runtime on another monitored deployment after the follow began; it does not prove the deployment was created then or belongs to the same project.
 
 Users can select two to four project records and open a shareable comparison. Each column retains the project's evidence tier, deployment and runtime-family coverage, chain footprint, source-bound reader coverage, and latest measured fields by observed deployment. Blocks, timestamps, addresses, and source scope remain attached. The comparison does not normalize unlike mechanisms into a performance or risk score, and missing measurements remain unavailable.
 
@@ -108,6 +110,8 @@ The first tape is live on Base and expands only after its derivations are depend
 The tape does not infer an exact hidden fee from permission bits. It publishes a fee delta or recipient only when transaction receipts, call traces, and token movements support the claim. Missing trace coverage is reported as unavailable rather than estimated.
 
 Runtime fingerprint is a first-class identity key for this layer. Deployments with identical runtime bytecode form a reproducible family, while a changed runtime becomes a separate family even when the name is reused.
+
+Tape rows prefer a sourced project or verified-contract name. When neither exists, a byte-identical runtime family's representative name is used and remains visibly a runtime identity, not a project-affiliation claim. Hook alerts accumulate only complete finalized reads and notify after 25 new swaps, retaining the block range, minimum and maximum PoolManager-reported fee, and latest source transaction. An incomplete read does not advance the alert cursor.
 
 ## Trust model
 

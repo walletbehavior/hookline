@@ -39,12 +39,13 @@ import { handleTelegramUpdate, verifyWebhookSecret } from '../bot/index.js';
 import { runAlertScan } from '../bot/alert-runner.js';
 import { handleProjectsApi, canonicalProjectRegistry, projectContext } from '../projects/api.js';
 import { runProjectScan, deliverProjectEvents } from '../projects/evidence.js';
+import { recordRuntimeFamilyAppearances,deliverRuntimeFamilyAppearances } from '../projects/mechanisms.js';
 import { createProjectRpcPool, createRpcPoolHealth } from '../projects/rpc-pool.js';
 import { TelegramClient } from '../bot/bot-api.js';
 import { digest as projectDigest } from '../projects/evidence.js';
 import { handleAccountsApi, consumeTelegramLink, pruneAccountEphemera } from '../accounts/index.js';
 import { createEip1271Verifier } from '../accounts/contract-signatures.js';
-import { handleTapeApi, liveTapePoolsForHook, liveTapeSwapFeesForHook, runBaseTapeScan } from '../projects/tape.js';
+import { handleTapeApi, liveTapePoolsForHook, liveTapeSwapFeesForHook,liveTapeActivityForHook, runBaseTapeScan } from '../projects/tape.js';
 
 'use strict';
 
@@ -142,6 +143,7 @@ const DEXSCREENER_SLUG_CHAINS = Object.freeze(
 let canonicalHookAddresses;
 let indexedHooks;
 let tokenIndexSnapshot;
+let runtimeIdentityByDeployment;
 
 function ensureHookIndexes() {
   if (!canonicalHookAddresses) {
@@ -173,6 +175,24 @@ function indexedHook(chainId, address) {
   return indexedHooks.get(`${chainId}:${address.toLowerCase()}`) || null;
 }
 
+function indexedRuntimeIdentity(chainId,address) {
+  if(!runtimeIdentityByDeployment) {
+    runtimeIdentityByDeployment=new Map();
+    try {
+      const snapshot=JSON.parse(ASSETS.runtimeFamilies),families=new Map((snapshot.families || []).map(family=>[String(family.runtimeFingerprint || '').toLowerCase(),family]));
+      for(const deployment of snapshot.deployments || []) {
+        const id=String(deployment?.id || '').toLowerCase(),fingerprint=String(deployment?.fingerprint || '').toLowerCase(),family=families.get(fingerprint);
+        if(/^[0-9]+_0x[0-9a-f]{40}$/.test(id) && /^[0-9a-f]{64}$/.test(fingerprint) && family) runtimeIdentityByDeployment.set(id,{fingerprint,
+          representativeName:typeof family.representativeName==='string'?family.representativeName.slice(0,120):null,
+          deploymentCount:Number(family.deploymentCount)||Number(family.deployments?.length)||1});
+      }
+    } catch {
+      // Runtime identity is optional. Never invent one when the snapshot fails.
+    }
+  }
+  return runtimeIdentityByDeployment.get(`${Number(chainId)}_${String(address || '').toLowerCase()}`) || null;
+}
+
 function staticTokenIndex() {
   if (!tokenIndexSnapshot) tokenIndexSnapshot = JSON.parse(ASSETS.tokenHooks);
   return tokenIndexSnapshot;
@@ -186,6 +206,8 @@ export function resolveIndexedAlertIdentity(chainId,address,targetType='hook') {
     const name=hook?.project?.name || hook?.verifiedContract?.name;
     if(typeof name==='string' && name.trim()) return {name:name.trim().slice(0,100),kind:'hook',
       source:hook?.project?.name?hook.project.provenance:hook.verifiedContract.provenance};
+    const runtime=indexedRuntimeIdentity(Number(chainId),normalized);
+    if(runtime?.representativeName) return {name:`Runtime · ${runtime.representativeName}`.slice(0,100),kind:'hook',source:'Exact runtime-family snapshot'};
   }
   for(const relationship of staticTokenIndex().relationships || []) {
     if(Number(relationship.chainId)!==Number(chainId)) continue;
@@ -1203,6 +1225,7 @@ async function resolveHookMarkets(chainId, address) {
       numberOfSwaps: profile.numberOfSwaps,
       project: profile.project || null,
       verifiedContract: profile.verifiedContract || null,
+      runtime: indexedRuntimeIdentity(chainId,address),
     } : null,
     observedAt: new Date().toISOString(),
     source: persistentRelationships.length
@@ -1911,10 +1934,12 @@ const verifySmartWalletSignature=createEip1271Verifier({allowedChains:SUPPORTED_
 }});
 async function collectProjectEvidence(env) {
   const pool=createProjectRpcPool({health:projectRpcHealth,maxRequests:240,deadlineAt:Date.now()+42000});
-  const result=await runProjectScan(env,{registry:canonicalProjectRegistry(ASSETS),rpc:pool.rpc});
+  const registry=canonicalProjectRegistry(ASSETS);
+  const result=await runProjectScan(env,{registry,rpc:pool.rpc});
+  const runtimeFamilies=await recordRuntimeFamilyAppearances(env,{registry});
   // Diagnostics remain operator-only; never publish private collector state in
   // account responses, the browser bundle, or project-submission receipts.
-  return {...result,transport:pool.diagnostics()};
+  return {...result,runtimeFamilies,transport:pool.diagnostics()};
 }
 async function collectTapeEvidence(env) {
   const pool=createProjectRpcPool({health:tapeRpcHealth,maxRequests:48,deadlineAt:Date.now()+40000});
@@ -1934,12 +1959,17 @@ export default {
     };
     const projects = async () => {
       const result=await collectProjectEvidence(env);
-      if(env.TELEGRAM_BOT_TOKEN) await deliverProjectEvents(env,{send:(chatId,text,options)=>new TelegramClient(env.TELEGRAM_BOT_TOKEN).sendMessage(chatId,text,options)});
+      if(env.TELEGRAM_BOT_TOKEN) {
+        const send=(chatId,text,options)=>new TelegramClient(env.TELEGRAM_BOT_TOKEN).sendMessage(chatId,text,options);
+        await deliverProjectEvents(env,{send});
+        await deliverRuntimeFamilyAppearances(env,{send});
+      }
       return result;
     };
     const scan = Promise.allSettled([runAlertScan(env, { resolveHookMarkets, inspectHook,
       resolveFirstPartyPools:(chainId,address)=>liveTapePoolsForHook(env,chainId,address),
-      resolveFirstPartySwapFees:(chainId,address)=>liveTapeSwapFeesForHook(env,chainId,address) }), projects(), collectTapeEvidence(env), pruneAccountEphemera(env)]);
+      resolveFirstPartySwapFees:(chainId,address)=>liveTapeSwapFeesForHook(env,chainId,address),
+      resolveFirstPartyActivity:(chainId,address,cursor)=>liveTapeActivityForHook(env,chainId,address,{cursor}) }), projects(), collectTapeEvidence(env), pruneAccountEphemera(env)]);
     ctx.waitUntil(scan);
     return scan;
   },

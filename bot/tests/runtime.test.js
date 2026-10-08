@@ -407,3 +407,28 @@ test('PoolManager fee alerts require a finalized 10 bps move and retain source e
   await runAlertScan({}, {store,resolveHookMarkets,resolveFirstPartySwapFees,sendMessage,now:4});
   assert.deepEqual(JSON.parse(alert.baseline_json).firstPartySwapFees,before,'Incomplete fee coverage must retain the last complete baseline.');
 });
+
+test('finalized Tape activity accumulates across scans, seeds silently, and resets after delivery',async()=>{
+  const alert={id:4,telegram_user_id:'9',chat_id:'9',chain_id:8453,target_address:HOOK,baseline_json:null};
+  const deliveries=new Set(),sent=[];
+  const store={async listDueAlerts(){return [alert];},async updateBaseline({baseline}){alert.baseline_json=JSON.stringify(baseline);},async reschedule(){},
+    async hasDelivery(_id,key){return deliveries.has(key);},async recordDelivery(_id,key){deliveries.add(key);}};
+  const tx=`0x${'6'.repeat(64)}`;
+  let read={available:true,complete:true,cursor:{blockNumber:100,logIndex:1,transactionHash:tx},newSwaps:0,pools:0};
+  const resolveFirstPartyActivity=async(_chain,_address,cursor)=>({...read,priorCursor:cursor});
+  const resolveHookMarkets=async()=>({profile:{runtime:{representativeName:'Byte twins'}},markets:[]});
+  const sendMessage=async(chatId,text,options)=>sent.push({chatId,text,options});
+  assert.equal((await runAlertScan({}, {store,resolveHookMarkets,resolveFirstPartyActivity,sendMessage,now:1})).seeded,1);
+  read={available:true,complete:true,cursor:{blockNumber:110,logIndex:2,transactionHash:tx},newSwaps:10,pools:2,fromBlock:101,toBlock:110,latestTransactionHash:tx,poolManagerFee:{minRaw:3000,maxRaw:4000}};
+  assert.equal((await runAlertScan({}, {store,resolveHookMarkets,resolveFirstPartyActivity,sendMessage,now:2})).delivered,0);
+  assert.equal(JSON.parse(alert.baseline_json).firstPartyActivity.pendingSwaps,10);
+  read={available:true,complete:true,cursor:{blockNumber:120,logIndex:3,transactionHash:tx},newSwaps:15,pools:3,fromBlock:111,toBlock:120,latestTransactionHash:tx,poolManagerFee:{minRaw:2000,maxRaw:5000}};
+  assert.equal((await runAlertScan({}, {store,resolveHookMarkets,resolveFirstPartyActivity,sendMessage,now:3})).delivered,1);
+  assert.match(sent[0].text,/Runtime · Byte twins/);assert.match(sent[0].text,/25 new finalized Tape swaps touching at least 3 pools/);assert.match(sent[0].text,/Finalized blocks: 101, 120/);
+  assert.match(sent[0].text,/0\.2000%, 0\.5000%/);assert(sent[0].text.includes(`<code>${tx}</code>`));
+  assert.equal(sent[0].options.reply_markup.inline_keyboard[0][0].url,`https://hookline.world/#/tape/swaps/8453/${HOOK}`);
+  assert.equal(JSON.parse(alert.baseline_json).firstPartyActivity.pendingSwaps,0);
+  read={available:true,complete:false,cursor:{blockNumber:130,logIndex:4,transactionHash:tx},newSwaps:50,pools:4};
+  await runAlertScan({}, {store,resolveHookMarkets,resolveFirstPartyActivity,sendMessage,now:4});
+  assert.equal(JSON.parse(alert.baseline_json).firstPartyActivity.cursor.blockNumber,120,'Incomplete Tape coverage must retain the last complete cursor.');
+});

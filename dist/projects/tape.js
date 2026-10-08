@@ -1035,3 +1035,36 @@ export async function liveTapeSwapFeesForHook(env,chainId,hookAddress,{limit=200
     pools:rows.slice(0,cap).map((row)=>({poolId:row.pool_id,feeRaw:Number(row.pool_fee_raw),feePercent:Number(row.pool_fee_raw)/10000,
       blockNumber:Number(row.block_number),transactionHash:row.transaction_hash,logIndex:Number(row.log_index)}))};
 }
+
+/** Incremental finalized activity for one Base hook. The cursor is a saved
+ * PoolManager Swap log position, so an alert scan can seed silently and count
+ * only rows finalized after its last successful read. */
+export async function liveTapeActivityForHook(env,chainId,hookAddress,{cursor=null,limit=500}={}) {
+  const normalized=String(hookAddress || '').toLowerCase();
+  if(Number(chainId)!==BASE_CHAIN_ID || !ADDRESS.test(normalized)) return {available:false,complete:false,cursor:null,newSwaps:0};
+  const db=database(env),cap=Math.min(500,Math.max(25,Math.trunc(Number(limit)||0)));
+  const state=await db.prepare('SELECT live_next_block,finalized_block,last_success_at,last_failure FROM hook_tape_swap_state WHERE id=?').bind(SWAP_TAPE_SCAN_ID).first();
+  if(state?.live_next_block==null || state?.finalized_block==null || !state.last_success_at || state.last_failure) return {available:false,complete:false,cursor:null,newSwaps:0};
+  const liveThrough=Number(state.live_next_block)-1,lagBlocks=Math.max(0,Number(state.finalized_block)-Number(state.live_next_block)+1);
+  const priorBlock=Number(cursor?.blockNumber),priorLog=Number(cursor?.logIndex);
+  const seeded=Number.isSafeInteger(priorBlock)&&priorBlock>=0&&Number.isSafeInteger(priorLog)&&priorLog>=0;
+  if(!seeded) {
+    const latest=await db.prepare(`SELECT block_number,log_index,transaction_hash FROM hook_tape_swaps
+      WHERE chain_id=? AND hook_address=? ORDER BY block_number DESC,log_index DESC LIMIT 1`).bind(BASE_CHAIN_ID,normalized).first();
+    return {available:true,complete:lagBlocks===0,liveThrough,lagBlocks,newSwaps:0,pools:0,fromBlock:null,toBlock:null,
+      cursor:latest?{blockNumber:Number(latest.block_number),logIndex:Number(latest.log_index),transactionHash:latest.transaction_hash}
+        :{blockNumber:liveThrough,logIndex:2147483647,transactionHash:null}};
+  }
+  const result=await db.prepare(`SELECT pool_id,pool_fee_raw,block_number,log_index,transaction_hash FROM hook_tape_swaps
+    WHERE chain_id=? AND hook_address=? AND (block_number>? OR (block_number=? AND log_index>?)) AND block_number<=?
+    ORDER BY block_number ASC,log_index ASC LIMIT ?`).bind(BASE_CHAIN_ID,normalized,priorBlock,priorBlock,priorLog,liveThrough,cap).all();
+  const shown=Array.isArray(result?.results)?result.results:[];
+  if(lagBlocks!==0) return {available:true,complete:false,liveThrough,lagBlocks,newSwaps:0,pools:0,cursor};
+  const latest=shown.at(-1);
+  const fees=shown.map(row=>Number(row.pool_fee_raw)).filter(Number.isFinite),blocks=shown.map(row=>Number(row.block_number));
+  return {available:true,complete:true,liveThrough,lagBlocks,newSwaps:shown.length,pools:new Set(shown.map(row=>row.pool_id)).size,
+    fromBlock:blocks.length?Math.min(...blocks):null,toBlock:blocks.length?Math.max(...blocks):null,
+    poolManagerFee:{minRaw:fees.length?Math.min(...fees):null,maxRaw:fees.length?Math.max(...fees):null},
+    latestTransactionHash:latest?.transaction_hash || null,
+    cursor:latest?{blockNumber:Number(latest.block_number),logIndex:Number(latest.log_index),transactionHash:latest.transaction_hash}:cursor};
+}

@@ -15,7 +15,7 @@ schedule per deployment, never once per visitor or subscriber.
 
 - `GET /api/projects` returns `{schemaVersion:1, generatedAt, projects:[]}`.
 - `GET /api/projects/:id` returns `{project, observations:[], events:[], related:[]}`.
-- `GET /api/project-activity?project=:id` returns `{events:[], generatedAt}`.
+- `GET /api/project-activity?project=:id&signal=:signal` returns schema-versioned `{events:[], filters:{}, generatedAt}` records. `signalType` is a deterministic view over the original retained event, not a replacement for its classification or evidence.
 - `POST /api/project-submissions` accepts free new-project, claim, and correction
   requests. It returns HTTP 201 `{id,status,receiptToken,message}`. Claims include
   an expiring DNS challenge; other requests begin at `pending_review`. Never
@@ -97,7 +97,7 @@ Collector transport uses immutable, method-specific provider lists. Fallback sta
 1. Broad registry, searchable by project, mechanism category, chain, or address.
 2. Profiles link source records and exact chain-aware deployment pages.
 3. Shared, timestamped observation and change history with bounded persistence.
-4. Project follows use the same event records as the website.
+4. Project follows use the same event records as the website and add only a deterministic signal label; exact-runtime follows use the full SHA-256 fingerprint and first-observation records.
 5. Free forms persist private requests and explicitly show pending review.
 6. No missing metric appears as zero, no failed scan erases evidence.
 7. Repeated events are deduplicated; source-block conflicts invalidate evidence.
