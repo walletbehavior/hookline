@@ -53,6 +53,7 @@ Acceptance criteria:
 - Index finalized live PoolManager swaps for already-resolved hooked pools
 - Retain signed pool deltas, emitted swap fee, post-swap state, raw log, and source transaction
 - Normalize bounded successful receipts and retain relevant ERC-20 transfers touching the hook or a pool currency
+- Select bounded successful transaction traces and retain direct hook callbacks, decoded swap-return deltas, explicit LP-fee overrides, relevant native value, and direct call-frame gas
 - Publish separate Swaps and Pool births views with independent coverage
 - Publish explicit block-window activity summaries and active-hook rankings from retained finalized swaps
 - Alert on material same-pool PoolManager fee changes with before/after values and source transactions
@@ -65,10 +66,10 @@ Acceptance criteria met by this slice:
 - Failed scans preserve the last good evidence and do not advance a cursor.
 - Project-submitted profiles remain visibly separate from chain observations.
 
-## Next: trace-backed outcomes and change intelligence
+## Next: failed-attempt outcomes and change intelligence
 
 - Measure the pool-advertised fee separately from trace-attributed hook-adjusted token flow
-- Record swap refusals, hook gas, recipients, and return-delta involvement where the evidence supports it
+- Extend the shipped successful-call coverage to record failed swap attempts, refusal windows, recipients, and attributable hook deltas where the evidence supports it
 - Publish short tape rows with links to their source transactions, logs, traces, and derivation version
 - Alert on attributed hook-fee deltas, refusal-rate changes, and new deployments of known runtime families
 

@@ -14,11 +14,11 @@ The board uses a timestamped v4.xyz community-indexer snapshot for broad hook di
 
 ## Is the board exhaustive?
 
-No. The board sync collects activity leaders for every two-nibble hook-address prefix exposed by the public index. That creates broad cross-chain discovery without overstating completeness or overloading a community service. The Base Tape owns its PoolManager initialization source and a finalized live swap feed for already-resolved hooked pools. Receipt and trace attribution, full swap history, and other chains remain separate work.
+No. The board sync collects activity leaders for every two-nibble hook-address prefix exposed by the public index. That creates broad cross-chain discovery without overstating completeness or overloading a community service. The Base Tape owns its PoolManager initialization source and a finalized live swap feed for already-resolved hooked pools. It also performs bounded receipt enrichment and successful-transaction trace sampling. Complete trace attribution, failed-attempt history, full swap history, and other chains remain separate work.
 
 ## What is the Hook Tape today?
 
-It is a first-party Base feed with two views. Pool births resolve a pool ID to its hook, currencies, configured LP fee field, source block, and transaction. Swaps retain finalized PoolManager events for already-resolved hooked pools, including signed pool deltas and the exact swap fee PoolManager emitted. Successful receipts add bounded ERC-20 transfer evidence when a transfer touches the hook or a pool currency. Those flows are not automatically fees or payouts. Raw swap rows are bounded to seven days and 200,000 rows to keep infrastructure cost predictable. Rejected attempts, native-value flow, and call-path attribution require trace evidence.
+It is a first-party Base feed with two views. Pool births resolve a pool ID to its hook, currencies, configured LP fee field, source block, and transaction. Swaps retain finalized PoolManager events for already-resolved hooked pools, including signed pool deltas and the exact swap fee PoolManager emitted. Successful receipts add bounded ERC-20 transfer evidence when a transfer touches the hook or a pool currency. A smaller trace pass adds direct hook callbacks, decoded swap returns, explicit LP-fee overrides, relevant native value, and direct hook call-frame gas. Those flows and frames are not automatically fees or payouts. Raw swap rows are bounded to seven days and 200,000 rows to keep infrastructure cost predictable. Because trace selection starts from successful retained swaps, it does not yet measure rejected attempts or refusal rate.
 
 ## Why is the index snapshot older than the current time?
 
@@ -56,7 +56,7 @@ No. The Projects board includes researched and community records, linked deploym
 
 Yes. Open a hook profile to resolve related markets. When DexScreener has the pool, Hookline shows price, market capitalization, liquidity, 24-hour volume, and change while keeping the indexed hook relationship visible.
 
-These are sourced market readings, not Hookline's own complete swap index. A missing value stays unavailable. Liquidity alerts compare the same indexed pool set with complete readings; a changed sample or missing data does not become a liquidity-loss alert.
+These are sourced market readings, not Hookline's own complete swap index. A missing value stays unavailable. Liquidity alerts compare the same indexed pool set with complete readings; a changed pool set or missing data does not become a liquidity-loss alert.
 
 ## Does “Dynamic” show the fee a trade actually paid?
 

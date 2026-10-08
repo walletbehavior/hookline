@@ -21,6 +21,7 @@ function harness({handler,health=createRpcPoolHealth(),maxRequests=240,time=1780
     if(request.method==='eth_call') return reply(request,hash(0));
     if(request.method==='eth_getLogs') return reply(request,[]);
     if(request.method==='eth_getTransactionReceipt') return reply(request,null);
+    if(request.method==='trace_transaction') return reply(request,[]);
     throw new Error(`Unhandled method ${request.method}`);
   };
   const pool=createProjectRpcPool({health,fetchImpl,now:()=>clock,sleep:async ms=>{clock+=ms;},maxRequests,deadlineAt:clock+deadlineMs});
@@ -35,6 +36,8 @@ test('immutable method-specific sources exclude known unusable log services',()=
   assert.ok(PROJECT_RPC_POOLS[56].logs.every(p=>p.id!=='bnb-official'));
   assert.ok(PROJECT_RPC_POOLS[8453].state.every(p=>p.id!=='base-publicnode'));
   assert.deepEqual(PROJECT_RPC_POOLS[8453].state.map(p=>p.id),['base-tenderly','base-official','base-drpc']);
+  assert.deepEqual(PROJECT_RPC_POOLS[8453].traces.map(p=>p.id),['base-drpc']);
+  assert.ok(Object.entries(PROJECT_RPC_POOLS).filter(([chainId])=>chainId!=='8453').every(([,config])=>config.traces.length===0));
   for(const config of Object.values(PROJECT_RPC_POOLS)) for(const providers of Object.values(config)) for(const entry of providers) {
     assert.match(entry.url,/^https:\/\//);assert.match(entry.sourceUrl,/^https:\/\//);assert.equal(new URL(entry.url).username,'');
   }
@@ -186,6 +189,23 @@ test('receipt reads require a pin and reject a receipt from another transaction 
   const h=harness({handler:({request})=>request.method==='eth_getTransactionReceipt'?reply(request,{transactionHash:request.params[0],blockHash:hash(2),blockNumber:hex(10001),logs:[],status:'0x1'}):null});
   await assert.rejects(h.rpc(1,'eth_getTransactionReceipt',[hash(7)]),/rpc_receipt_request_invalid/);h.rpc.pinBlock(1,head);
   await assert.rejects(h.rpc(1,'eth_getTransactionReceipt',[hash(7)]),/rpc_receipt_mismatch/);
+});
+test('trace reads are Base-only, pinned, transaction-bound, and use the reviewed trace source',async()=>{
+  const transaction=hash(7),trace={blockHash:head.hash,blockNumber:10000,transactionHash:transaction,
+    type:'call',action:{from:address,to:address,callType:'call',input:'0x',value:'0x0',gas:'0x1'},result:{gasUsed:'0x1',output:'0x'},traceAddress:[],subtraces:0};
+  const h=harness({handler:({request})=>request.method==='trace_transaction'?reply(request,[trace]):null});
+  await assert.rejects(h.rpc(8453,'trace_transaction',[transaction]),/rpc_trace_request_invalid/);
+  h.rpc.pinBlock(8453,head);
+  assert.deepEqual(await h.rpc(8453,'trace_transaction',[transaction]),[trace]);
+  assert.deepEqual([...new Set(h.calls.filter(call=>call.method==='trace_transaction').map(call=>new URL(call.url).hostname))],['base.drpc.org']);
+  await assert.rejects(h.rpc(1,'trace_transaction',[transaction]),/rpc_trace_request_invalid/);
+  assert.equal(h.calls.filter(call=>call.method==='trace_transaction').length,1);
+});
+test('trace responses cannot cross transaction or finalized block identity',async()=>{
+  const h=harness({handler:({request})=>request.method==='trace_transaction'?reply(request,[{
+    blockHash:hash(2),blockNumber:10001,transactionHash:hash(8),type:'call',action:{},traceAddress:[],subtraces:0,
+  }]):null});h.rpc.pinBlock(8453,head);
+  await assert.rejects(h.rpc(8453,'trace_transaction',[hash(7)]),/rpc_trace_mismatch/);
 });
 test('shared warm-isolate cooldown prevents a fresh scan from immediately retrying the same source',async()=>{
   const health=createRpcPoolHealth();const handler=({request})=>request.method==='eth_getLogs'?reply(request,null,{status:429,message:'rate limit',headers:{'retry-after':'60'}}):null;

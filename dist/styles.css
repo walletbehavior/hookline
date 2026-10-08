@@ -1601,6 +1601,7 @@ progress::-moz-progress-bar { background: var(--cyan); }
 .tape-table .tape-evidence { display:grid; align-items:start; gap:3px; }
 .tape-evidence-source { display:flex; align-items:center; gap:8px; }
 .tape-receipt-note { color:#917c6b !important; font-family:var(--font-mono); font-size:.52rem !important; line-height:1.3; }
+.tape-trace-note { color:#705f50 !important; font-family:var(--font-mono); font-size:.52rem !important; line-height:1.3; }
 .tape-deltas { display:grid; gap:3px; }.tape-deltas code { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .tape-dynamic { color:var(--lime) !important; }
 .tape-scope { display:grid; grid-template-columns:auto minmax(0,1fr); gap:8px 16px; margin-top:13px; padding:14px 16px; border:1px solid var(--tape-line); background:#181513; }

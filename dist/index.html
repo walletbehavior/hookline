@@ -203,7 +203,7 @@
         <div>
           <p class="eyebrow">FIRST-PARTY POOLMANAGER EVIDENCE</p>
           <h1 id="tape-title">The hook tape.</h1>
-          <p>Finalized Base swaps, receipt-linked token flows, and pool births tied to their source transactions.</p>
+          <p>Finalized Base swaps, receipt-linked token flows, selected hook call paths, and pool births tied to their source transactions.</p>
         </div>
         <button id="tape-refresh" class="btn btn-secondary" type="button">Refresh tape</button>
       </header>
@@ -246,9 +246,9 @@
       <button id="tape-more" class="board-more" type="button" hidden>Load older evidence</button>
       <footer class="tape-scope">
         <b id="tape-scope-label">WHAT SWAP ROWS PROVE</b>
-        <span id="tape-scope-copy">Signed pool deltas, the fee PoolManager reported, finalized block, source transaction, and normalized relevant ERC-20 receipt logs when available.</span>
+        <span id="tape-scope-copy">Signed pool deltas, the fee PoolManager reported, finalized block, source transaction, normalized ERC-20 receipt logs, and selected hook call paths when available.</span>
         <b id="tape-limit-label">NOT YET ATTRIBUTED</b>
-        <span id="tape-limit-copy">A receipt transfer is not automatically a hook fee. Rejected calls and call-path attribution still require traces.</span>
+        <span id="tape-limit-copy">A receipt transfer or call frame is not automatically a hook fee. Current trace coverage contains successful transactions only, so it does not measure refusal rate.</span>
       </footer>
     </section>
 
@@ -544,7 +544,7 @@
           <div class="system-graph" aria-label="Hookline system-of-record graph">
             <span>HOOKS</span><i>,</i><span>POOLS</span><i>,</i><span>CHAINS</span><i>,</i><span>DEPLOYERS</span><i>,</i><span>CODE</span><i>,</i><span>EVENTS</span>
           </div>
-          <p>The board is the map. The Hook Tape now owns finalized Base pool-initialization and live swap evidence with exact source transactions. Swap rows retain signed pool deltas, the fee PoolManager emitted, and normalized relevant ERC-20 transfers from successful receipts when available. Those transfers are not automatically fees. Traces come next for refusals and call-path attribution.</p>
+          <p>The board is the map. The Hook Tape now owns finalized Base pool-initialization and live swap evidence with exact source transactions. Swap rows retain signed pool deltas, the fee PoolManager emitted, normalized relevant ERC-20 transfers, and bounded hook-linked call traces. Transfers and call frames are not automatically fees. Successful traces can prove callback returns and native-value paths; refusal-rate measurement still requires failed-transaction coverage.</p>
           <a class="doc-link" href="https://github.com/walletbehavior/hookline/blob/main/docs/WHITEPAPER.md" target="_blank" rel="noopener noreferrer">Read the complete whitepaper on GitHub</a>
         </section>
 

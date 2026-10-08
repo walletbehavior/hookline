@@ -24,20 +24,20 @@ const rhOfficial = provider('robinhood-official','https://rpc.mainnet.chain.robi
 const rhDrpc = provider('robinhood-drpc','https://robinhood.drpc.org','https://blog.drpc.org/robinhood-mainnet-and-new-networks-drpc/');
 
 export const PROJECT_RPC_POOLS = freeze({
-  1:{headers:[ethPublic,ethDrpc],state:[ethPublic,ethDrpc],logs:[ethPublic,ethDrpc]},
+  1:{headers:[ethPublic,ethDrpc],state:[ethPublic,ethDrpc],logs:[ethPublic,ethDrpc],traces:[]},
   // PublicNode's public Base tier rejects finalized historical state. It does
   // serve the bounded log windows. Do not retry state there as if it were fresh.
-  8453:{headers:[basePublic,baseTenderly],state:[baseTenderly,baseOfficial,baseDrpc],logs:[basePublic,baseTenderly]},
-  42161:{headers:[arbOfficial,arbPublic],state:[arbOfficial,arbPublic],logs:[arbOfficial,arbPublic]},
+  8453:{headers:[basePublic,baseTenderly],state:[baseTenderly,baseOfficial,baseDrpc],logs:[basePublic,baseTenderly],traces:[baseDrpc]},
+  42161:{headers:[arbOfficial,arbPublic],state:[arbOfficial,arbPublic],logs:[arbOfficial,arbPublic],traces:[]},
   // BNB explicitly disables eth_getLogs on its official public endpoints.
-  56:{headers:[bnbOfficial,bnbPublic],state:[bnbOfficial,bnbPublic],logs:[bnbPublic]},
+  56:{headers:[bnbOfficial,bnbPublic],state:[bnbOfficial,bnbPublic],logs:[bnbPublic],traces:[]},
   // No independently usable free historical-log fallback has been verified.
   // PublicNode requires an archive token; dRPC rejects even small historical
   // ranges with a misleading 10,000-block error. Keep that gap explicit.
-  4663:{headers:[rhOfficial,rhDrpc],state:[rhDrpc],logs:[rhOfficial]},
+  4663:{headers:[rhOfficial,rhDrpc],state:[rhDrpc],logs:[rhOfficial],traces:[]},
 });
 
-const METHODS = new Set(['eth_chainId','eth_blockNumber','eth_getBlockByNumber','eth_getCode','eth_getStorageAt','eth_call','eth_getLogs','eth_getTransactionReceipt']);
+const METHODS = new Set(['eth_chainId','eth_blockNumber','eth_getBlockByNumber','eth_getCode','eth_getStorageAt','eth_call','eth_getLogs','eth_getTransactionReceipt','trace_transaction']);
 const STATE = new Set(['eth_getCode','eth_getStorageAt','eth_call']);
 const HASH = /^0x[0-9a-f]{64}$/i;
 const QUANTITY = /^0x[0-9a-f]+$/i;
@@ -46,8 +46,8 @@ const MAX_BODY_BYTES = 2 * 1024 * 1024;
 const MAX_RANGE = 8000;
 const MAX_REQUESTS = 240;
 const MAX_SECONDS = 42;
-const GROUPS = ['headers','state','logs'];
-const groupFor = method => method==='eth_getLogs'?'logs':STATE.has(method) || method==='eth_getTransactionReceipt'?'state':'headers';
+const GROUPS = ['headers','state','logs','traces'];
+const groupFor = method => method==='eth_getLogs'?'logs':method==='trace_transaction'?'traces':STATE.has(method) || method==='eth_getTransactionReceipt'?'state':'headers';
 const failure = (code,extra={}) => Object.assign(new Error(code),{code,...extra});
 const numberOf = value => {
   if (!QUANTITY.test(String(value))) throw failure('rpc_invalid_block');
@@ -55,6 +55,7 @@ const numberOf = value => {
   if (!Number.isSafeInteger(valueNumber)) throw failure('rpc_invalid_block');
   return valueNumber;
 };
+const traceNumberOf = value => Number.isSafeInteger(value) && value>=0 ? value : numberOf(value);
 
 export function createRpcPoolHealth() { return new Map(); }
 
@@ -219,6 +220,9 @@ export function createProjectRpcPool({health=createRpcPoolHealth(),fetchImpl=fet
       || width<1 || width>MAX_RANGE || !pins.has(chainId) || numberOf(params[0].toBlock)>pins.get(chainId).number)) throw failure('rpc_log_request_invalid',{terminal:true});
     if (method==='eth_getBlockByNumber' && params[0]!=='finalized' && !QUANTITY.test(String(params[0]))) throw failure('rpc_invalid_block',{terminal:true});
     if (method==='eth_getTransactionReceipt' && (!HASH.test(params[0] || '') || !pins.has(chainId))) throw failure('rpc_receipt_request_invalid',{terminal:true});
+    if (method==='trace_transaction' && (chainId!==8453 || !HASH.test(params[0] || '') || params.length!==1 || !pins.has(chainId) || !config.traces.length)) {
+      throw failure('rpc_trace_request_invalid',{terminal:true});
+    }
     const errors=[];
     // Base has a separately verified official receipt/state fallback. Keep the
     // fan-out bounded while allowing that third source to absorb free-tier
@@ -236,7 +240,7 @@ export function createProjectRpcPool({health=createRpcPoolHealth(),fetchImpl=fet
         if (method!=='eth_chainId') await checkChain(entry,Number(chainId));
         const historicalHeader=method==='eth_getBlockByNumber' && params[0]!=='finalized' && pins.has(chainId)
           && numberOf(params[0])!==pins.get(chainId).number;
-        if (group==='state' || group==='logs' || historicalHeader) await checkPin(entry,Number(chainId));
+        if (group==='state' || group==='logs' || group==='traces' || historicalHeader) await checkPin(entry,Number(chainId));
         const value=await send(entry,method,params);
         if (method==='eth_chainId') {
           if (numberOf(value)!==Number(chainId)) throw failure('rpc_chain_mismatch');
@@ -251,6 +255,13 @@ export function createProjectRpcPool({health=createRpcPoolHealth(),fetchImpl=fet
         }
         if (method==='eth_getTransactionReceipt' && value && (!HASH.test(value.blockHash || '') || value.transactionHash?.toLowerCase()!==params[0].toLowerCase()
           || numberOf(value.blockNumber)>pins.get(chainId).number)) throw failure('rpc_receipt_mismatch');
+        if (method==='trace_transaction') {
+          if (!Array.isArray(value) || value.length>4096) throw failure('rpc_trace_invalid');
+          for (const item of value) {
+            if (!item || !HASH.test(item.blockHash || '') || item.transactionHash?.toLowerCase()!==params[0].toLowerCase()
+              || traceNumberOf(item.blockNumber)>pins.get(chainId).number) throw failure('rpc_trace_mismatch');
+          }
+        }
         noteSuccess(entry,group,width);return value;
       } catch(error) {
         if (error.terminal || /^scan_/.test(error.code || '')) throw error;

@@ -6,7 +6,7 @@ Hookline is the intelligence and coordination layer for onchain hooks. The initi
 
 Hookline gives that ecosystem a shared evidence model and a practical workstation.
 
-The boards are the map. The shipped Projects layer shares configuration reads, selected activity, and changes across a broad ecosystem. The shipped Hook Tape owns finalized Base pool-initialization and live swap evidence with exact source transactions. It also summarizes retained swaps over explicit block windows, ranks currently active hooks, alerts on material changes to the PoolManager-reported fee for the same resolved pool, and attaches bounded receipt-level ERC-20 flows to successful swaps. Receipt flows remain observations, not automatic fee claims. The next derivations use traces to identify call paths, failed attempts, native-value movement, and defensible hook-level attribution.
+The boards are the map. The shipped Projects layer shares configuration reads, selected activity, and changes across a broad ecosystem. The shipped Hook Tape owns finalized Base pool-initialization and live swap evidence with exact source transactions. It also summarizes retained swaps over explicit block windows, ranks currently active hooks, alerts on material changes to the PoolManager-reported fee for the same resolved pool, attaches bounded receipt-level ERC-20 flows, and samples successful traces for hook callbacks, return deltas, LP-fee overrides, native value, and direct call-frame gas. Receipt flows and call frames remain observations, not automatic fee claims. The next derivations add failed-attempt coverage and defensible hook-level attribution.
 
 ## Current capabilities
 
@@ -86,7 +86,7 @@ The broad board remains a useful discovery surface. Hookline now also follows fi
 hook, pools, chains, deployers, code versions, events
 ```
 
-Initialization rows associate pools with their configured hook, currencies, LP fee field, source block, transaction, and raw log. A separate finalized live cursor now retains PoolManager swap rows for already-resolved hooked pools, including signed pool deltas and the fee emitted for each swap. Both cursors advance only after evidence is stored. Receipts and traces are the next derivation layer.
+Initialization rows associate pools with their configured hook, currencies, LP fee field, source block, transaction, and raw log. A separate finalized live cursor retains PoolManager swap rows for already-resolved hooked pools, including signed pool deltas and the fee emitted for each swap. Both cursors advance only after evidence is stored. Bounded receipt and successful-trace enrichment now sit on those rows; complete failed-attempt and fee-attribution derivations remain next.
 
 ## Hook Tape
 

@@ -4,6 +4,7 @@ import { DatabaseSync } from 'node:sqlite';
 import {
   BASE_CHAIN_ID, BASE_POOL_MANAGER, BASE_POOL_MANAGER_DEPLOYMENT_BLOCK, INITIALIZE_TOPIC,
   SWAP_TOPIC, TRANSFER_TOPIC, TAPE_SCAN_ID, decodeInitializeLog, decodeSwapLog, decodeSwapReceipt,
+  decodeSwapTrace,
   handleTapeApi, liveTapePoolsForHook, liveTapeSwapFeesForHook, runBaseTapeScan,
 } from '../projects/tape.js';
 
@@ -13,6 +14,7 @@ class D1 {
     this.sqlite.exec(readFileSync(new URL('../drizzle/0007_hook_tape.sql',import.meta.url),'utf8'));
     this.sqlite.exec(readFileSync(new URL('../drizzle/0008_hook_tape_swaps.sql',import.meta.url),'utf8'));
     this.sqlite.exec(readFileSync(new URL('../drizzle/0009_hook_tape_receipts.sql',import.meta.url),'utf8'));
+    this.sqlite.exec(readFileSync(new URL('../drizzle/0010_hook_tape_traces.sql',import.meta.url),'utf8'));
   }
   prepare(sql) {
     const database=this;let values=[];
@@ -68,8 +70,18 @@ function receipt({blockNumber,transaction,logs=[]}={}) {
     gasUsed:'0x249f0',effectiveGasPrice:'0x4c4b40',logs};
 }
 
+const packed128=(number)=>((BigInt(number)<0n?(1n<<128n)+BigInt(number):BigInt(number)).toString(16).padStart(32,'0'));
+function traceCall({blockNumber,transaction,traceAddress=[],from=BASE_POOL_MANAGER,to=address('4'),selector='0x575e24b4',
+  value=0n,gas=500_000n,gasUsed=50_000n,output,success=true}={}) {
+  const selectorWord=`${selector.slice(2)}${'0'.repeat(56)}`;
+  const callbackOutput=output || `0x${selectorWord}${packed128(-5n)}${packed128(7n)}${word(0x400bb8)}`;
+  return {blockHash:hash(blockNumber+10_000_000),blockNumber,transactionHash:hash(transaction),type:'call',
+    action:{from,to,callType:'call',gas:quantity(gas),input:`${selector}${'0'.repeat(64)}`,value:quantity(value)},
+    ...(success?{result:{gasUsed:quantity(gasUsed),output:callbackOutput}}:{error:'Reverted'}),traceAddress,subtraces:0};
+}
+
 class RPC {
-  constructor(tip=BASE_POOL_MANAGER_DEPLOYMENT_BLOCK+2000){this.tip=tip;this.logs=[];this.swapLogs=[];this.receipts=new Map();this.calls=[];this.failLogs=false;this.pin=null;}
+  constructor(tip=BASE_POOL_MANAGER_DEPLOYMENT_BLOCK+2000){this.tip=tip;this.logs=[];this.swapLogs=[];this.receipts=new Map();this.traces=new Map();this.calls=[];this.failLogs=false;this.pin=null;}
   rpc=async(chainId,method,params)=>{
     assert.equal(chainId,BASE_CHAIN_ID);this.calls.push({method,params:structuredClone(params)});
     if(method==='eth_getBlockByNumber') return {number:quantity(this.tip),hash:hash(this.tip+20_000_000),timestamp:quantity(Math.floor(NOW/1000))};
@@ -80,6 +92,7 @@ class RPC {
       return source.filter((log)=>Number(BigInt(log.blockNumber))>=from&&Number(BigInt(log.blockNumber))<=to);
     }
     if(method==='eth_getTransactionReceipt') return this.receipts.get(params[0]) || null;
+    if(method==='trace_transaction') return this.traces.get(params[0]) || [];
     throw new Error(`Unexpected method ${method}`);
   };
   install(){this.rpc.pinBlock=(chainId,block)=>{assert.equal(chainId,BASE_CHAIN_ID);this.pin=block;};this.rpc.upstreamRequests=()=>this.calls.length;return this.rpc;}
@@ -126,6 +139,21 @@ test('receipt decoding retains relevant ERC-20 flows without calling them fees',
   assert.throws(()=>decodeSwapReceipt(receipt({blockNumber,transaction,logs:[{...relevant,data:'0x00'}]}),[context]),/tape_receipt_transfer_invalid/);
 });
 
+test('trace decoding identifies callbacks, returned deltas, fee overrides and hook-linked value without calling them fees',()=>{
+  const blockNumber=BASE_POOL_MANAGER_DEPLOYMENT_BLOCK+4,transaction=778,hook=address('4');
+  const context={transactionHash:hash(transaction),blockNumber,blockHash:hash(blockNumber+10_000_000),managerAddress:BASE_POOL_MANAGER,
+    hookAddress:hook,currency0:address('1'),currency1:address('2')};
+  const callback=traceCall({blockNumber,transaction,to:hook,gasUsed:54_001n});
+  const nativeReturn=traceCall({blockNumber,transaction,traceAddress:[0],from:address('1'),to:hook,selector:'0x',value:11n,gasUsed:55n,output:'0x'});
+  const decoded=decodeSwapTrace([callback,nativeReturn],[context]);
+  assert.equal(decoded.traceItems,2);assert.equal(decoded.hookCalls,2);assert.equal(decoded.hookCallGasUsed,'54056');
+  assert.equal(decoded.nativeValueCalls,1);assert.equal(decoded.selectedCalls[0].callback,'beforeSwap');
+  assert.equal(decoded.selectedCalls[0].callbackReturn.deltaSpecified,'-5');assert.equal(decoded.selectedCalls[0].callbackReturn.deltaUnspecified,'7');
+  assert.equal(decoded.selectedCalls[0].callbackReturn.lpFeeOverrideRaw,3000);
+  assert.throws(()=>decodeSwapTrace([{...callback,transactionHash:hash(9)}],[context]),/tape_trace_source_mismatch/);
+  assert.throws(()=>decodeSwapTrace([{...callback,action:{...callback.action,input:'0x0'}}],[context]),/tape_trace_data_invalid/);
+});
+
 test('scanner stores recent finalized evidence, bounded history, and explicit coverage',async()=>{
   const env={DB:new D1()},transport=new RPC(),tip=transport.tip,liveBlock=tip-5,historicalBlock=BASE_POOL_MANAGER_DEPLOYMENT_BLOCK+5;
   transport.logs=[initializeLog({blockNumber:historicalBlock,pool:1,hook:address('4')}),initializeLog({blockNumber:liveBlock,pool:2,hook:address('5'),fee:0x800000})];
@@ -133,11 +161,16 @@ test('scanner stores recent finalized evidence, bounded history, and explicit co
   const swapTransaction=(liveBlock+1)*100;
   transport.receipts.set(hash(swapTransaction),receipt({blockNumber:liveBlock+1,transaction:swapTransaction,
     logs:[transferLog({blockNumber:liveBlock+1,transaction:swapTransaction,token:address('1'),from:address('8'),to:address('5'),value:44n})]}));
+  transport.traces.set(hash(swapTransaction),[
+    traceCall({blockNumber:liveBlock+1,transaction:swapTransaction,to:address('5'),gasUsed:61_000n}),
+    traceCall({blockNumber:liveBlock+1,transaction:swapTransaction,traceAddress:[0],from:address('5'),to:address('1'),selector:'0xa9059cbb',gasUsed:8_000n,output:'0x'}),
+  ]);
   const result=await runBaseTapeScan(env,{rpc:transport.install(),now:NOW});
   assert.equal(result.status,'ok');assert.equal(result.rows,2);assert.equal(result.liveThrough,tip);
   assert.equal(result.historicalThrough,tip-500);assert.equal(result.historicalComplete,true);
   assert.equal(result.swaps.status,'ok');assert.equal(result.swaps.rows,1);assert.equal(result.swaps.liveThrough,tip);
   assert.equal(result.receipts.status,'ok');assert.equal(result.receipts.saved,1);
+  assert.equal(result.traces.status,'ok');assert.equal(result.traces.saved,1);
   assert.equal((await env.DB.prepare('SELECT COUNT(*) AS n FROM hook_tape_pools').first()).n,2);
   const state=await env.DB.prepare('SELECT * FROM hook_tape_scan_state WHERE id=?').bind(TAPE_SCAN_ID).first();
   assert.equal(state.live_started_block,tip-499);assert.equal(state.live_next_block,tip+1);assert.equal(state.historical_complete,1);
@@ -146,6 +179,7 @@ test('scanner stores recent finalized evidence, bounded history, and explicit co
   const status=await json(new Request('https://hookline.world/api/tape/status'),env);
   assert.equal(status.response.status,200);assert.equal(status.body.counts.pools,2);assert.equal(status.body.counts.hooks,2);assert.equal(status.body.counts.swaps,1);
   assert.equal(status.body.counts.receipts,1);assert.equal(status.body.counts.retainedRelevantTransfers,1);
+  assert.equal(status.body.counts.traces,1);assert.equal(status.body.counts.hookCallFrames,1);
   assert.equal(status.body.coverage.liveThrough,tip);assert.equal(status.body.coverage.gapBlocks,0);
   assert.equal(status.body.swapCoverage.liveThrough,tip);assert.match(status.body.scope,/Initialize and Swap logs/i);
   const pools=await json(new Request(`https://hookline.world/api/tape/pools?hook=${address('5')}&limit=10`),env);
@@ -162,6 +196,9 @@ test('scanner stores recent finalized evidence, bounded history, and explicit co
   assert.equal(swaps.body.swaps[0].evidence.derivationVersion,'swap-event-v1');
   assert.equal(swaps.body.swaps[0].receipt.tokenFlows.length,1);assert.equal(swaps.body.swaps[0].receipt.tokenFlows[0].value,'44');
   assert.equal(swaps.body.swaps[0].receipt.tokenFlows[0].relationship.touchesHook,true);
+  assert.equal(swaps.body.swaps[0].trace.hookCallFrames,1);assert.equal(swaps.body.swaps[0].trace.hookOutboundCallFrames,1);
+  assert.equal(swaps.body.swaps[0].trace.calls[0].callback,'beforeSwap');
+  assert.equal(swaps.body.swaps[0].trace.calls[0].callbackReturn.lpFeeOverridePercent,0.3);
   const activity=await json(new Request(`https://hookline.world/api/tape/activity?hook=${address('5')}&blocks=500`),env);
   assert.equal(activity.response.status,200);assert.equal(activity.body.summary.swaps,1);assert.equal(activity.body.summary.pools,1);
   assert.equal(activity.body.summary.poolManagerFee.minPercent,0.4321);assert.equal(activity.body.pools[0].latestTransactionHash,hash((liveBlock+1)*100));

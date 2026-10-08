@@ -3262,9 +3262,9 @@
     if (Array.isArray(body.monitoring?.targets) && body.monitoring.targets.length) {
       const coverage = makeElement('details', 'project-event-receipt');
       const behind = body.monitoring.targets.filter((target) => target.eventStatus !== 'caught_up').length;
-      coverage.append(makeElement('summary', '', behind ? `Event coverage · ${behind} target${behind === 1 ? '' : 's'} catching up or unavailable` : 'Event coverage · caught up to sampled finalized blocks'));
+      coverage.append(makeElement('summary', '', behind ? `Event coverage · ${behind} target${behind === 1 ? '' : 's'} catching up or unavailable` : 'Event coverage · caught up to selected finalized blocks'));
       body.monitoring.targets.forEach((target) => {
-        const line = makeElement('p', 'project-provenance', `${projectChainName(target.chainId)}, ${shorten(target.address, 10, 8)}, ${target.eventStatus === 'caught_up' ? 'through block ' + target.eventCursorBlock : target.eventStatus === 'behind' ? Number(target.eventLagBlocks || 0).toLocaleString() + ' blocks behind sampled tip' : 'event read unavailable'}`);
+        const line = makeElement('p', 'project-provenance', `${projectChainName(target.chainId)}, ${shorten(target.address, 10, 8)}, ${target.eventStatus === 'caught_up' ? 'through block ' + target.eventCursorBlock : target.eventStatus === 'behind' ? Number(target.eventLagBlocks || 0).toLocaleString() + ' blocks behind selected tip' : 'event read unavailable'}`);
         if (target.eventThroughAt) line.append(' · block time ', projectTimeNode(target.eventThroughAt));
         coverage.append(line);
       });
@@ -3689,6 +3689,21 @@
         const note=makeElement('small','tape-receipt-note',flows?`${formatNumber(flows)} relevant ERC-20 transfer${flows===1?'':'s'} in receipt`:'receipt read · no relevant ERC-20 transfers');
         note.title='Observable receipt logs only. This is not automatic hook-fee attribution.';evidence.append(note);
       }
+      if(swaps && pool.trace) {
+        const calls=Array.isArray(pool.trace.calls)?pool.trace.calls:[],direct=calls.filter((call)=>call.relationship?.toHook);
+        const callbacks=[...new Set(direct.map((call)=>call.callback).filter(Boolean))];
+        const override=direct.find((call)=>Number.isFinite(Number(call.callbackReturn?.lpFeeOverridePercent)))?.callbackReturn?.lpFeeOverridePercent;
+        const returnedDelta=direct.some((call)=>call.callbackReturn?.deltaNonZero===true);
+        const facts=[];
+        if(override!=null) facts.push(`returned ${Number(override).toLocaleString(undefined,{maximumFractionDigits:4})}% LP override`);
+        else if(returnedDelta) facts.push('returned nonzero swap delta');
+        else if(callbacks.length) facts.push(callbacks.join(', '));
+        const hookGas=BigInt(String(pool.trace.directHookFrameGasUsed || '0'));
+        if(hookGas>0n) facts.push(`${formatNumber(Number(hookGas))} hook-frame gas`);
+        if(Number(pool.trace.relevantNativeValueCalls)>0) facts.push(`${formatNumber(Number(pool.trace.relevantNativeValueCalls))} native-value call${Number(pool.trace.relevantNativeValueCalls)===1?'':'s'}`);
+        const note=makeElement('small','tape-trace-note',facts.length?facts.join(' · '):'selected hook call path retained');
+        note.title='Selected successful transaction trace only. Direct hook call-frame gas includes descendants. This is not a refusal rate or automatic fee attribution.';evidence.append(note);
+      }
       row.append(block,hook,poolId,currencies,fee,evidence);body.append(row);
     });
     $('tape-empty').hidden=rows.length>0 || !state.tape.loaded[state.tape.mode];
@@ -3697,9 +3712,9 @@
     $('tape-more').hidden=!state.tape.cursors[state.tape.mode] || Boolean(query);
     $('tape-mode-swaps').setAttribute('aria-pressed',String(swaps));$('tape-mode-pools').setAttribute('aria-pressed',String(!swaps));
     $('tape-scope-label').textContent=swaps?'WHAT SWAP ROWS PROVE':'WHAT POOL ROWS PROVE';
-    $('tape-scope-copy').textContent=swaps?'Signed pool deltas, the fee PoolManager reported, finalized block, source transaction, and normalized relevant ERC-20 receipt logs when available.':'A pool ID, its hook, currencies, configured LP fee at initialization, block, and source transaction.';
+    $('tape-scope-copy').textContent=swaps?'Signed pool deltas, the fee PoolManager reported, finalized block, source transaction, normalized ERC-20 receipt logs, and selected hook call paths when available.':'A pool ID, its hook, currencies, configured LP fee at initialization, block, and source transaction.';
     $('tape-limit-label').textContent=swaps?'NOT YET ATTRIBUTED':'SEPARATE MEASUREMENT';
-    $('tape-limit-copy').textContent=swaps?'A receipt transfer is not automatically a hook fee. Rejected calls and call-path attribution still require traces.':'Current dynamic fees and hook-adjusted outcomes live in swap and trace evidence, not the initialization row.';
+    $('tape-limit-copy').textContent=swaps?'A receipt transfer or call frame is not automatically a hook fee. Current trace coverage contains successful transactions only, so it does not measure refusal rate.':'Current dynamic fees and hook-adjusted outcomes live in swap and trace evidence, not the initialization row.';
   }
 
   async function loadTape(force = false, append = false) {
