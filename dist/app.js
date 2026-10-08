@@ -79,7 +79,7 @@
     tokenSearchTimer: null,
     boardEvidence: new Map(),
     boardLoading: new Set(),
-    projects: { registry: null, loading: null, error: '', detailRequest: 0, detail: null, activityRequest: 0, events: [], activityLoaded: false, activityGeneratedAt: null, receipts: [], contributionBusy: false },
+    projects: { registry: null, loading: null, error: '', detailRequest: 0, detail: null, activityRequest: 0, events: [], activityLoaded: false, activityGeneratedAt: null, receipts: [], contributionBusy: false, compareIds: [], compareRequest: 0, comparison: null, comparisonError: '' },
     tape: { status: null, activity: null, mode: 'swaps', pools: [], swaps: [], cursors: { pools: null, swaps: null }, loaded: { pools: false, swaps: false }, loading: false, error: '' },
     execution: {
       module: null,
@@ -2946,6 +2946,61 @@
     return Number.isInteger(count) && count >= 0 ? count : key === 'linkedDeployments' ? projectDeployments(project).length : null;
   }
 
+  function projectById(id) { return projectRegistry().find((project) => project.id === id) || null; }
+
+  function validProjectCompareIds(ids) {
+    const known = new Set(projectRegistry().map((project) => project.id));
+    return [...new Set((Array.isArray(ids) ? ids : []).map((id) => String(id).toLowerCase()).filter((id) => /^[a-z0-9-]{1,60}$/.test(id) && known.has(id)))].slice(0, 4);
+  }
+
+  function projectCompareIdsFromHash() {
+    const match = location.hash.match(/^#\/projects\/compare\/([a-z0-9,-]+)$/i);
+    return match ? validProjectCompareIds(match[1].split(',')) : [];
+  }
+
+  function setProjectCompareIds(ids, syncRoute = false) {
+    state.projects.compareIds = validProjectCompareIds(ids);
+    state.projects.comparison = null;
+    state.projects.comparisonError = '';
+    state.projects.compareRequest += 1;
+    if (syncRoute) {
+      const next = state.projects.compareIds.length >= 2 ? `#/projects/compare/${state.projects.compareIds.join(',')}` : '#/projects';
+      if (location.hash !== next) location.hash = next;
+      else void renderProjectsRoute();
+      return;
+    }
+    renderProjectsBoard();
+  }
+
+  function toggleProjectCompare(id) {
+    const ids = validProjectCompareIds(state.projects.compareIds);
+    if (ids.includes(id)) setProjectCompareIds(ids.filter((value) => value !== id));
+    else if (ids.length >= 4) toast('Compare up to four projects at a time.', 'alert');
+    else setProjectCompareIds([...ids, id]);
+  }
+
+  function renderProjectCompareTray() {
+    const tray = $('projects-compare-tray');
+    const chips = $('projects-compare-chips');
+    const ids = validProjectCompareIds(state.projects.compareIds);
+    state.projects.compareIds = ids;
+    tray.hidden = ids.length === 0;
+    chips.replaceChildren();
+    ids.forEach((id) => {
+      const project = projectById(id);
+      if (!project) return;
+      const chip = projectButton(`${project.name} ×`, () => {
+        const remaining = state.projects.compareIds.filter((value) => value !== id);
+        setProjectCompareIds(remaining, location.hash.startsWith('#/projects/compare/'));
+      }, 'project-compare-chip');
+      chip.setAttribute('aria-label', `Remove ${project.name} from comparison`);
+      chips.append(chip);
+    });
+    const open = $('projects-compare-open');
+    open.disabled = ids.length < 2;
+    open.textContent = ids.length >= 2 ? `Compare ${ids.length} projects` : 'Choose one more';
+  }
+
   function fillProjectSelect(node, entries, firstLabel) {
     const value = node.value;
     node.replaceChildren();
@@ -3026,7 +3081,11 @@
         coverage.append(metric);
       });
       const action = makeElement('div', 'project-card-action');
-      action.append(projectInternalLink(`#/projects/${encodeURIComponent(project.id)}`, 'Open project', 'project-open'), makeElement('small', '', project.metadataProvenance || project.provenance || 'Source-linked metadata'));
+      const selected = state.projects.compareIds.includes(project.id);
+      const compare = projectButton(selected ? 'Selected' : 'Compare', () => toggleProjectCompare(project.id), 'project-compare-toggle');
+      compare.setAttribute('aria-pressed', selected ? 'true' : 'false');
+      compare.disabled = !selected && state.projects.compareIds.length >= 4;
+      action.append(projectInternalLink(`#/projects/${encodeURIComponent(project.id)}`, 'Open project', 'project-open'), compare, makeElement('small', '', project.metadataProvenance || project.provenance || 'Source-linked metadata'));
       if (project.latestObservedAt) action.append(projectTimeNode(project.latestObservedAt, 'Observed '));
       card.append(identity, coverage, action);
       list.append(card);
@@ -3036,6 +3095,7 @@
     generated.replaceChildren(projectTimeNode(state.projects.registry?.generatedAt, 'Registry updated '));
     $('projects-empty').hidden = projects.length !== 0;
     projectNotice($('projects-error'), state.projects.error, state.projects.error ? () => void loadProjects(true) : null);
+    renderProjectCompareTray();
   }
 
   function renderHookProjectLinks(item) {
@@ -3280,6 +3340,115 @@
     return section;
   }
 
+  function comparisonFact(list, label, value) {
+    const row = makeElement('div', '');
+    row.append(makeElement('dt', '', label), makeElement('dd', value == null ? 'unavailable' : '', value == null ? 'Unavailable' : String(value)));
+    list.append(row);
+  }
+
+  function renderComparisonObservation(observation) {
+    const card = makeElement('section', 'project-comparison-observation');
+    const head = makeElement('div', 'project-observation-head');
+    const block = observation.blockNumber == null ? 'Block unavailable' : `Block ${formatNumber(Number(observation.blockNumber))}`;
+    head.append(makeElement('strong', '', projectChainName(observation.chainId)), makeElement('span', 'project-comparison-block', block));
+    card.append(head, makeElement('code', 'project-address', observation.address || 'Address unavailable'));
+    if (observation.observedAt) card.append(projectTimeNode(observation.observedAt, 'Observed '));
+    const fields = makeElement('dl', 'project-observation-fields project-comparison-fields');
+    const values = observation.fields && typeof observation.fields === 'object' ? observation.fields : {};
+    const keys = [...new Set([...Object.keys(values), ...Object.keys(observation.probes || {})])];
+    keys.forEach((key) => {
+      const meta = observation.fieldMeta?.[key] || {};
+      const unavailable = observation.probes?.[key]?.status === 'unavailable';
+      const raw = unavailable ? null : values[key];
+      const label = meta.label || key.replace(/([a-z])([A-Z])/g, '$1 $2');
+      let display = unavailable ? 'Unavailable' : projectValue(raw, meta);
+      if (key === 'runtimeFingerprint' && raw) display = shorten(String(raw), 12, 10);
+      const row = makeElement('div', '');
+      row.append(makeElement('dt', '', label), makeElement('dd', unavailable ? 'unavailable' : '', display));
+      fields.append(row);
+    });
+    if (keys.length) card.append(fields);
+    else card.append(makeElement('p', 'projects-empty compact', 'Measured fields unavailable.'));
+    const source = makeElement('div', 'project-evidence-links');
+    source.append(makeElement('span', '', projectSourceLabel(observation.source)));
+    if (observation.blockTimestamp) source.append(projectTimeNode(observation.blockTimestamp, 'Block time '));
+    if (observation.finality) source.append(makeElement('span', '', observation.finality));
+    const link = projectBlockLink(observation.chainId, 'block', observation.blockNumber, block);
+    if (link) source.append(link);
+    card.append(source);
+    return card;
+  }
+
+  function renderProjectComparison(body) {
+    const root = $('projects-comparison');
+    const grid = $('projects-comparison-grid');
+    const entries = Array.isArray(body?.projects) ? body.projects : [];
+    root.hidden = false;
+    grid.replaceChildren();
+    entries.forEach((entry) => {
+      const project = entry?.project;
+      if (!project) return;
+      const column = makeElement('article', 'project-comparison-column');
+      const head = makeElement('header', 'project-comparison-column-head');
+      head.append(makeElement('span', 'project-category', project.category || 'Mechanism unclassified'), projectInternalLink(`#/projects/${encodeURIComponent(project.id)}`, project.name, 'project-name'));
+      column.append(head);
+      const facts = makeElement('dl', 'project-comparison-facts');
+      comparisonFact(facts, 'Evidence coverage', project.evidenceCoverage?.label || null);
+      comparisonFact(facts, 'Linked deployments', projectCount(project, 'linkedDeployments') == null ? null : formatNumber(projectCount(project, 'linkedDeployments')));
+      comparisonFact(facts, 'Monitored deployments', projectCount(project, 'monitoredDeployments') == null ? null : formatNumber(projectCount(project, 'monitoredDeployments')));
+      comparisonFact(facts, 'Observed deployments', projectCount(project, 'observedDeployments') == null ? null : formatNumber(projectCount(project, 'observedDeployments')));
+      const chains = [...new Set(projectDeployments(project).map((deployment) => projectChainName(deployment.chainId)))];
+      comparisonFact(facts, 'Chain footprint', chains.length ? chains.join(', ') : null);
+      comparisonFact(facts, 'Runtime families', projectCount(project, 'runtimeFamilies') == null ? null : formatNumber(projectCount(project, 'runtimeFamilies')));
+      comparisonFact(facts, 'Repeated runtimes', projectCount(project, 'repeatedRuntimeFamilies') == null ? null : formatNumber(projectCount(project, 'repeatedRuntimeFamilies')));
+      comparisonFact(facts, 'Source-bound reads', project.evidenceCoverage?.readTypes == null ? null : formatNumber(Number(project.evidenceCoverage.readTypes)));
+      comparisonFact(facts, 'Source-bound events', project.evidenceCoverage?.eventTypes == null ? null : formatNumber(Number(project.evidenceCoverage.eventTypes)));
+      column.append(facts);
+      const observed = makeElement('div', 'project-comparison-observations');
+      observed.append(makeElement('h3', '', 'Latest observed state'));
+      const observations = Array.isArray(entry.observations) ? entry.observations : [];
+      if (!observations.length) observed.append(makeElement('p', 'projects-empty compact', 'No pinned observations available.'));
+      else observations.forEach((observation) => observed.append(renderComparisonObservation(observation)));
+      column.append(observed);
+      grid.append(column);
+    });
+    projectNotice($('projects-comparison-status'), entries.length ? '' : 'Comparison records were unavailable.');
+  }
+
+  async function loadProjectComparison(ids) {
+    const selected = validProjectCompareIds(ids);
+    const root = $('projects-comparison');
+    const grid = $('projects-comparison-grid');
+    state.projects.compareIds = selected;
+    renderProjectCompareTray();
+    root.hidden = false;
+    grid.replaceChildren();
+    if (selected.length < 2) {
+      projectNotice($('projects-comparison-status'), 'Choose at least two known projects to compare.');
+      return;
+    }
+    const request = ++state.projects.compareRequest;
+    projectNotice($('projects-comparison-status'), 'Loading sourced project evidence…');
+    try {
+      const body = await projectApi(`/api/project-comparison?ids=${encodeURIComponent(selected.join(','))}`);
+      if (request !== state.projects.compareRequest || state.projects.compareIds.join(',') !== selected.join(',')) return;
+      if (!Array.isArray(body?.projects)) throw new Error('Comparison records were incomplete.');
+      state.projects.comparison = body;
+      state.projects.comparisonError = '';
+      renderProjectComparison(body);
+    } catch (error) {
+      if (request !== state.projects.compareRequest) return;
+      state.projects.comparisonError = error.message || 'Project comparison could not be loaded.';
+      projectNotice($('projects-comparison-status'), state.projects.comparisonError, () => void loadProjectComparison(selected));
+    }
+  }
+
+  function openProjectComparison() {
+    const ids = validProjectCompareIds(state.projects.compareIds);
+    if (ids.length < 2) return;
+    setProjectCompareIds(ids, true);
+  }
+
   function renderProjectDetail(body) {
     const project = body.project;
     const root = $('project-detail');
@@ -3293,7 +3462,12 @@
     $('view-projects').setAttribute('aria-labelledby', 'project-detail-title');
     const actions = makeElement('div', 'project-detail-actions');
     actions.append(projectExternalLink(`https://t.me/HooklineTradeBot?start=project_${encodeURIComponent(project.id)}`, 'Follow in Telegram', 'btn btn-primary'));
-    actions.append(projectButton('Claim profile', () => openProjectContribution('claim', project.id)), projectButton('Suggest correction', () => openProjectContribution('correction', project.id), 'project-text-button'));
+    actions.append(projectButton('Add to comparison', () => {
+      const ids = validProjectCompareIds(state.projects.compareIds);
+      if (!ids.includes(project.id) && ids.length >= 4) { toast('Compare up to four projects at a time.', 'alert'); return; }
+      state.projects.compareIds = validProjectCompareIds([...ids, project.id]);
+      location.hash = '#/projects';
+    }, 'btn btn-secondary'), projectButton('Claim profile', () => openProjectContribution('claim', project.id)), projectButton('Suggest correction', () => openProjectContribution('correction', project.id), 'project-text-button'));
     hero.append(title, actions);
     const coverageLabel=project.evidenceCoverage?.label || 'Coverage unclassified';
     const coverageCounts=project.evidenceCoverage?.level==='source_bound' ? ` · ${formatNumber(project.evidenceCoverage.readTypes || 0)} read type${project.evidenceCoverage.readTypes===1?'':'s'} · ${formatNumber(project.evidenceCoverage.eventTypes || 0)} event type${project.evidenceCoverage.eventTypes===1?'':'s'}` : '';
@@ -3332,12 +3506,29 @@
   }
 
   async function renderProjectsRoute() {
-    const match = location.hash.match(/^#\/projects\/([a-z0-9-]+)$/i);
-    const id = match?.[1];
+    const comparisonMatch = location.hash.match(/^#\/projects\/compare\/([a-z0-9,-]+)$/i);
+    const detailMatch = location.hash.match(/^#\/projects\/([a-z0-9-]+)$/i);
+    const id = comparisonMatch ? null : detailMatch?.[1];
     const request = ++state.projects.detailRequest;
     $('projects-directory').hidden = Boolean(id);
     $('project-detail').hidden = !id;
-    if (!id) { $('view-projects').setAttribute('aria-labelledby', 'projects-title'); await loadProjects(); if (viewFromHash() === 'projects' && !location.hash.match(/^#\/projects\//)) renderProjectsBoard(); return; }
+    if (!id) {
+      $('view-projects').setAttribute('aria-labelledby', 'projects-title');
+      await loadProjects();
+      if (request !== state.projects.detailRequest || viewFromHash() !== 'projects') return;
+      if (comparisonMatch) {
+        state.projects.compareIds = projectCompareIdsFromHash();
+        renderProjectsBoard();
+        await loadProjectComparison(state.projects.compareIds);
+      } else {
+        state.projects.compareRequest += 1;
+        state.projects.comparison = null;
+        state.projects.comparisonError = '';
+        $('projects-comparison').hidden = true;
+        renderProjectsBoard();
+      }
+      return;
+    }
     const root = $('project-detail');
     root.replaceChildren(projectInternalLink('#/projects', 'All projects', 'project-back-link'), makeElement('p', 'projects-empty', 'Loading project and evidence…'));
     void loadProjects();
@@ -3590,6 +3781,14 @@
     ['projects-category', 'projects-chain', 'projects-evidence', 'projects-sort'].forEach((id) => $(id).addEventListener('change', renderProjectsBoard));
     $('projects-submit').addEventListener('click', () => openProjectContribution('project'));
     $('projects-requests').addEventListener('click', () => openProjectContribution('receipts'));
+    $('projects-compare-clear').addEventListener('click', () => setProjectCompareIds([], location.hash.startsWith('#/projects/compare/')));
+    $('projects-compare-open').addEventListener('click', openProjectComparison);
+    $('projects-comparison-close').addEventListener('click', () => {
+      state.projects.compareRequest += 1;
+      state.projects.comparison = null;
+      $('projects-comparison').hidden = true;
+      if (location.hash.startsWith('#/projects/compare/')) location.hash = '#/projects';
+    });
     $('project-activity-refresh').addEventListener('click', () => void loadProjectActivity());
     ['project-activity-filter','project-activity-focus','project-activity-history'].forEach((id)=>$(id).addEventListener('change',()=>void loadProjectActivity(true)));
     $('project-contribution-close').addEventListener('click', () => $('project-contribution-dialog').close());

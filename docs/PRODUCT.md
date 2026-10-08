@@ -28,6 +28,8 @@ What the Hook is included from its official website with its Robinhood hook and 
 
 Profiles disclose linked, monitored, and actually observed deployment counts. Directory rows identify whether coverage is a source-bound reader, generic pinned state, linked deployments, or metadata only, and the board filters on those evidence tiers independently of chain or mechanism. Selected targets rotate through bounded scans on the existing 10-minute schedule. Reorg checks, per-target cursors, backfill labels, and last-good observations keep partial coverage explicit. Public browsing uses versioned cached snapshots rather than starting a new scan for every visitor.
 
+Users can select two to four project records and open a shareable comparison. Each column retains the project's evidence tier, deployment and runtime-family coverage, chain footprint, source-bound reader coverage, and latest measured fields by observed deployment. Blocks, timestamps, addresses, and source scope remain attached. The comparison does not normalize unlike mechanisms into a performance or risk score, and missing measurements remain unavailable.
+
 Teams and users can submit through the website, API, or Telegram, without email. Expiring DNS challenges verify control of the researched domain for metadata edits only. Suggestions enter a private authenticated agent queue. That workstation-based reviewer can publish supported metadata, not rewrite financial evidence or grant a safety endorsement.
 
 ### Observe

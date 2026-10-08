@@ -11,6 +11,7 @@ Hookline is a multichain evidence and analytics desk for programmable-liquidity 
 - Live contract inspection on Ethereum, BNB Chain, Base, Arbitrum One, and Robinhood Chain
 - Cross-chain hook board with 1,000+ active hook identities across 10+ chains
 - Broad Projects board with source-linked deployments, coverage labels, shared observations, and selected mechanism events
+- Shareable side-by-side comparisons for two to four projects, preserving chain, block, source, coverage, and unavailable-value semantics
 - Base Hook Tape built from finalized PoolManager `Initialize` and `Swap` logs, with exact hook, pool, signed pool deltas, reported swap fee, block, and transaction evidence
 - Bounded successful-receipt enrichment retaining relevant ERC-20 transfers that touch the hook or a pool currency, explicitly separate from fee attribution
 - Bounded successful-transaction trace selection for direct hook callbacks, decoded swap-return deltas, explicit LP-fee overrides, hook-linked native value, and provider-reported hook call-frame gas

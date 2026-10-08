@@ -31,7 +31,7 @@ const context = vm.createContext({ document, window: {}, location: { hash: '#/pr
   sessionStorage: { getItem: (key) => storage.get(key) || null, setItem: (key, value) => storage.set(key, value) },
   fetch: (...args) => fetcher(...args),
 });
-const exports = ['state', 'projectExternalLink', 'projectValue', 'projectCount', 'projectTime', 'renderProjectsBoard', 'syncProjectFilters', 'renderProjectDetail', 'renderProjectObservations', 'renderProjectEvent', 'renderHookProjectLinks', 'renderProjectsRoute', 'renderProjectReceipts', 'loadProjectReceipts', 'saveProjectReceipts', 'updateProjectReceipt', 'projectApi'];
+const exports = ['state', 'projectExternalLink', 'projectValue', 'projectCount', 'projectTime', 'renderProjectsBoard', 'syncProjectFilters', 'renderProjectDetail', 'renderProjectObservations', 'renderProjectEvent', 'renderHookProjectLinks', 'renderProjectsRoute', 'renderProjectReceipts', 'loadProjectReceipts', 'saveProjectReceipts', 'updateProjectReceipt', 'projectApi', 'validProjectCompareIds', 'setProjectCompareIds', 'toggleProjectCompare', 'renderProjectCompareTray', 'renderProjectComparison', 'loadProjectComparison'];
 vm.runInContext(source.replace('  window.Hookline = {', `  window.__ProjectsTest = {${exports.join(',')}};\n  window.Hookline = {`), context);
 const ui = context.window.__ProjectsTest;
 const address = '0x' + '1'.repeat(40);
@@ -124,6 +124,46 @@ releaseFirst({ ok: true, json: async () => ({ project, observations: [], events:
 await slow;
 assert.match(nodes.get('project-detail').textContent, /<script>Beta<\/script>/);
 assert.doesNotMatch(nodes.get('project-detail').textContent, /Alpha Hooks/);
+
+// Comparison selection is bounded, restores from shareable routes, preserves
+// unavailable values, and never lets an older response overwrite a newer one.
+const third = { ...project, id: 'gamma', name: 'Gamma', category: 'Auctions', deployments: [], coverage: { linkedDeployments: 0, monitoredDeployments: null, observedDeployments: null, runtimeFamilies: null, repeatedRuntimeFamilies: null }, evidenceCoverage: { level: 'directory_only', label: 'Directory record', sourceBoundDeployments: 0, readTypes: null, eventTypes: null, readerVersion: null } };
+const fourth = { ...third, id: 'delta', name: 'Delta' };
+const fifth = { ...third, id: 'epsilon', name: 'Epsilon' };
+ui.state.projects.registry.projects = [project, second, third, fourth, fifth];
+assert.equal(ui.validProjectCompareIds(['alpha', 'beta', 'gamma', 'delta', 'epsilon']).join(','), 'alpha,beta,gamma,delta', 'Comparison selection is capped at four known projects.');
+ui.setProjectCompareIds(['alpha', 'beta']);
+assert.equal(nodes.get('projects-compare-tray').hidden, false);
+assert.match(nodes.get('projects-compare-chips').textContent, /Alpha Hooks/);
+assert.match(nodes.get('projects-compare-chips').textContent, /<script>Beta<\/script>/, 'Untrusted project names stay literal in comparison controls.');
+assert.equal(nodes.get('projects-compare-open').disabled, false);
+
+ui.renderProjectComparison({ projects: [{ project, observations: [observation] }, { project: third, observations: [] }] });
+assert.match(nodes.get('projects-comparison-grid').textContent, /Alpha Hooks/);
+assert.match(nodes.get('projects-comparison-grid').textContent, /Block 100/);
+assert.match(nodes.get('projects-comparison-grid').textContent, /Hookline direct chain RPC/);
+assert.match(nodes.get('projects-comparison-grid').textContent, /Unavailable/, 'Missing comparison metrics remain unavailable rather than becoming zero.');
+
+fetcher = async (url) => {
+  assert.match(url, /\/api\/project-comparison\?ids=alpha%2Cbeta/);
+  return { ok: true, json: async () => ({ projects: [{ project, observations: [observation] }, { project: second, observations: [] }] }) };
+};
+context.location.hash = '#/projects/compare/alpha,beta,unknown';
+await ui.renderProjectsRoute();
+assert.equal(ui.state.projects.compareIds.join(','), 'alpha,beta', 'Unknown route IDs are ignored without breaking the board.');
+assert.equal(nodes.get('projects-comparison').hidden, false);
+
+let releaseComparison;
+fetcher = async (url) => url.includes('alpha%2Cbeta')
+  ? new Promise((resolve) => { releaseComparison = resolve; })
+  : { ok: true, json: async () => ({ projects: [{ project: second, observations: [] }, { project: third, observations: [] }] }) };
+const slowComparison = ui.loadProjectComparison(['alpha', 'beta']);
+await ui.loadProjectComparison(['beta', 'gamma']);
+releaseComparison({ ok: true, json: async () => ({ projects: [{ project, observations: [observation] }, { project: second, observations: [] }] }) });
+await slowComparison;
+assert.match(nodes.get('projects-comparison-grid').textContent, /Gamma/);
+assert.doesNotMatch(nodes.get('projects-comparison-grid').textContent, /Alpha Hooks/, 'A stale comparison cannot replace the newer selection.');
+context.location.hash = '#/projects/beta';
 
 // Receipt capabilities stay in headers/session storage, never public URLs or text.
 const receipt = { id: 'request-1', kind: 'claim', projectId: 'alpha', title: 'Alpha', status: 'awaiting_proof', receiptToken: 'PRIVATE-CAPABILITY', verification: { name: '_hookline.alpha.example', value: 'proof-value', expiresAt: '2026-10-07T22:00:00Z' } };
