@@ -5,7 +5,7 @@ import { READERS, readerDefinitionsForDeployment } from '../projects/reader-defi
 
 const seeds = JSON.parse(await readFile(new URL('../data/project-seeds.json', import.meta.url), 'utf8'));
 const addressPattern = /^0x[0-9a-f]{40}$/;
-const roles = new Set(['hook', 'factory', 'token', 'registry']);
+const roles = new Set(['hook', 'factory', 'token', 'registry', 'controller']);
 const provenance = new Set(['official deployment reference', 'published project deployment reference', 'community directory relationship']);
 const safeHttps = (value) => {
   const url = new URL(value);
@@ -128,6 +128,32 @@ const moduleLog = decodeEventLog({
 });
 assert.equal(moduleLog.args.state, 3);
 assert.equal(moduleState.fieldValueLabels.state[3], 'Pool initializer');
+
+const angstrom = seeds.projects.find((p) => p.id === 'angstrom');
+const angstromController = angstrom.deployments.find((d) => d.role === 'controller');
+const angstromHook = angstrom.deployments.find((d) => d.chainId === 1 && d.role === 'hook');
+const angstromBaseHook = angstrom.deployments.find((d) => d.chainId === 8453 && d.role === 'hook');
+const angstromDefinitions = readerDefinitionsForDeployment('angstrom', angstromController);
+assert.equal(angstromDefinitions.reads.length, 6);
+assert.equal(angstromDefinitions.events.length, 6);
+assert.equal(angstromController.monitor, true);
+assert.equal(angstromHook.monitor, false);
+assert.equal(angstromBaseHook.monitor, true);
+assert.equal(readerDefinitionsForDeployment('angstrom', angstromHook).events.length, 0, 'Controller ABI must not leak onto the L1 hook.');
+assert.equal(readerDefinitionsForDeployment('angstrom', angstromBaseHook).reads.length, 0, 'Ethereum controller reads must not leak onto an L2 hook.');
+const poolConfigured = angstromDefinitions.events.find((event) => event.key === 'poolConfigured');
+const poolConfiguredAbi = parseAbiItem(poolConfigured.signature);
+const asset0 = '0x8888888888888888888888888888888888888888';
+const asset1 = '0x9999999999999999999999999999999999999999';
+const configuredLog = decodeEventLog({
+  abi: [poolConfiguredAbi],
+  topics: encodeEventTopics({ abi: [poolConfiguredAbi], eventName: 'PoolConfigured', args: { asset0, asset1 } }),
+  data: encodeAbiParameters(poolConfiguredAbi.inputs.filter((input) => !input.indexed), [60, 1200, 900, 300]),
+});
+assert.equal(configuredLog.args.asset0, asset0);
+assert.equal(configuredLog.args.asset1, asset1);
+assert.equal(String(configuredLog.args.bundleFee), '1200');
+assert.equal(poolConfigured.fieldUnits.bundleFee.denominator, 1_000_000);
 
 const engram = seeds.projects.find((p) => p.id === 'engram');
 const hook = engram.deployments.find((d) => d.role === 'hook');

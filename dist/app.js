@@ -2994,10 +2994,12 @@
     const query = $('projects-search').value.trim().toLowerCase();
     const category = $('projects-category').value;
     const chainId = $('projects-chain').value;
+    const evidence = $('projects-evidence').value;
     const projects = projectRegistry().filter((project) => {
       const deployments = projectDeployments(project);
       if (category !== 'all' && project.category !== category) return false;
       if (chainId !== 'all' && !deployments.some((deployment) => String(deployment.chainId) === chainId)) return false;
+      if (evidence && evidence !== 'all' && project.evidenceCoverage?.level !== evidence) return false;
       return !query || [project.name, project.summary, project.category, ...deployments.flatMap((deployment) => [deployment.address, deployment.name, deployment.role, projectChainName(deployment.chainId)])].join(' ').toLowerCase().includes(query);
     });
     const sort = $('projects-sort').value;
@@ -3585,7 +3587,7 @@
 
   function setupProjectEvents() {
     $('projects-search').addEventListener('input', renderProjectsBoard);
-    ['projects-category', 'projects-chain', 'projects-sort'].forEach((id) => $(id).addEventListener('change', renderProjectsBoard));
+    ['projects-category', 'projects-chain', 'projects-evidence', 'projects-sort'].forEach((id) => $(id).addEventListener('change', renderProjectsBoard));
     $('projects-submit').addEventListener('click', () => openProjectContribution('project'));
     $('projects-requests').addEventListener('click', () => openProjectContribution('receipts'));
     $('project-activity-refresh').addEventListener('click', () => void loadProjectActivity());

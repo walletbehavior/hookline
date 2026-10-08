@@ -30,6 +30,9 @@ const DOPPLER_DEPLOYMENTS = Object.freeze({
     commit: 'bda077cf',
   },
 });
+const ANGSTROM_CONTROLLER = '0x1746484ea5e11c75e009252c102c8c33e0315fd4';
+const ANGSTROM_CONTROLLER_SOURCE = `https://eth.blockscout.com/api/v2/smart-contracts/${ANGSTROM_CONTROLLER}`;
+const ANGSTROM_CONTROLLER_VERSION = 'Verified ControllerV1 source SHA-256 ff1090f9c4b67a8ce7d0c3587de84b43c4fdaa6a14458448bda714c145ced9c2, Solidity 0.8.26, observed 2026-10-07';
 const CLAUS_HOOK = '0x37bfb8ac7c960e558657871d41ca70e07e7dbfff';
 const CLAUS_IMPLEMENTATION = '0x767ea7dce972abd91fa81fe90f105eafcc2959fc';
 const CLAUS_TOKEN = '0x1b54e762aa34cf6e28e9c082f2848e28e45da6b8';
@@ -122,6 +125,16 @@ const dopplerAirlockEvents = (chainId) => [
     description: 'Airlock recorded a protocol or integrator fee collection to the named recipient. Amount is raw units of token; the zero address denotes native currency. This is contract-reported transfer evidence, not USD value.',
   }),
 ];
+
+const angstromControllerDefinition = (definition) => ({
+  chainId: 1,
+  address: ANGSTROM_CONTROLLER,
+  sourceUrl: ANGSTROM_CONTROLLER_SOURCE,
+  sourceVersion: ANGSTROM_CONTROLLER_VERSION,
+  ...definition,
+});
+
+const angstromFeeUnit = { unit: 'ppm', denominator: 1_000_000 };
 
 export const READERS = {
   claus: {
@@ -334,6 +347,81 @@ export const READERS = {
     ],
     reads: [],
     events: [...dopplerAirlockEvents(8453), ...dopplerAirlockEvents(4663)],
+  },
+  angstrom: {
+    version: 1,
+    label: 'Angstrom verified Ethereum controller',
+    sources: [
+      { label: 'Official Angstrom deployment directory', url: 'https://docs.angstrom.xyz/contracts/deployments' },
+      { label: 'Verified ControllerV1 source', url: ANGSTROM_CONTROLLER_SOURCE },
+    ],
+    reads: [
+      angstromControllerDefinition({
+        key: 'angstromHook', label: 'Controlled Angstrom hook', signature: 'ANGSTROM()', returns: 'address',
+        classification: 'configuration',
+        description: 'Hook address bound immutably to this controller. The official deployment directory separately identifies the same Ethereum hook.',
+      }),
+      angstromControllerDefinition({
+        key: 'controllerOwner', label: 'Controller owner', signature: 'owner()', returns: 'address',
+        classification: 'configuration',
+        description: 'Current owner of ControllerV1. This authority can configure pools, distribute fees, and propose a replacement controller; it is not a fee recipient by itself.',
+      }),
+      angstromControllerDefinition({
+        key: 'fastOwner', label: 'Fast owner', signature: 'fastOwner()', returns: 'address',
+        classification: 'configuration',
+        description: 'Immutable operational authority used by the verified controller for bounded pool and node actions. This is not a project ownership claim.',
+      }),
+      angstromControllerDefinition({
+        key: 'pendingController', label: 'Pending replacement controller', signature: 'setController()', returns: 'address',
+        classification: 'configuration', zeroLabel: 'No pending controller',
+        description: 'Address currently allowed to accept controller authority. The zero address means no replacement is pending at the observed block.',
+      }),
+      angstromControllerDefinition({
+        key: 'configuredPools', label: 'Configured pools', signature: 'totalPools()', returns: 'uint256',
+        classification: 'configuration', unit: 'count',
+        description: 'Number of pool entries retained by ControllerV1 at the observed block. It is not volume, liquidity, or a count of all Angstrom deployments.',
+      }),
+      angstromControllerDefinition({
+        key: 'authorizedNodes', label: 'Authorized nodes', signature: 'totalNodes()', returns: 'uint256',
+        classification: 'configuration', unit: 'count',
+        description: 'Number of active nodes in the controller set. It does not measure node performance or decentralization.',
+      }),
+    ],
+    events: [
+      angstromControllerDefinition({
+        key: 'poolConfigured', label: 'Pool configuration recorded', classification: 'configured',
+        signature: 'event PoolConfigured(address indexed asset0,address indexed asset1,uint16 tickSpacing,uint24 bundleFee,uint24 unlockedFee,uint24 protocolUnlockedFee)',
+        fieldLabels: { bundleFee: 'Bundle fee', unlockedFee: 'Unlocked fee', protocolUnlockedFee: 'Protocol unlocked fee' },
+        fieldUnits: { bundleFee: angstromFeeUnit, unlockedFee: angstromFeeUnit, protocolUnlockedFee: angstromFeeUnit },
+        description: 'ControllerV1 recorded the pair, tick spacing, and three fee parameters. Fee values are millionths; configuration is not proof that a swap paid each component.',
+      }),
+      angstromControllerDefinition({
+        key: 'poolBatchUpdated', label: 'Pool batch configuration changed', classification: 'configured',
+        signature: 'event OpaqueBatchPoolUpdate()',
+        description: 'One or more pool entries changed through the controller batch path. The event is intentionally opaque, so Hookline does not invent per-pool values from it.',
+      }),
+      angstromControllerDefinition({
+        key: 'poolRemoved', label: 'Pool removed from controller', classification: 'configured',
+        signature: 'event PoolRemoved(address indexed asset0,address indexed asset1,int24 tickSpacing,uint24 feeInE6)',
+        fieldLabels: { feeInE6: 'Bundle fee at removal' }, fieldUnits: { feeInE6: angstromFeeUnit },
+        description: 'ControllerV1 removed the pair and recorded its tick spacing and bundle fee at removal. This does not prove the underlying v4 pool ceased to exist.',
+      }),
+      angstromControllerDefinition({
+        key: 'controllerAccepted', label: 'Replacement controller accepted', classification: 'configured',
+        signature: 'event NewControllerAccepted(address indexed newController)', deploymentField: 'newController',
+        description: 'A proposed replacement accepted authority and ControllerV1 instructed the Angstrom hook to use it. Follow the new address separately before applying any ABI.',
+      }),
+      angstromControllerDefinition({
+        key: 'nodeAdded', label: 'Angstrom node added', classification: 'configured',
+        signature: 'event NodeAdded(address indexed node)', deploymentField: 'node',
+        description: 'ControllerV1 added the address to its authorized node set. This is permission evidence, not proof of subsequent order execution.',
+      }),
+      angstromControllerDefinition({
+        key: 'nodeRemoved', label: 'Angstrom node removed', classification: 'configured',
+        signature: 'event NodeRemoved(address indexed node)', deploymentField: 'node',
+        description: 'ControllerV1 removed the address from its authorized node set. Historical activity remains part of the record.',
+      }),
+    ],
   },
   engram: {
     version: 1,

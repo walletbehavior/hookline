@@ -86,6 +86,8 @@ CLAUS readers are gated to the observed verified implementation. Configuration i
 
 Doppler readers are bound independently to the canonical Base and Robinhood Airlock addresses and to each deployment's documented source commit. Launch, migration, module-state, and fee-collection records share the common event envelope. The Airlock `poolOrHook` value remains labeled as such because its meaning depends on the selected pool initializer. Collection amounts stay raw token units, and the zero token address denotes native currency.
 
+Angstrom reads are bound only to the verified Ethereum ControllerV1 deployment. The reader preserves the controller's distinction between fee configuration, an opaque batch update, pool removal, controller replacement, and node-set changes. Millionths remain millionths, and configured fees are not presented as amounts paid by a swap. The controller ABI never crosses onto the L1 hook, Base hooks, or L2 factory.
+
 Collector transport uses immutable, method-specific provider lists. Fallback state providers must match the chain and pinned block hash. At most 240 actual HTTP requests and a 42-second wall budget cover a scan, including provider validation and receipt proofs; at most four burn receipts are checked. A rate limit respects cooldown and stops work rather than pretending a smaller log range solved it. Unavailable historical log providers leave visible cursor lag. No provider, visitor, or follow count can expand those limits.
 
 ## Acceptance

@@ -28,6 +28,7 @@ Hookline is a multichain evidence and analytics desk for programmable-liquidity 
 - Private one-use Telegram linking without trading authority or silent settings merges
 - CLAUS allocation/accrual/event separation, with exact same-receipt burn transfer confirmation where supported
 - Doppler Airlock launch, migration, module-state, and fee-collection records on Base and Robinhood Chain
+- Angstrom ControllerV1 pool configuration, authority, and node-set records on Ethereum
 - Same-chain contract and permission comparisons
 - Live upstream health, block height, and latency telemetry
 - Persistent Telegram alerts for runtime changes, new finalized Base PoolManager relationships, material PoolManager fee moves, new community-indexed relationships, and 10% liquidity moves across an unchanged, fully measured indexed pool set

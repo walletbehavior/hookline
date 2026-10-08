@@ -1393,7 +1393,7 @@ progress::-moz-progress-bar { background: var(--cyan); }
 .projects-tabs > a, .projects-tabs > button { display: inline-flex; align-items: center; min-height: 48px; padding: 10px 0; background: none; border: 0; border-bottom: 2px solid transparent; font-size: .78rem; color: var(--bone-dim); }
 .projects-tabs > a[aria-current="page"] { color: var(--bone); border-bottom-color: var(--lime); }
 .projects-tabs > button { margin-left: auto; cursor: pointer; color: var(--cyan); }
-.projects-toolbar { display: grid; grid-template-columns: minmax(230px, 1fr) repeat(3, minmax(140px, auto)); gap: 8px; }
+.projects-toolbar { display: grid; grid-template-columns: minmax(230px, 1fr) repeat(4, minmax(132px, auto)); gap: 8px; }
 .project-search { display: block; min-width: 0; }
 .projects-toolbar input, .projects-toolbar select { width: 100%; min-width: 0; height: 43px; padding: 0 12px; border: 1px solid var(--project-line); background: #1c1916; color: var(--bone-dim); font: .78rem var(--font-sans); }
 .projects-toolbar input::placeholder { color: var(--bone-mute); }

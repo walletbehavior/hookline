@@ -59,7 +59,7 @@ function normalizeContracts(value) {
     object(item, new Set(['chainId','address','role']));
     if (!Number.isSafeInteger(item.chainId) || item.chainId < 1 || typeof item.address !== 'string' || !/^0x[a-fA-F0-9]{40}$/.test(item.address)) fail(422, 'invalid_contracts', 'Each proposed contract needs a chain ID and EVM address.');
     const role = text(item.role, 'role', 32) || 'other';
-    if (!['hook','token','factory','implementation','other'].includes(role)) fail(422, 'invalid_contracts', 'Unsupported contract role.');
+    if (!['hook','token','factory','controller','implementation','other'].includes(role)) fail(422, 'invalid_contracts', 'Unsupported contract role.');
     return {chainId:item.chainId,address:item.address.toLowerCase(),role};
   });
 }

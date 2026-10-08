@@ -63,7 +63,8 @@
       "category": "MEV and execution", "website": "https://angstrom.xyz/", "provenance": "researched project record",
       "sources": [{"label": "Official deployments", "url": "https://docs.angstrom.xyz/contracts/deployments"}, {"label": "Contract architecture", "url": "https://docs.angstrom.xyz/contracts/"}],
       "deployments": [
-        {"chainId": 1, "address": "0x0000000aa232009084bd71a5797d089aa4edfad4", "role": "hook", "name": "Angstrom L1", "provenance": "official deployment reference", "sourceUrl": "https://docs.angstrom.xyz/contracts/deployments", "monitor": true},
+        {"chainId": 1, "address": "0x0000000aa232009084bd71a5797d089aa4edfad4", "role": "hook", "name": "Angstrom L1", "provenance": "official deployment reference", "sourceUrl": "https://docs.angstrom.xyz/contracts/deployments", "monitor": false},
+        {"chainId": 1, "address": "0x1746484ea5e11c75e009252c102c8c33e0315fd4", "role": "controller", "name": "ControllerV1", "provenance": "official deployment reference", "sourceUrl": "https://docs.angstrom.xyz/contracts/deployments", "monitor": true},
         {"chainId": 8453, "address": "0x02c17501e53fbb7eb0e243c74afc6a9e01c265cf", "role": "hook", "name": "Angstrom L2 ETH/USDC", "provenance": "official deployment reference", "sourceUrl": "https://docs.angstrom.xyz/contracts/deployments", "monitor": true},
         {"chainId": 8453, "address": "0x9abcca2ee3dfbfb79c9c8ef11c77655dca1365cf", "role": "hook", "name": "Angstrom L2 ETH/cbBTC", "provenance": "official deployment reference", "sourceUrl": "https://docs.angstrom.xyz/contracts/deployments", "monitor": false},
         {"chainId": 8453, "address": "0x00000000a9b8c6f8e2693cef534e16ed414fc4a7", "role": "factory", "name": "AngstromL2Factory", "provenance": "official deployment reference", "sourceUrl": "https://docs.angstrom.xyz/contracts/deployments", "monitor": false}
