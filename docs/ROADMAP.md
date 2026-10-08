@@ -20,7 +20,7 @@ Status: operating in production.
 - Optional wallet-message sign-in, explicit private watchlist/settings save and load, and one-use Telegram identity linking
 - Google/email login, opt-in embedded EVM wallets, secure export, and external-wallet selection
 - Source-bound CLAUS allocations, accrued balances, and mechanism events, with bounded same-receipt burn-transfer confirmation
-- Telegram alerts for direct runtime changes, new indexed pool relationships, and 10% indexed liquidity changes
+- Telegram alerts for direct runtime changes, new indexed pool relationships, finalized PoolManager fee moves of at least 10 basis points, and 10% indexed liquidity changes
 - Named alert cards, full copyable contract addresses, and button-first navigation
 - Saved slippage and amount preferences; exact current-balance percentage sizing
 - Same-chain comparisons
@@ -53,6 +53,8 @@ Acceptance criteria:
 - Index finalized live PoolManager swaps for already-resolved hooked pools
 - Retain signed pool deltas, emitted swap fee, post-swap state, raw log, and source transaction
 - Publish separate Swaps and Pool births views with independent coverage
+- Publish explicit block-window activity summaries and active-hook rankings from retained finalized swaps
+- Alert on material same-pool PoolManager fee changes with before/after values and source transactions
 - Keep the shipped runtime-family map current and identify changed forks as separate families
 
 Acceptance criteria met by this slice:
@@ -67,7 +69,7 @@ Acceptance criteria met by this slice:
 - Measure the pool-advertised fee separately from observable hook-adjusted token flow
 - Record swap refusals, hook gas, recipients, and return-delta involvement where the evidence supports it
 - Publish short tape rows with links to their source transactions, logs, traces, and derivation version
-- Alert on material fee deltas, refusal-rate changes, and new deployments of known runtime families
+- Alert on attributed hook-fee deltas, refusal-rate changes, and new deployments of known runtime families
 
 Acceptance criteria:
 

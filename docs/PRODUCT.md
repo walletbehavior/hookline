@@ -6,7 +6,7 @@ Hookline is the intelligence and coordination layer for onchain hooks. The initi
 
 Hookline gives that ecosystem a shared evidence model and a practical workstation.
 
-The boards are the map. The shipped Projects layer shares configuration reads, selected activity, and changes across a broad ecosystem. The shipped Hook Tape owns finalized Base pool-initialization and live swap evidence with exact source transactions. Its next derivations deepen the swap rows into receipt- and trace-backed measurements of what hooks changed, which attempts failed, and where measurable value moved.
+The boards are the map. The shipped Projects layer shares configuration reads, selected activity, and changes across a broad ecosystem. The shipped Hook Tape owns finalized Base pool-initialization and live swap evidence with exact source transactions. It also summarizes retained swaps over explicit block windows, ranks currently active hooks, and can alert on material changes to the PoolManager-reported fee for the same resolved pool. Its next derivations deepen the swap rows into receipt- and trace-backed measurements of what hooks changed, which attempts failed, and where measurable value moved.
 
 ## Current capabilities
 

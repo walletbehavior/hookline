@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
 import {
   BASE_CHAIN_ID, BASE_POOL_MANAGER, BASE_POOL_MANAGER_DEPLOYMENT_BLOCK, INITIALIZE_TOPIC,
-  SWAP_TOPIC, TAPE_SCAN_ID, decodeInitializeLog, decodeSwapLog, handleTapeApi, liveTapePoolsForHook, runBaseTapeScan,
+  SWAP_TOPIC, TAPE_SCAN_ID, decodeInitializeLog, decodeSwapLog, handleTapeApi, liveTapePoolsForHook, liveTapeSwapFeesForHook, runBaseTapeScan,
 } from '../projects/tape.js';
 
 class D1 {
@@ -129,6 +129,12 @@ test('scanner stores recent finalized evidence, bounded history, and explicit co
   assert.equal(swaps.response.status,200);assert.equal(swaps.body.swaps.length,1);
   assert.equal(swaps.body.swaps[0].poolManagerFee.percent,0.4321);assert.equal(swaps.body.swaps[0].poolDeltas.amount0,'-1000');
   assert.equal(swaps.body.swaps[0].evidence.derivationVersion,'swap-event-v1');
+  const activity=await json(new Request(`https://hookline.world/api/tape/activity?hook=${address('5')}&blocks=500`),env);
+  assert.equal(activity.response.status,200);assert.equal(activity.body.summary.swaps,1);assert.equal(activity.body.summary.pools,1);
+  assert.equal(activity.body.summary.poolManagerFee.minPercent,0.4321);assert.equal(activity.body.pools[0].latestTransactionHash,hash((liveBlock+1)*100));
+  assert.equal(activity.body.window.complete,false,'A requested window older than retained live coverage must stay partial.');
+  const latestFees=await liveTapeSwapFeesForHook(env,BASE_CHAIN_ID,address('5'));
+  assert.equal(latestFees.available,true);assert.equal(latestFees.complete,true);assert.equal(latestFees.pools[0].feeRaw,4321);
 });
 
 test('reruns are idempotent and historical catch-up meets the live boundary',async()=>{
@@ -181,6 +187,7 @@ test('active lease skips overlap and public query validation fails closed',async
   assert.equal((await json(new Request('https://hookline.world/api/tape/pools?limit=101'),env)).response.status,400);
   assert.equal((await json(new Request('https://hookline.world/api/tape/pools?cursor=nope'),env)).response.status,400);
   assert.equal((await json(new Request('https://hookline.world/api/tape/swaps?pool=bad'),env)).response.status,400);
+  assert.equal((await json(new Request('https://hookline.world/api/tape/activity?blocks=99'),env)).response.status,400);
   const post=await handleTapeApi(new Request('https://hookline.world/api/tape/status',{method:'POST'}),env);
   assert.equal(post.status,405);
 });

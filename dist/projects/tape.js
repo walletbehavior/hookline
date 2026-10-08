@@ -577,15 +577,76 @@ async function tapeSwaps(request,env) {
     swaps:shown.map(publicSwap),nextCursor:more&&last?`${last.block_number}:${last.log_index}`:null};
 }
 
+function publicActivitySummary(row) {
+  return {swaps:Number(row?.swaps || 0),pools:Number(row?.pools || 0),hooks:Number(row?.hooks || 0),
+    senders:Number(row?.senders || 0),firstBlock:row?.first_block==null?null:Number(row.first_block),
+    lastBlock:row?.last_block==null?null:Number(row.last_block),
+    poolManagerFee:{minRaw:row?.min_fee==null?null:Number(row.min_fee),maxRaw:row?.max_fee==null?null:Number(row.max_fee),
+      minPercent:row?.min_fee==null?null:Number(row.min_fee)/10000,maxPercent:row?.max_fee==null?null:Number(row.max_fee)/10000}};
+}
+
+async function tapeActivity(request,env) {
+  const db=database(env),url=new URL(request.url),hook=String(url.searchParams.get('hook') || '').toLowerCase();
+  if(hook && !ADDRESS.test(hook)) return response({error:'invalid_hook_address'},400,'no-store');
+  const blocks=Number(url.searchParams.get('blocks') || 1800);
+  if(!Number.isInteger(blocks) || blocks<100 || blocks>43_200) return response({error:'invalid_block_window'},400,'no-store');
+  const state=await db.prepare('SELECT * FROM hook_tape_swap_state WHERE id=?').bind(SWAP_TAPE_SCAN_ID).first();
+  if(!state?.last_success_at || state.live_started_block==null || state.live_next_block==null) {
+    return {schemaVersion:TAPE_SCHEMA_VERSION,generatedAt:new Date().toISOString(),window:null,summary:publicActivitySummary(null),hooks:[],pools:[]};
+  }
+  const liveFrom=Number(state.live_started_block),liveThrough=Number(state.live_next_block)-1,finalizedBlock=Number(state.finalized_block);
+  const rawTo=String(url.searchParams.get('toBlock') || '');
+  if(rawTo && !/^\d{1,12}$/.test(rawTo)) return response({error:'invalid_to_block'},400,'no-store');
+  const toBlock=rawTo?Number(rawTo):liveThrough;
+  if(!Number.isSafeInteger(toBlock) || toBlock<liveFrom || toBlock>liveThrough) return response({error:'to_block_outside_saved_coverage'},400,'no-store');
+  const requestedFrom=toBlock-blocks+1,fromBlock=Math.max(liveFrom,requestedFrom);
+  const where=['chain_id=?','block_number>=?','block_number<=?'],values=[BASE_CHAIN_ID,fromBlock,toBlock];
+  if(hook){where.push('hook_address=?');values.push(hook);}
+  const clause=where.join(' AND ');
+  const summaryRow=await db.prepare(`SELECT COUNT(*) AS swaps,COUNT(DISTINCT pool_id) AS pools,COUNT(DISTINCT hook_address) AS hooks,
+    COUNT(DISTINCT sender) AS senders,MIN(pool_fee_raw) AS min_fee,MAX(pool_fee_raw) AS max_fee,
+    MIN(block_number) AS first_block,MAX(block_number) AS last_block FROM hook_tape_swaps WHERE ${clause}`).bind(...values).first();
+  let hooks=[],pools=[];
+  if(hook) {
+    const result=await db.prepare(`WITH scoped AS (
+      SELECT * FROM hook_tape_swaps WHERE ${clause}
+    ), ranked AS (
+      SELECT *,ROW_NUMBER() OVER(PARTITION BY pool_id ORDER BY block_number DESC,log_index DESC) AS rn FROM scoped
+    ) SELECT pool_id,MAX(currency0) AS currency0,MAX(currency1) AS currency1,COUNT(*) AS swaps,
+      COUNT(DISTINCT sender) AS senders,MIN(pool_fee_raw) AS min_fee,MAX(pool_fee_raw) AS max_fee,
+      MIN(block_number) AS first_block,MAX(block_number) AS last_block,
+      MAX(CASE WHEN rn=1 THEN pool_fee_raw END) AS latest_fee,
+      MAX(CASE WHEN rn=1 THEN transaction_hash END) AS latest_transaction
+      FROM ranked GROUP BY pool_id ORDER BY swaps DESC,last_block DESC LIMIT 50`).bind(...values).all();
+    pools=(result?.results || []).map((row)=>({poolId:row.pool_id,currencies:[row.currency0,row.currency1],...publicActivitySummary({...row,pools:1,hooks:1}),
+      latestPoolManagerFee:{raw:Number(row.latest_fee),percent:Number(row.latest_fee)/10000},latestTransactionHash:row.latest_transaction}));
+  } else {
+    const result=await db.prepare(`SELECT hook_address,COUNT(*) AS swaps,COUNT(DISTINCT pool_id) AS pools,
+      COUNT(DISTINCT sender) AS senders,MIN(pool_fee_raw) AS min_fee,MAX(pool_fee_raw) AS max_fee,
+      MIN(block_number) AS first_block,MAX(block_number) AS last_block
+      FROM hook_tape_swaps WHERE ${clause} GROUP BY hook_address ORDER BY swaps DESC,last_block DESC LIMIT 50`).bind(...values).all();
+    hooks=(result?.results || []).map((row)=>({hookAddress:row.hook_address,...publicActivitySummary({...row,hooks:1})}));
+  }
+  return {schemaVersion:TAPE_SCHEMA_VERSION,generatedAt:new Date().toISOString(),
+    scope:'Finalized PoolManager Swap events for already-resolved hooked pools',
+    window:{requestedBlocks:blocks,fromBlock,toBlock,coverageStart:liveFrom,complete:requestedFrom>=liveFrom && liveThrough>=finalizedBlock,
+      liveThrough,finalizedBlock,lagBlocks:Math.max(0,finalizedBlock-liveThrough)},
+    summary:publicActivitySummary(summaryRow),hooks,pools};
+}
+
 export async function handleTapeApi(request, env) {
   const url=new URL(request.url),method=request.method.toUpperCase();
-  if (!['/api/tape/status','/api/tape/pools','/api/tape/swaps'].includes(url.pathname)) return null;
+  if (!['/api/tape/status','/api/tape/pools','/api/tape/swaps','/api/tape/activity'].includes(url.pathname)) return null;
   if(method!=='GET') return response({error:'method_not_allowed'},405,'no-store');
   try {
     if(url.pathname==='/api/tape/status') return response(await tapeStatus(env));
     if(url.pathname==='/api/tape/swaps') {
       const swaps=await tapeSwaps(request,env);
       return swaps instanceof Response?swaps:response(swaps);
+    }
+    if(url.pathname==='/api/tape/activity') {
+      const activity=await tapeActivity(request,env);
+      return activity instanceof Response?activity:response(activity);
     }
     const pools=await tapePools(request,env);
     return pools instanceof Response?pools:response(pools);
@@ -612,4 +673,26 @@ export async function liveTapePoolsForHook(env, chainId, hookAddress, { limit = 
   const rows=Array.isArray(result?.results)?result.results:[],complete=rows.length<=cap;
   return {available:true,complete,liveFrom:Number(state.live_started_block),liveThrough:Number(state.live_next_block)-1,
     pools:rows.slice(0,cap).map((row)=>({poolId:row.pool_id,transactionHash:row.transaction_hash,blockNumber:Number(row.block_number),logIndex:Number(row.log_index)}))};
+}
+
+/** Latest PoolManager-reported swap fee per retained pool for a hook. This is
+ * deliberately separate from hook-fee attribution and only becomes alertable
+ * when the finalized live cursor has no lag.
+ */
+export async function liveTapeSwapFeesForHook(env,chainId,hookAddress,{limit=200}={}) {
+  const normalized=String(hookAddress || '').toLowerCase();
+  if(Number(chainId)!==BASE_CHAIN_ID || !ADDRESS.test(normalized)) return {available:false,complete:false,pools:[]};
+  const db=database(env),cap=Math.min(200,Math.max(1,Math.trunc(Number(limit)||0)));
+  const state=await db.prepare('SELECT live_next_block,finalized_block,last_success_at,last_failure FROM hook_tape_swap_state WHERE id=?').bind(SWAP_TAPE_SCAN_ID).first();
+  if(state?.live_next_block==null || state?.finalized_block==null || !state.last_success_at || state.last_failure) return {available:false,complete:false,pools:[]};
+  const result=await db.prepare(`WITH ranked AS (
+    SELECT pool_id,pool_fee_raw,block_number,transaction_hash,log_index,
+      ROW_NUMBER() OVER(PARTITION BY pool_id ORDER BY block_number DESC,log_index DESC) AS rn
+    FROM hook_tape_swaps WHERE chain_id=? AND hook_address=?
+  ) SELECT pool_id,pool_fee_raw,block_number,transaction_hash,log_index FROM ranked
+    WHERE rn=1 ORDER BY block_number DESC,log_index DESC LIMIT ?`).bind(BASE_CHAIN_ID,normalized,cap+1).all();
+  const rows=Array.isArray(result?.results)?result.results:[],lagBlocks=Math.max(0,Number(state.finalized_block)-Number(state.live_next_block)+1);
+  return {available:true,complete:rows.length<=cap && lagBlocks===0,liveThrough:Number(state.live_next_block)-1,lagBlocks,
+    pools:rows.slice(0,cap).map((row)=>({poolId:row.pool_id,feeRaw:Number(row.pool_fee_raw),feePercent:Number(row.pool_fee_raw)/10000,
+      blockNumber:Number(row.block_number),transactionHash:row.transaction_hash,logIndex:Number(row.log_index)}))};
 }

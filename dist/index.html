@@ -122,7 +122,8 @@
                 <div id="hook-profile-market-list" class="profile-market-list"></div>
               </section>
               <section id="hook-profile-tape" class="profile-section profile-tape" hidden>
-                <div class="profile-section-heading"><h3>First-party pool evidence</h3><span id="hook-profile-tape-status"></span></div>
+                <div class="profile-section-heading"><h3>First-party activity</h3><span id="hook-profile-tape-status"></span></div>
+                <div id="hook-profile-tape-summary" class="profile-tape-summary"></div>
                 <div id="hook-profile-tape-list" class="profile-tape-list"></div>
                 <a id="hook-profile-tape-open" class="profile-tape-open" href="#/tape">Open Hook Tape</a>
               </section>
@@ -222,6 +223,11 @@
         </div>
         <div class="tape-coverage-meter" aria-hidden="true"><span id="tape-coverage-fill"></span></div>
         <p id="tape-scan-status" class="tape-scan-status" role="status" aria-live="polite"></p>
+      </section>
+
+      <section id="tape-leaders" class="tape-leaders" aria-labelledby="tape-leaders-title" hidden>
+        <div class="profile-section-heading"><h2 id="tape-leaders-title">Most active in the current Tape window</h2><span id="tape-leader-window"></span></div>
+        <div id="tape-leader-list" class="tape-leader-list"></div>
       </section>
 
       <div id="tape-error" class="projects-notice" role="status" hidden></div>
@@ -525,6 +531,7 @@
             <li><code>GET /api/tape/status</code><span>Base PoolManager source, finalized coverage, cursors, and counts</span></li>
             <li><code>GET /api/tape/pools</code><span>pool, hook, currency, fee configuration, block, transaction, and raw log evidence</span></li>
             <li><code>GET /api/tape/swaps</code><span>hooked pool, signed deltas, PoolManager-reported fee, post-swap state, and source transaction</span></li>
+            <li><code>GET /api/tape/activity</code><span>explicit block-window activity, active hooks or pools, and PoolManager fee ranges</span></li>
           </ul>
           <a class="doc-link" href="https://github.com/walletbehavior/hookline/blob/main/docs/PROJECT_CONTRIBUTIONS.md" target="_blank" rel="noopener noreferrer">Submission API and domain-verification guide</a>
         </section>
@@ -546,7 +553,7 @@
           <h2>Build usefulness before surface area</h2>
           <ol class="roadmap">
             <li class="current"><span>NOW</span><div><h3>Projects and first-party Hook Tape</h3><p>Broad project discovery, source-linked contract evidence, finalized Base pool births and live swaps, exact source transactions, project follows, submissions, and reviewed user-wallet execution.</p></div></li>
-            <li><span>NEXT</span><div><h3>Trace-backed outcomes and change intelligence</h3><p>Separate hook-flow and refusal evidence, recipients, block-range aggregates, implementation changes, and bytecode-family alerts.</p></div></li>
+            <li><span>NEXT</span><div><h3>Trace-backed outcomes and change intelligence</h3><p>Separate hook-flow and refusal evidence, recipients, implementation changes, and bytecode-family alerts.</p></div></li>
             <li><span>AFTER</span><div><h3>Deeper route evidence</h3><p>Pool price versus hook-adjusted result, measurable fee deltas, refusal evidence, and recipient flows inside the existing user-wallet execution receipt.</p></div></li>
             <li><span>LATER</span><div><h3>Professional and ecosystem layers</h3><p>Team workspaces, webhooks, longer retention, signed manifests, contributed research, and additional programmable-liquidity systems.</p></div></li>
           </ol>
@@ -568,8 +575,8 @@
             <details><summary>Does Hookline show volume and liquidity?</summary><p>Yes. Related markets show available DexScreener price, market cap, liquidity, volume, and change alongside the indexed relationship. The first-party Tape separately keeps a bounded finalized Base swap feed for already-resolved hooked pools; it is not complete historical volume. Missing data stays unavailable. Liquidity alerts require complete readings for the same indexed pool set.</p></details>
             <details><summary>What does a Dynamic pool fee mean?</summary><p>It identifies Uniswap v4's dynamic-fee configuration flag, not an 838.8608% fee or a measured current fee. Static advertised LP fees, adaptive LP fees, hook charges, and Hookline execution fees stay separate. Swap-specific evidence is required to measure what was actually paid.</p></details>
             <details><summary>What does Velocity mean?</summary><p>Velocity ranks the current indexed activity density of each hook or token relationship. It is a discovery ranking, not a promise of future performance.</p></details>
-            <details><summary>What is the Hook Tape?</summary><p>It is a first-party Base feed with separate Swaps and Pool births views. Pool rows prove the hook relationship and fee configuration at initialization. Swap rows retain signed pool deltas, the fee PoolManager emitted, post-swap state, finalized block, and source transaction for already-resolved hooked pools. Raw swaps are capped at seven days and 200,000 rows to keep storage predictable. Separate hook transfers, recipients, and rejected attempts require receipt or trace evidence.</p></details>
-            <details><summary>What does the Telegram bot do?</summary><p>Explore hook relationships, markets, and project follows. Alert cards show sourced names, chain, full copyable contract addresses, and Details/Pause/Resume buttons. Add alert, Projects, Settings, and Main menu reduce command typing. Hook alerts check runtime changes, new finalized Base PoolManager relationships, new community-indexed relationships, and qualifying liquidity changes on the 10-minute schedule. First-party pool alerts carry the pool ID, finalized block, and copyable source transaction. Existing subscriptions seed silently; historical backfill never becomes a false new-pool alert. Telegram does not sign; reviewed execution opens on the website for your wallet.</p></details>
+            <details><summary>What is the Hook Tape?</summary><p>It is a first-party Base feed with separate Swaps and Pool births views. Pool rows prove the hook relationship and fee configuration at initialization. Swap rows retain signed pool deltas, the fee PoolManager emitted, post-swap state, finalized block, and source transaction for already-resolved hooked pools. Activity cards summarize an explicit retained block window and label partial coverage. Raw swaps are capped at seven days and 200,000 rows to keep storage predictable. Separate hook transfers, recipients, and rejected attempts require receipt or trace evidence.</p></details>
+            <details><summary>What does the Telegram bot do?</summary><p>Explore hook relationships, markets, and project follows. Alert cards show sourced names, chain, full copyable contract addresses, and Details/Pause/Resume buttons. Add alert, Projects, Settings, and Main menu reduce command typing. Hook alerts check runtime changes, new finalized Base PoolManager relationships, PoolManager-reported fee moves of at least 10 basis points for the same finalized pool, new community-indexed relationships, and qualifying liquidity changes on the 10-minute schedule. Fee alerts carry before/after rates, pool ID, block, and source transaction without calling that rate a hook charge. Existing subscriptions seed silently; historical backfill never becomes a false new-pool alert. Telegram does not sign; reviewed execution opens on the website for your wallet.</p></details>
             <details><summary>What does Hookline execution cost?</summary><p>Hookline shows a 1% gross execution fee and applies 0.3% cashback instantly in the route, leaving a 0.7% effective fee. There is no deferred cashback claim. The public RPC never submits a transaction. The user’s wallet signs and submits the exact reviewed route, then Hookline independently verifies the receipt.</p></details>
             <details><summary>Can I save trade settings?</summary><p>Slippage and buy/sell presets are supported. Website settings stay on that device; Telegram settings belong to the private Telegram identity. A trade link carries its explicit settings, never an automatic signature. Native amounts are not silently converted to wrapped-token or stablecoin units. Priority remains wallet-managed; saved TP/SL profiles are not active orders.</p></details>
             <details><summary>Will Hookline support user-owned smart wallets?</summary><p>That is the planned automated-order design, not a live wallet service. Users retain owner and recovery control. Any automation needs explicit, revocable, expiring permissions with asset, router, recipient, and spending limits. Transfers, bridges, and ownership changes need separate authority. Wallet creation and automatic limit or TP/SL orders are not enabled.</p></details>

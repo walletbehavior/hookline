@@ -44,7 +44,7 @@ import { TelegramClient } from '../bot/bot-api.js';
 import { digest as projectDigest } from '../projects/evidence.js';
 import { handleAccountsApi, consumeTelegramLink, pruneAccountEphemera } from '../accounts/index.js';
 import { createEip1271Verifier } from '../accounts/contract-signatures.js';
-import { handleTapeApi, liveTapePoolsForHook, runBaseTapeScan } from '../projects/tape.js';
+import { handleTapeApi, liveTapePoolsForHook, liveTapeSwapFeesForHook, runBaseTapeScan } from '../projects/tape.js';
 
 'use strict';
 
@@ -1938,7 +1938,8 @@ export default {
       return result;
     };
     const scan = Promise.allSettled([runAlertScan(env, { resolveHookMarkets, inspectHook,
-      resolveFirstPartyPools:(chainId,address)=>liveTapePoolsForHook(env,chainId,address) }), projects(), collectTapeEvidence(env), pruneAccountEphemera(env)]);
+      resolveFirstPartyPools:(chainId,address)=>liveTapePoolsForHook(env,chainId,address),
+      resolveFirstPartySwapFees:(chainId,address)=>liveTapeSwapFeesForHook(env,chainId,address) }), projects(), collectTapeEvidence(env), pruneAccountEphemera(env)]);
     ctx.waitUntil(scan);
     return scan;
   },

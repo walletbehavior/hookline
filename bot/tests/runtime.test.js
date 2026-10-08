@@ -383,3 +383,27 @@ test('first-party pool alerts seed silently and carry source evidence',async()=>
   await runAlertScan({}, {store,resolveHookMarkets,resolveFirstPartyPools:async()=>({available:true,complete:false,pools:[pool('3',113)]}),sendMessage,now:3});
   assert.deepEqual(JSON.parse(alert.baseline_json).firstPartyPools,before.firstPartyPools,'Incomplete coverage must retain the last complete baseline.');
 });
+
+test('PoolManager fee alerts require a finalized 10 bps move and retain source evidence',async()=>{
+  const alert={id:3,telegram_user_id:'8',chat_id:'8',chain_id:8453,target_address:HOOK,baseline_json:null};
+  const deliveries=new Set(),sent=[];
+  const store={async listDueAlerts(){return [alert];},async updateBaseline({baseline}){alert.baseline_json=JSON.stringify(baseline);},async reschedule(){},
+    async hasDelivery(_id,key){return deliveries.has(key);},async recordDelivery(_id,key){deliveries.add(key);}};
+  const poolId=`0x${'4'.repeat(64)}`,transactionHash=`0x${'5'.repeat(64)}`;
+  let feeRaw=3000,complete=true;
+  const resolveFirstPartySwapFees=async()=>({available:true,complete,pools:[{poolId,feeRaw,blockNumber:120,transactionHash,logIndex:9}]});
+  const resolveHookMarkets=async()=>({profile:{project:{name:'Adaptive Hook'}},markets:[]});
+  const sendMessage=async(chatId,text,options)=>sent.push({chatId,text,options});
+  assert.equal((await runAlertScan({}, {store,resolveHookMarkets,resolveFirstPartySwapFees,sendMessage,now:1})).seeded,1);
+  feeRaw=3500;
+  assert.equal((await runAlertScan({}, {store,resolveHookMarkets,resolveFirstPartySwapFees,sendMessage,now:2})).delivered,0,'Five basis points is below the material threshold.');
+  feeRaw=5000;
+  assert.equal((await runAlertScan({}, {store,resolveHookMarkets,resolveFirstPartySwapFees,sendMessage,now:3})).delivered,1);
+  assert.match(sent[0].text,/changed by at least 10 bps/);assert.match(sent[0].text,/0\.3500%, 0\.5000%/);
+  assert(sent[0].text.includes(`<code>${transactionHash}</code>`));
+  assert.equal(sent[0].options.reply_markup.inline_keyboard[0][0].url,`https://hookline.world/#/tape/swaps/8453/${HOOK}`);
+  const before=JSON.parse(alert.baseline_json).firstPartySwapFees;
+  complete=false;feeRaw=9000;
+  await runAlertScan({}, {store,resolveHookMarkets,resolveFirstPartySwapFees,sendMessage,now:4});
+  assert.deepEqual(JSON.parse(alert.baseline_json).firstPartySwapFees,before,'Incomplete fee coverage must retain the last complete baseline.');
+});

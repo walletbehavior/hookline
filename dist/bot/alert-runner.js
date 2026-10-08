@@ -13,6 +13,7 @@ import {
 export const SCAN_CAP_PER_RUN = 25;
 export const SCAN_CAP_PER_USER = 10;
 export const LIQUIDITY_CHANGE_THRESHOLD = 0.10;
+export const POOL_FEE_CHANGE_THRESHOLD_RAW = 1000; // 10 basis points
 
 function runtimeFingerprintOf(inspection) {
   const value = inspection?.runtimeFingerprint;
@@ -22,7 +23,15 @@ function runtimeFingerprintOf(inspection) {
     : null;
 }
 
-function marketBaseline(result, inspection = null, firstParty = null) {
+function normalizeSwapFees(source) {
+  if(source?.available!==true || source?.complete!==true || !Array.isArray(source.pools)) return null;
+  return source.pools.map((pool)=>({poolId:String(pool?.poolId || '').toLowerCase(),feeRaw:Number(pool?.feeRaw),
+    blockNumber:Number(pool?.blockNumber),transactionHash:String(pool?.transactionHash || '').toLowerCase(),logIndex:Number(pool?.logIndex)}))
+    .filter((pool)=>/^0x[0-9a-f]{64}$/.test(pool.poolId)&&Number.isInteger(pool.feeRaw)&&pool.feeRaw>=0&&pool.feeRaw<=1_000_000
+      &&Number.isSafeInteger(pool.blockNumber)&&/^0x[0-9a-f]{64}$/.test(pool.transactionHash)&&Number.isSafeInteger(pool.logIndex));
+}
+
+function marketBaseline(result, inspection = null, firstParty = null, swapFees = null) {
   const markets = Array.isArray(result?.markets) ? result.markets : [];
   const poolIds = [...new Set(markets
     .map((market) => String(market?.pairAddress || market?.poolId || '').toLowerCase())
@@ -41,6 +50,7 @@ function marketBaseline(result, inspection = null, firstParty = null) {
       ? firstParty.pools.map((pool)=>({poolId:String(pool.poolId || '').toLowerCase(),transactionHash:String(pool.transactionHash || '').toLowerCase(),blockNumber:Number(pool.blockNumber),logIndex:Number(pool.logIndex)}))
         .filter((pool)=>/^0x[0-9a-f]{64}$/.test(pool.poolId)&&/^0x[0-9a-f]{64}$/.test(pool.transactionHash)&&Number.isSafeInteger(pool.blockNumber)&&Number.isSafeInteger(pool.logIndex))
       : null,
+    firstPartySwapFees:normalizeSwapFees(swapFees),
   };
 }
 
@@ -61,6 +71,7 @@ function parseBaseline(value) {
         poolId:String(pool?.poolId || '').toLowerCase(),transactionHash:String(pool?.transactionHash || '').toLowerCase(),
         blockNumber:Number(pool?.blockNumber),logIndex:Number(pool?.logIndex),
       })).filter((pool)=>/^0x[0-9a-f]{64}$/.test(pool.poolId)&&/^0x[0-9a-f]{64}$/.test(pool.transactionHash)&&Number.isSafeInteger(pool.blockNumber)&&Number.isSafeInteger(pool.logIndex)):null,
+      firstPartySwapFees:Array.isArray(parsed.firstPartySwapFees)?normalizeSwapFees({available:true,complete:true,pools:parsed.firstPartySwapFees}):null,
     };
   } catch {
     return null;
@@ -95,6 +106,14 @@ export function alertEvents(previous, current) {
     const newFirstParty=current.firstPartyPools.filter((pool)=>!knownFirstParty.has(pool.poolId));
     if(newFirstParty.length) events.push({kind:'first_party_pool',count:newFirstParty.length,pools:newFirstParty,
       eventKey:`first_party_pool:${stableHash(newFirstParty.map((pool)=>pool.poolId).sort().join(','))}`});
+  }
+  if(Array.isArray(previous.firstPartySwapFees) && Array.isArray(current.firstPartySwapFees)) {
+    const prior=new Map(previous.firstPartySwapFees.map((pool)=>[pool.poolId,pool]));
+    const changes=current.firstPartySwapFees.map((pool)=>({previous:prior.get(pool.poolId),current:pool}))
+      .filter(({previous:before,current:after})=>before && Math.abs(after.feeRaw-before.feeRaw)>=POOL_FEE_CHANGE_THRESHOLD_RAW)
+      .slice(0,5);
+    if(changes.length) events.push({kind:'pool_fee_change',count:changes.length,changes,
+      eventKey:`pool_fee_change:${stableHash(changes.map(({current:pool})=>`${pool.poolId}:${pool.feeRaw}:${pool.blockNumber}:${pool.logIndex}`).sort().join(','))}`});
   }
   if (previous.runtimeFingerprint && current.runtimeFingerprint && previous.runtimeFingerprint !== current.runtimeFingerprint) {
     events.push({
@@ -132,6 +151,8 @@ function formatNotification(alert, event, previous, current,result) {
     ? 'Runtime bytecode changed'
     : event.kind === 'first_party_pool'
       ? `${event.count} new finalized Base pool${event.count === 1 ? '' : 's'}`
+    : event.kind === 'pool_fee_change'
+      ? `PoolManager fee changed by at least 10 bps in ${event.count} pool${event.count === 1 ? '' : 's'}`
     : event.kind === 'new_pool'
       ? `${event.count} new indexed pool relationship${event.count === 1 ? '' : 's'}`
       : `Indexed liquidity ${event.ratio >= 0 ? 'rose' : 'fell'} ${Math.abs(event.ratio * 100).toFixed(1)}%`;
@@ -149,6 +170,13 @@ function formatNotification(alert, event, previous, current,result) {
     lines.push(`Block: ${event.pools[0].blockNumber}`);
     lines.push('Source transaction');
     lines.push({address:event.pools[0].transactionHash});
+  } else if(event.kind==='pool_fee_change' && event.changes?.[0]) {
+    const {previous:before,current:after}=event.changes[0];
+    lines.push(`Pool: ${after.poolId}`);
+    lines.push(`Reported swap fee: ${(before.feeRaw/10000).toFixed(4)}%, ${(after.feeRaw/10000).toFixed(4)}%`);
+    lines.push(`Block: ${after.blockNumber}`);
+    lines.push('Source transaction');
+    lines.push({address:after.transactionHash});
   } else if(previous.liquidityComplete && current.liquidityComplete) {
     lines.push(`Indexed liquidity: ${money(previous.aggregateLiquidityUsd)}, ${money(current.aggregateLiquidityUsd)}`);
   }
@@ -174,6 +202,7 @@ export async function runAlertScan(env, options = {}) {
   const resolveHookMarkets = options.resolveHookMarkets || fallbackResolver;
   const inspectHook = options.inspectHook || null;
   const resolveFirstPartyPools=options.resolveFirstPartyPools || null;
+  const resolveFirstPartySwapFees=options.resolveFirstPartySwapFees || null;
   const sendMessage = options.sendMessage || ((chatId, text,sendOptions) => defaultSend(env, chatId, text,sendOptions));
   const due = await store.listDueAlerts({
     now,
@@ -188,13 +217,14 @@ export async function runAlertScan(env, options = {}) {
 
   for (const alert of due) {
     try {
-      const [result, inspection, firstParty] = await Promise.all([
+      const [result, inspection, firstParty, swapFees] = await Promise.all([
         resolveHookMarkets(Number(alert.chain_id), String(alert.target_address)),
         inspectHook ? inspectHook(Number(alert.chain_id), String(alert.target_address)) : Promise.resolve(null),
         resolveFirstPartyPools ? Promise.resolve().then(()=>resolveFirstPartyPools(Number(alert.chain_id),String(alert.target_address))).catch(()=>null) : Promise.resolve(null),
+        resolveFirstPartySwapFees ? Promise.resolve().then(()=>resolveFirstPartySwapFees(Number(alert.chain_id),String(alert.target_address))).catch(()=>null) : Promise.resolve(null),
       ]);
       const previous = parseBaseline(alert.baseline_json);
-      const current = marketBaseline(result, inspection, firstParty);
+      const current = marketBaseline(result, inspection, firstParty, swapFees);
       // Empty/failed market coverage is not evidence that the old pools vanished.
       // Preserve identities for recovery; no liquidity alert uses this read.
       if(previous && !current.poolIds.length) {
@@ -202,6 +232,7 @@ export async function runAlertScan(env, options = {}) {
         current.aggregateLiquidityUsd=previous.aggregateLiquidityUsd;
       }
       if(previous && current.firstPartyPools===null) current.firstPartyPools=previous.firstPartyPools;
+      if(previous && current.firstPartySwapFees===null) current.firstPartySwapFees=previous.firstPartySwapFees;
       if (!previous) {
         await store.updateBaseline({ id: alert.id, baseline: current, now });
         seeded += 1;
@@ -213,7 +244,7 @@ export async function runAlertScan(env, options = {}) {
         if (await store.hasDelivery(alert.id, event.eventKey)) continue;
         await sendMessage(String(alert.chat_id), formatNotification(alert, event, previous, current,result),{
           parse_mode:'HTML',disable_web_page_preview:true,
-          reply_markup:{inline_keyboard:[[{text:'Details',url:event.kind==='first_party_pool'?`https://hookline.world/#/tape/pools/${alert.chain_id}/${alert.target_address}`:`https://hookline.world/#/board/${alert.chain_id}/${alert.target_address}`},{text:'Pause alert',callback_data:`tg:ad:${alert.chain_id}:${alert.target_address}`}],...alertNavigationRows()]},
+          reply_markup:{inline_keyboard:[[{text:'Details',url:event.kind==='first_party_pool'?`https://hookline.world/#/tape/pools/${alert.chain_id}/${alert.target_address}`:event.kind==='pool_fee_change'?`https://hookline.world/#/tape/swaps/${alert.chain_id}/${alert.target_address}`:`https://hookline.world/#/board/${alert.chain_id}/${alert.target_address}`},{text:'Pause alert',callback_data:`tg:ad:${alert.chain_id}:${alert.target_address}`}],...alertNavigationRows()]},
         });
         await store.recordDelivery(alert.id, event.eventKey, now);
         delivered += 1;

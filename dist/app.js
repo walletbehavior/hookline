@@ -80,7 +80,7 @@
     boardEvidence: new Map(),
     boardLoading: new Set(),
     projects: { registry: null, loading: null, error: '', detailRequest: 0, detail: null, activityRequest: 0, events: [], activityLoaded: false, activityGeneratedAt: null, receipts: [], contributionBusy: false },
-    tape: { status: null, mode: 'swaps', pools: [], swaps: [], cursors: { pools: null, swaps: null }, loaded: { pools: false, swaps: false }, loading: false, error: '' },
+    tape: { status: null, activity: null, mode: 'swaps', pools: [], swaps: [], cursors: { pools: null, swaps: null }, loaded: { pools: false, swaps: false }, loading: false, error: '' },
     execution: {
       module: null,
       modulePromise: null,
@@ -2456,13 +2456,21 @@
   }
 
   function renderBoardTape(item) {
-    const section=$('hook-profile-tape'),list=$('hook-profile-tape-list'),status=$('hook-profile-tape-status');
-    list.replaceChildren();
-    const cached=state.boardEvidence.get(item.id),pools=Array.isArray(cached?.tapePools)?cached.tapePools.slice(0,4):[];
-    section.hidden=item.chainId!==8453 || pools.length===0;
+    const section=$('hook-profile-tape'),list=$('hook-profile-tape-list'),summary=$('hook-profile-tape-summary'),status=$('hook-profile-tape-status');
+    list.replaceChildren();summary.replaceChildren();
+    const cached=state.boardEvidence.get(item.id),pools=Array.isArray(cached?.tapePools)?cached.tapePools.slice(0,4):[],activity=cached?.tapeActivity;
+    const measured=Number(activity?.summary?.swaps || 0);
+    section.hidden=item.chainId!==8453 || (!pools.length && !measured);
     if(section.hidden) return;
-    $('hook-profile-tape-open').href=`#/tape/pools/8453/${item.address}`;
-    status.textContent=`${pools.length} finalized`;
+    $('hook-profile-tape-open').href=`#/tape/swaps/8453/${item.address}`;
+    $('hook-profile-tape-open').textContent='Open swap tape';
+    status.textContent=measured?`${formatNumber(measured)} swaps${activity?.window?.complete?'':' · partial window'}`:`${pools.length} pool births`;
+    if(measured) {
+      const fee=activity.summary.poolManagerFee || {},min=Number(fee.minPercent),max=Number(fee.maxPercent);
+      const feeText=Number.isFinite(min)&&Number.isFinite(max)?(min===max?`${min.toLocaleString(undefined,{maximumFractionDigits:4})}%`:`${min.toLocaleString(undefined,{maximumFractionDigits:4})}% to ${max.toLocaleString(undefined,{maximumFractionDigits:4})}%`):'Unavailable';
+      const cells=[['SWAPS',formatNumber(measured)],['ACTIVE POOLS',formatNumber(Number(activity.summary.pools || 0))],['REPORTED FEE',feeText],['BLOCKS',`${formatNumber(Number(activity.window.fromBlock))} to ${formatNumber(Number(activity.window.toBlock))}`]];
+      cells.forEach(([label,value])=>{const cell=document.createElement('div');cell.append(makeElement('span','',label),makeElement('strong','',value));summary.append(cell);});
+    }
     pools.forEach((pool)=>{
       const card=makeElement('article','profile-tape-row');
       const identity=makeElement('div','');
@@ -2609,11 +2617,16 @@
   }
 
   async function readHookTape(item) {
-    if(item.chainId!==8453 || !item.address) return [];
-    const response=await fetch(`/api/tape/pools?hook=${encodeURIComponent(item.address)}&limit=4`,{headers:{Accept:'application/json'}});
-    const payload=await response.json().catch(()=>null);
-    if(!response.ok || !Array.isArray(payload?.pools)) throw new Error('First-party pool evidence failed.');
-    return payload.pools;
+    if(item.chainId!==8453 || !item.address) return {pools:[],activity:null};
+    const [poolResponse,activityResponse]=await Promise.all([
+      fetch(`/api/tape/pools?hook=${encodeURIComponent(item.address)}&limit=4`,{headers:{Accept:'application/json'}}),
+      fetch(`/api/tape/activity?hook=${encodeURIComponent(item.address)}&blocks=1800`,{headers:{Accept:'application/json'}}),
+    ]);
+    const [poolPayload,activityPayload]=await Promise.all([poolResponse.json().catch(()=>null),activityResponse.json().catch(()=>null)]);
+    const pools=poolResponse.ok && Array.isArray(poolPayload?.pools)?poolPayload.pools:[];
+    const activity=activityResponse.ok && activityPayload?.summary?activityPayload:null;
+    if(!pools.length && !activity) throw new Error('First-party activity failed.');
+    return {pools,activity};
   }
 
   async function inspectSelectedProfile(options) {
@@ -2647,8 +2660,8 @@
       delete next.marketError;
     }
     if (markets.status === 'rejected') next.marketError = markets.reason?.message || 'Market lookup failed.';
-    if(tape.status==='fulfilled' && tape.value){next.tapePools=tape.value;next.tapeLoaded=true;delete next.tapeError;}
-    if(tape.status==='rejected') next.tapeError=tape.reason?.message || 'First-party pool evidence failed.';
+    if(tape.status==='fulfilled' && tape.value){next.tapePools=tape.value.pools;next.tapeActivity=tape.value.activity;next.tapeLoaded=true;delete next.tapeError;}
+    if(tape.status==='rejected') next.tapeError=tape.reason?.message || 'First-party activity failed.';
     state.boardEvidence.set(item.id, next);
     if (!settings.automatic && (next.result || next.markets?.length || next.tapePools?.length)) {
       state.inspectionsThisSession += 1;
@@ -3622,8 +3635,26 @@
     }
   }
 
+  function renderTapeLeaders() {
+    const section=$('tape-leaders'),list=$('tape-leader-list'),activity=state.tape.activity;
+    list.replaceChildren();
+    const hooks=state.tape.mode==='swaps' && Array.isArray(activity?.hooks)?activity.hooks.slice(0,6):[];
+    section.hidden=!hooks.length;
+    if(section.hidden) return;
+    $('tape-leader-window').textContent=`blocks ${formatNumber(Number(activity.window.fromBlock))} to ${formatNumber(Number(activity.window.toBlock))}${activity.window.complete?'':' · partial'}`;
+    hooks.forEach((entry,index)=>{
+      const card=tapeLink(`#/tape/swaps/8453/${entry.hookAddress}`,'','tape-leader-card');
+      const identity=makeElement('div','');identity.append(makeElement('span','',String(index+1).padStart(2,'0')),makeElement('strong','',tapeHookName(entry.hookAddress)),makeElement('code','',tapeAddress(entry.hookAddress)));
+      const fee=entry.poolManagerFee || {},min=Number(fee.minPercent),max=Number(fee.maxPercent);
+      const feeText=Number.isFinite(min)&&Number.isFinite(max)?(min===max?`${min.toLocaleString(undefined,{maximumFractionDigits:4})}%`:`${min.toLocaleString(undefined,{maximumFractionDigits:4})}% to ${max.toLocaleString(undefined,{maximumFractionDigits:4})}%`):'Unavailable';
+      const facts=makeElement('div','');facts.append(makeElement('b','',`${formatNumber(Number(entry.swaps))} swaps`),makeElement('span','',`${formatNumber(Number(entry.pools))} pools · ${feeText}`));
+      card.append(identity,facts);list.append(card);
+    });
+  }
+
   function renderTape() {
     renderTapeCoverage();
+    renderTapeLeaders();
     const query=$('tape-search').value.trim().toLowerCase();
     const body=$('tape-body');body.replaceChildren();
     const swaps=state.tape.mode==='swaps',source=swaps?state.tape.swaps:state.tape.pools;
@@ -3672,16 +3703,19 @@
     if(!append) projectNotice($('tape-error'),'');
     try {
       const cursor=append&&state.tape.cursors[mode]?`&cursor=${encodeURIComponent(state.tape.cursors[mode])}`:'';
-      const requests=[fetch(`/api/tape/${mode}?limit=100${cursor}`,{headers:{Accept:'application/json'},cache:force?'no-store':'default'})];
-      if(!append) requests.unshift(fetch('/api/tape/status',{headers:{Accept:'application/json'},cache:force?'no-store':'default'}));
+      const evidenceRequest=fetch(`/api/tape/${mode}?limit=100${cursor}`,{headers:{Accept:'application/json'},cache:force?'no-store':'default'});
+      const requests=append?[evidenceRequest]:[fetch('/api/tape/status',{headers:{Accept:'application/json'},cache:force?'no-store':'default'}),evidenceRequest];
+      if(!append && mode==='swaps') requests.push(fetch('/api/tape/activity?blocks=1800',{headers:{Accept:'application/json'},cache:force?'no-store':'default'}));
       const responses=await Promise.all(requests);
       const payloads=await Promise.all(responses.map((entry)=>entry.json().catch(()=>null)));
-      if(responses.some((entry)=>!entry.ok)) throw new Error('Tape evidence is temporarily unavailable.');
+      const required=append?responses:responses.slice(0,2);
+      if(required.some((entry)=>!entry.ok)) throw new Error('Tape evidence is temporarily unavailable.');
       const evidenceBody=append?payloads[0]:payloads[1],key=mode;
       if(!evidenceBody || !Array.isArray(evidenceBody[key])) throw new Error('Tape response was incomplete.');
       if(!append) {
         if(!payloads[0]?.coverage) throw new Error('Tape coverage was incomplete.');
         state.tape.status=payloads[0];state.tape[key]=evidenceBody[key];
+        if(mode==='swaps' && responses[2]?.ok && Array.isArray(payloads[2]?.hooks)) state.tape.activity=payloads[2];
       } else {
         const existing=new Set(state.tape[key].map((entry)=>entry.id));
         state.tape[key].push(...evidenceBody[key].filter((entry)=>!existing.has(entry.id)));

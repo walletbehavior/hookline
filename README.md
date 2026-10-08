@@ -12,6 +12,7 @@ Hookline is a multichain evidence and analytics desk for programmable-liquidity 
 - Cross-chain hook board with 1,000+ active hook identities across 10+ chains
 - Broad Projects board with source-linked deployments, coverage labels, shared observations, and selected mechanism events
 - Base Hook Tape built from finalized PoolManager `Initialize` and `Swap` logs, with exact hook, pool, signed pool deltas, reported swap fee, block, and transaction evidence
+- Explicit block-window swap activity summaries, active-hook rankings, and sourced Telegram alerts for PoolManager fee moves of 10 basis points or more
 - Private API submissions, suggestions, DNS domain claims, and metadata-only profile updates
 - Aggregate indexed pool and swap counts with snapshot timestamps
 - Shareable hook profile URLs, filtered JSON exports, and inline live inspection
@@ -26,7 +27,7 @@ Hookline is a multichain evidence and analytics desk for programmable-liquidity 
 - CLAUS allocation/accrual/event separation, with exact same-receipt burn transfer confirmation where supported
 - Same-chain contract and permission comparisons
 - Live upstream health, block height, and latency telemetry
-- Persistent Telegram alerts for runtime changes, new finalized Base PoolManager relationships, new community-indexed relationships, and 10% liquidity moves across an unchanged, fully measured indexed pool set
+- Persistent Telegram alerts for runtime changes, new finalized Base PoolManager relationships, material PoolManager fee moves, new community-indexed relationships, and 10% liquidity moves across an unchanged, fully measured indexed pool set
 - Saved website slippage and buy/sell presets, with exact balance-percentage sizing
 - Non-custodial reviewed EVM execution on supported markets with browser-wallet signing
 - 1% gross execution fee, 0.3% instant cashback, and 0.7% effective fee bound into the route
@@ -34,7 +35,7 @@ Hookline is a multichain evidence and analytics desk for programmable-liquidity 
 - Free, allowlisted JSON-RPC access
 - x402-protected capacity at 0.01 USDC per request on Base
 
-The board's discovery and aggregate counts come from a timestamped v4.xyz community-indexer snapshot. The Base Tape is separate first-party evidence read from the official PoolManager contract: finalized initialization coverage stays current while a bounded cursor fills history, and a finalized live swap cursor retains rows for already-resolved hooked pools. Swap rows report signed pool deltas and the fee emitted by PoolManager. They do not yet attribute separate hook transfers, recipients, rejected calls, or a hidden spread. Project descriptions are community-curated, team-authored, agent-reviewed, or Hookline-researched and labeled in the interface. Projects has its own broad registry, source-linked deployments, block-pinned observations, selected mechanism event readers, shared activity, and Telegram follows. Generalized fee attribution and lifetime payout reconciliation remain roadmap work. A confirmed individual burn transfer is not a lifetime total or investment outcome.
+The board's discovery and aggregate counts come from a timestamped v4.xyz community-indexer snapshot. The Base Tape is separate first-party evidence read from the official PoolManager contract: finalized initialization coverage stays current while a bounded cursor fills history, and a finalized live swap cursor retains rows for already-resolved hooked pools. Swap rows report signed pool deltas and the fee emitted by PoolManager. Block-window summaries aggregate only that retained evidence and disclose whether the requested window is complete. Fee-change alerts compare the same resolved pool across complete finalized reads; they do not call the PoolManager fee a hook fee. Separate hook transfers, recipients, rejected calls, and a hidden spread are not yet attributed. Project descriptions are community-curated, team-authored, agent-reviewed, or Hookline-researched and labeled in the interface. Projects has its own broad registry, source-linked deployments, block-pinned observations, selected mechanism event readers, shared activity, and Telegram follows. Generalized fee attribution and lifetime payout reconciliation remain roadmap work. A confirmed individual burn transfer is not a lifetime total or investment outcome.
 
 The October 7 Projects release starts with 39 records, including tokenized projects, launch infrastructure, liquidity mechanisms, and developer tooling. Ten projects have explicitly selected monitoring targets. A listed project is not automatically a monitored or verified deployment. [Release notes and current boundaries](docs/RELEASE_2026-10-07.md) distinguish what is measured from what remains planned.
 
@@ -111,6 +112,8 @@ See [Product documentation](docs/PRODUCT.md), [API reference](docs/API.md), [Whi
 | `GET /api/project-comparison?ids={ids}` | Two to four projects using a common evidence schema |
 | `GET /api/tape/status` | Base PoolManager index coverage, cursors, and saved evidence counts |
 | `GET /api/tape/pools` | Finalized Base pool initialization evidence, optionally filtered by hook |
+| `GET /api/tape/swaps` | Finalized Base swap evidence for already-resolved hooked pools |
+| `GET /api/tape/activity` | Explicit block-window swap activity and PoolManager fee summaries |
 | `POST /api/project-submissions` | Private suggestions, listings, corrections, and domain claims |
 | `GET /api/execution/status` | Current reviewed-execution capability by chain |
 | `POST /api/execution/quote` | Short-lived, wallet-bound route and opaque intent |

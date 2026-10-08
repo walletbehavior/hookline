@@ -104,13 +104,13 @@ A human workstation for inspection, history, comparisons, activity, dependency v
 
 ### Hook Tape
 
-A first-party feed begins with finalized Base PoolManager initialization evidence. Pool rows resolve the pool, hook, currencies, configured LP fee field, block, transaction, raw log, and derivation version. A separate finalized live cursor retains Swap logs for already-resolved hooked pools, including signed pool deltas, the fee emitted by PoolManager, post-swap state, and exact transaction evidence. Deeper receipt- and trace-backed rows will separate that pool fee from measurable hook deltas and token flows, report refused swap attempts and hook gas where trace evidence exists, and identify recipients only when they can be proven.
+A first-party feed begins with finalized Base PoolManager initialization evidence. Pool rows resolve the pool, hook, currencies, configured LP fee field, block, transaction, raw log, and derivation version. A separate finalized live cursor retains Swap logs for already-resolved hooked pools, including signed pool deltas, the fee emitted by PoolManager, post-swap state, and exact transaction evidence. Explicit block-window summaries identify activity leaders and whether the retained range fully covers the request. Deeper receipt- and trace-backed rows will separate that pool fee from measurable hook deltas and token flows, report refused swap attempts and hook gas where trace evidence exists, and identify recipients only when they can be proven.
 
 Runtime fingerprints group byte-identical deployments into runtime families. Identical code alone does not establish identical configuration, common ownership, or a new launch. Proxy implementation and model-address reads are separate identity signals. The evolving tape combines those signals without treating a family badge as measured behavior.
 
 ### Monitoring and alerts
 
-Hook profiles support bounded Telegram alerts for direct runtime changes, newly indexed pool relationships, and material indexed-liquidity movement across a stable, fully measured pool set. Project follows use the shared configuration-change and decoded-event feed. Backfill is not promoted to newly occurring activity. Deeper outcome, dependency, family, and upstream-health subscriptions remain planned.
+Hook profiles support bounded Telegram alerts for direct runtime changes, newly indexed pool relationships, material PoolManager fee moves for the same finalized pool, and material indexed-liquidity movement across a stable, fully measured pool set. Fee alerts preserve the distinction between PoolManager's emitted swap fee and a separately proven hook charge. Project follows use the shared configuration-change and decoded-event feed. Backfill is not promoted to newly occurring activity. Deeper outcome, dependency, family, and upstream-health subscriptions remain planned.
 
 ### Reviewed execution
 
