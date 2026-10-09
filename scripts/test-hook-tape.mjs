@@ -6,6 +6,7 @@ import {
   SWAP_TOPIC, TRANSFER_TOPIC, TAPE_SCAN_ID, decodeInitializeLog, decodeSwapLog, decodeSwapReceipt,
   decodeSwapTrace,
   handleTapeApi, liveTapeActivityForHook, liveTapePoolsForHook, liveTapeSwapFeesForHook, runBaseTapeScan,
+  segmentSwapLogsInMemory,
 } from '../projects/tape.js';
 
 class D1 {
@@ -126,6 +127,22 @@ test('strict Swap decoding preserves signed pool deltas and the reported swap fe
   assert.throws(()=>decodeSwapLog({...source,topics:[INITIALIZE_TOPIC,...source.topics.slice(1)]}),/tape_swap_topics_invalid/);
 });
 
+test('dense Swap responses segment in memory without gaps or refetches',()=>{
+  assert.deepEqual(segmentSwapLogsInMemory([],10,20),[{fromBlock:10,toBlock:20,items:[]}]);
+  const logs=[
+    ...Array.from({length:300},(_,logIndex)=>swapLog({blockNumber:10,logIndex,transaction:10_000+logIndex})),
+    ...Array.from({length:300},(_,logIndex)=>swapLog({blockNumber:11,logIndex,transaction:20_000+logIndex})),
+  ];
+  const segments=segmentSwapLogsInMemory(logs,10,12);
+  assert.equal(segments.length,2);
+  assert.deepEqual(segments.map(({fromBlock,toBlock})=>({fromBlock,toBlock})),[
+    {fromBlock:10,toBlock:10},{fromBlock:11,toBlock:12},
+  ]);
+  assert.equal(segments[0].items.length,300);assert.equal(segments[1].items.length,300);
+  const tooDense=Array.from({length:501},(_,logIndex)=>swapLog({blockNumber:10,logIndex,transaction:30_000+logIndex}));
+  assert.throws(()=>segmentSwapLogsInMemory(tooDense,10,10),/tape_swap_density_exceeded/);
+});
+
 test('receipt decoding retains relevant ERC-20 flows without calling them fees',()=>{
   const blockNumber=BASE_POOL_MANAGER_DEPLOYMENT_BLOCK+3,transaction=777,hook=address('4');
   const context={transactionHash:hash(transaction),blockNumber,blockHash:hash(blockNumber+10_000_000),hookAddress:hook,currency0:address('1'),currency1:address('0')};
@@ -167,20 +184,20 @@ test('scanner stores recent finalized evidence, bounded history, and explicit co
   ]);
   const result=await runBaseTapeScan(env,{rpc:transport.install(),now:NOW});
   assert.equal(result.status,'ok');assert.equal(result.rows,2);assert.equal(result.liveThrough,tip);
-  assert.equal(result.historicalThrough,tip-500);assert.equal(result.historicalComplete,true);
+  assert.equal(result.historicalThrough,tip-501);assert.equal(result.historicalComplete,false);
   assert.equal(result.swaps.status,'ok');assert.equal(result.swaps.rows,1);assert.equal(result.swaps.liveThrough,tip);
   assert.equal(result.receipts.status,'ok');assert.equal(result.receipts.saved,1);
   assert.equal(result.traces.status,'ok');assert.equal(result.traces.saved,1);
   assert.equal((await env.DB.prepare('SELECT COUNT(*) AS n FROM hook_tape_pools').first()).n,2);
   const state=await env.DB.prepare('SELECT * FROM hook_tape_scan_state WHERE id=?').bind(TAPE_SCAN_ID).first();
-  assert.equal(state.live_started_block,tip-499);assert.equal(state.live_next_block,tip+1);assert.equal(state.historical_complete,1);
+  assert.equal(state.live_started_block,tip-499);assert.equal(state.live_next_block,tip+1);assert.equal(state.historical_complete,0);
   assert.equal(state.lease_until,0);assert.equal(transport.pin.number,quantity(tip));
 
   const status=await json(new Request('https://hookline.world/api/tape/status'),env);
   assert.equal(status.response.status,200);assert.equal(status.body.counts.pools,2);assert.equal(status.body.counts.hooks,2);assert.equal(status.body.counts.swaps,1);
   assert.equal(status.body.counts.receipts,1);assert.equal(status.body.counts.retainedRelevantTransfers,1);
   assert.equal(status.body.counts.traces,1);assert.equal(status.body.counts.hookCallFrames,1);
-  assert.equal(status.body.coverage.liveThrough,tip);assert.equal(status.body.coverage.gapBlocks,0);
+  assert.equal(status.body.coverage.liveThrough,tip);assert.equal(status.body.coverage.gapBlocks,1);
   assert.equal(status.body.swapCoverage.liveThrough,tip);assert.match(status.body.scope,/Initialize and Swap logs/i);
   const pools=await json(new Request(`https://hookline.world/api/tape/pools?hook=${address('5')}&limit=10`),env);
   assert.equal(pools.body.pools.length,1);assert.equal(pools.body.pools[0].hookAddress,address('5'));

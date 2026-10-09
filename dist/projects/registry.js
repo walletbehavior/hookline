@@ -1,6 +1,13 @@
 // Identity is explicit and chain-aware. Never infer affiliation from a name/hash.
 const addressPattern = /^0x[0-9a-f]{40}$/i;
 const aliases = { 'diamond-hook-arrakis': 'arrakis', bunny: 'bunni', stakehut: 'steakhut' };
+// Discovery labels are a small editorial taxonomy, not project claims.  Adding a
+// label requires a reviewed code change; submitted profile metadata cannot add one.
+export const DISCOVERY_CATEGORIES = Object.freeze({
+  quantum: Object.freeze({ id: 'quantum', label: 'Quantum', description: 'Projects with a primary-source-described post-quantum or quantum-security mechanism.' }),
+});
+const discoveryTagPattern = /^[a-z0-9][a-z0-9-]{0,39}$/;
+const discoveryStatus = new Set(['research-backed', 'unverified']);
 export function projectId(name) {
   const id = String(name || '').normalize('NFKD').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0,48).replace(/-$/,'');
   return aliases[id] || id;
@@ -10,6 +17,33 @@ export function publicUrl(value) {
     const url = new URL(value);
     return url.protocol === 'https:' && !url.username && !url.password ? url.href : null;
   } catch { return null; }
+}
+function discoveryMetadata(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const categories = [...new Set((Array.isArray(value.categories) ? value.categories : [])
+    .map(category => String(category || '').toLowerCase()).filter(category => Object.hasOwn(DISCOVERY_CATEGORIES, category)))];
+  const tags = [...new Set((Array.isArray(value.tags) ? value.tags : [])
+    .map(tag => String(tag || '').trim().toLowerCase()).filter(tag => discoveryTagPattern.test(tag)))].slice(0, 12);
+  const status = discoveryStatus.has(value.status) ? value.status : 'unverified';
+  if (!categories.length && !tags.length) return null;
+  return {
+    categories,
+    tags,
+    status,
+    // This disclosure is deliberately carried with each record so an API client
+    // cannot mistake a discovery listing for a verified integration.
+    scope: 'Discovery metadata identifies a documented project theme. It does not verify tokens, deployments, ownership, affiliation, or endorsement.',
+  };
+}
+export function discoveryIndex(projects) {
+  const categories = Object.values(DISCOVERY_CATEGORIES).map(category => ({ ...category,
+    projectCount: projects.filter(project => project.discovery?.categories?.includes(category.id)).length,
+  })).filter(category => category.projectCount > 0);
+  const tagCounts = new Map();
+  for (const project of projects) for (const tag of project.discovery?.tags || []) tagCounts.set(tag, (tagCounts.get(tag) || 0) + 1);
+  const tags = [...tagCounts].map(([id, projectCount]) => ({ id, label: id, projectCount })).sort((a,b) => b.projectCount - a.projectCount || a.id.localeCompare(b.id));
+  return { categories, tags,
+    scope: 'Discovery filters group documented project themes; they are not verification of tokens, deployments, ownership, affiliation, or endorsement.' };
 }
 export function createProjectRegistry(board, seeds) {
   const byId = new Map();
@@ -37,6 +71,7 @@ export function createProjectRegistry(board, seeds) {
     const seen = new Set();
     project.website = publicUrl(project.website);
     project.sources = (project.sources || []).filter(s => publicUrl(s.url)).map(s=>({label:String(s.label),url:publicUrl(s.url)}));
+    project.discovery = discoveryMetadata(project.discovery);
     project.deployments = (project.deployments || []).filter(d=> {
       const key = `${d.chainId}:${String(d.address).toLowerCase()}`;
       if (!Number.isSafeInteger(d.chainId) || d.chainId<=0 || !addressPattern.test(d.address) || seen.has(key)) return false;
@@ -52,7 +87,8 @@ export function createProjectRegistry(board, seeds) {
       monitoredDeployments:project.deployments.filter(d=>d.monitor===true).length };
     return project;
   }).sort((a,b)=>a.name.localeCompare(b.name));
-  return {schemaVersion:1,generatedAt:seeds.generatedAt || board.generatedAt,projects};
+  return {schemaVersion:2,generatedAt:seeds.generatedAt || board.generatedAt,projects,
+    discovery:discoveryIndex(projects)};
 }
 
 export function mergeProjectOverrides(registry, overrides) {
@@ -77,5 +113,6 @@ export function mergeProjectOverrides(registry, overrides) {
     });
   }
   const projects=[...byId.values()];
-  return {...registry,projects:projects.sort((a,b)=>a.name.localeCompare(b.name))};
+  const sorted=projects.sort((a,b)=>a.name.localeCompare(b.name));
+  return {...registry,projects:sorted,discovery:discoveryIndex(sorted)};
 }

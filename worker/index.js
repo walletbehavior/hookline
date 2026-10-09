@@ -38,6 +38,7 @@ import { facilitator as payAiFacilitator } from '@payai/facilitator';
 import { handleTelegramUpdate, verifyWebhookSecret } from '../bot/index.js';
 import { runAlertScan } from '../bot/alert-runner.js';
 import { handleProjectsApi, canonicalProjectRegistry, projectContext } from '../projects/api.js';
+import { handleManifestRequest } from '../projects/manifests.js';
 import { runProjectScan, deliverProjectEvents } from '../projects/evidence.js';
 import { recordRuntimeFamilyAppearances,deliverRuntimeFamilyAppearances } from '../projects/mechanisms.js';
 import { createProjectRpcPool, createRpcPoolHealth } from '../projects/rpc-pool.js';
@@ -46,6 +47,7 @@ import { digest as projectDigest } from '../projects/evidence.js';
 import { handleAccountsApi, consumeTelegramLink, pruneAccountEphemera } from '../accounts/index.js';
 import { createEip1271Verifier } from '../accounts/contract-signatures.js';
 import { handleTapeApi, liveTapePoolsForHook, liveTapeSwapFeesForHook,liveTapeActivityForHook, runBaseTapeScan } from '../projects/tape.js';
+import { createBaseTapeAdapter } from './base-tape-adapter.js';
 
 'use strict';
 
@@ -1943,8 +1945,9 @@ async function collectProjectEvidence(env) {
 }
 async function collectTapeEvidence(env) {
   const pool=createProjectRpcPool({health:tapeRpcHealth,maxRequests:48,deadlineAt:Date.now()+40000});
-  const result=await runBaseTapeScan(env,{rpc:pool.rpc});
-  return {...result,transport:pool.diagnostics()};
+  const rpc=createBaseTapeAdapter({env,poolRpc:pool.rpc});
+  const result=await runBaseTapeScan(env,{rpc});
+  return {...result,transport:{...pool.diagnostics(),tapeSources:rpc.tapeSourceDiagnostics()}};
 }
 
 export default {
@@ -2059,6 +2062,8 @@ export default {
         const cached=await caches.default.match(projectKey);
         if(cached) return cached;
       }
+      const manifestResponse=await handleManifestRequest(request,env);
+      if(manifestResponse) return manifestResponse;
       const projectResponse=await handleProjectsApi(request,env,ASSETS);
       if(projectResponse) {
         if(projectKey && projectResponse.ok && globalThis.caches?.default) ctx.waitUntil(caches.default.put(projectKey,projectResponse.clone()));

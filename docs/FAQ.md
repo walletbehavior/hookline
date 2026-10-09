@@ -10,7 +10,7 @@ Hook information is split across explorers, repositories, RPC calls, dashboards,
 
 ## Where does the current data come from?
 
-The board uses a timestamped v4.xyz community-indexer snapshot for broad hook discovery and aggregate pool and swap counts. The Base Hook Tape separately reads finalized `Initialize` logs from the official Uniswap v4 PoolManager, retaining the pool, hook, currencies, configured LP fee, block, transaction, and raw log. Directory metadata is community-curated, project-submitted, or Hookline-researched and labeled accordingly. Live contract evidence comes directly from configured Ethereum, BNB Chain, Base, Arbitrum One, and Robinhood Chain RPC endpoints.
+The board uses a timestamped v4.xyz community-indexer snapshot for broad hook discovery and aggregate pool and swap counts. The Base Hook Tape separately reads finalized `Initialize` and `Swap` logs from the official Uniswap v4 PoolManager. It uses authenticated Envio HyperSync first, keyless SQD Portal second, and the reviewed Base RPC pool last; every accepted log is checked against the requested finalized range and exact PoolManager identity. Directory metadata is community-curated, project-submitted, or Hookline-researched and labeled accordingly. Other live contract evidence comes directly from configured Ethereum, BNB Chain, Base, Arbitrum One, and Robinhood Chain RPC endpoints.
 
 ## Is the board exhaustive?
 

@@ -14,7 +14,7 @@ const safeHttps = (value) => {
   assert.equal(url.password, '');
 };
 
-assert.equal(seeds.schemaVersion, 1);
+assert.equal(seeds.schemaVersion, 2);
 assert(Number.isFinite(Date.parse(seeds.generatedAt)));
 assert(seeds.projects.length >= 12, 'The directory must cover the broader ecosystem.');
 assert.equal(new Set(seeds.projects.map((p) => p.id)).size, seeds.projects.length);

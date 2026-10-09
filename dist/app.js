@@ -2948,6 +2948,27 @@
 
   function projectById(id) { return projectRegistry().find((project) => project.id === id) || null; }
 
+  // Discovery metadata is intentionally separate from evidence and coverage. It
+  // tells visitors how a directory record reached Hookline, not whether a
+  // project, contract, or token is verified, safe, monitored, or affiliated.
+  function projectDiscoveryTags(project) {
+    const raw = project?.discoveryTags ?? project?.tags ?? project?.discovery?.tags;
+    return [...new Set((Array.isArray(raw) ? raw : typeof raw === 'string' ? raw.split(',') : [])
+      .map((tag) => cleanString(tag, 48).trim()).filter(Boolean))].slice(0, 8);
+  }
+
+  function projectDiscoverySource(project) {
+    const raw = project?.discoverySource ?? project?.discovery?.source;
+    if (typeof raw === 'string') return cleanString(raw, 100).trim();
+    if (raw && typeof raw === 'object') return cleanString(raw.label || raw.name || raw.kind, 100).trim();
+    return '';
+  }
+
+  function projectDiscoveryTime(project) {
+    const discovery = project?.discovery;
+    return projectTime(project?.discoveredAt ?? project?.discoveryUpdatedAt ?? project?.directoryUpdatedAt ?? discovery?.updatedAt ?? discovery?.discoveredAt);
+  }
+
   function validProjectCompareIds(ids) {
     const known = new Set(projectRegistry().map((project) => project.id));
     return [...new Set((Array.isArray(ids) ? ids : []).map((id) => String(id).toLowerCase()).filter((id) => /^[a-z0-9-]{1,60}$/.test(id) && known.has(id)))].slice(0, 4);
@@ -3013,7 +3034,7 @@
 
   function syncProjectFilters() {
     const projects = projectRegistry();
-    const categories = [...new Set(projects.map((project) => project.category).filter(Boolean))].sort();
+    const categories = [...new Set(['Quantum', ...projects.map((project) => project.category).filter(Boolean)])].sort();
     const chains = [...new Set(projects.flatMap((project) => projectDeployments(project).map((deployment) => Number(deployment.chainId))))].filter(Number.isFinite).sort((a, b) => projectChainName(a).localeCompare(projectChainName(b)));
     fillProjectSelect($('projects-category'), categories.map((category) => [category, category]), 'All mechanisms');
     fillProjectSelect($('projects-chain'), chains.map((chainId) => [String(chainId), projectChainName(chainId)]), 'All chains');
@@ -3055,7 +3076,7 @@
       if (category !== 'all' && project.category !== category) return false;
       if (chainId !== 'all' && !deployments.some((deployment) => String(deployment.chainId) === chainId)) return false;
       if (evidence && evidence !== 'all' && project.evidenceCoverage?.level !== evidence) return false;
-      return !query || [project.name, project.summary, project.category, ...deployments.flatMap((deployment) => [deployment.address, deployment.name, deployment.role, projectChainName(deployment.chainId)])].join(' ').toLowerCase().includes(query);
+      return !query || [project.name, project.summary, project.category, ...projectDiscoveryTags(project), projectDiscoverySource(project), ...deployments.flatMap((deployment) => [deployment.address, deployment.name, deployment.role, projectChainName(deployment.chainId)])].join(' ').toLowerCase().includes(query);
     });
     const sort = $('projects-sort').value;
     projects.sort((left, right) => {
@@ -3072,6 +3093,7 @@
       const chains = [...new Set(projectDeployments(project).map((deployment) => deployment.chainId))];
       chains.forEach((id) => tags.append(makeElement('span', '', projectChainName(id))));
       if (!chains.length) tags.append(makeElement('span', '', 'Deployment links pending'));
+      projectDiscoveryTags(project).forEach((tag) => tags.append(makeElement('span', 'project-discovery-tag', tag)));
       if (project.evidenceCoverage?.label) tags.append(makeElement('span', `project-evidence-tier ${project.evidenceCoverage.level || ''}`, project.evidenceCoverage.label));
       identity.append(tags);
       const coverage = makeElement('div', 'project-card-coverage');
@@ -3085,7 +3107,9 @@
       const compare = projectButton(selected ? 'Selected' : 'Compare', () => toggleProjectCompare(project.id), 'project-compare-toggle');
       compare.setAttribute('aria-pressed', selected ? 'true' : 'false');
       compare.disabled = !selected && state.projects.compareIds.length >= 4;
-      action.append(projectInternalLink(`#/projects/${encodeURIComponent(project.id)}`, 'Open project', 'project-open'), compare, makeElement('small', '', project.metadataProvenance || project.provenance || 'Source-linked metadata'));
+      action.append(projectInternalLink(`#/projects/${encodeURIComponent(project.id)}`, 'Open project', 'project-open'), compare, makeElement('small', '', projectDiscoverySource(project) ? `Directory source: ${projectDiscoverySource(project)}` : (project.metadataProvenance || project.provenance || 'Source-linked metadata')));
+      const discoveryAt = projectDiscoveryTime(project);
+      if (discoveryAt != null) action.append(projectTimeNode(discoveryAt, 'Directory updated '));
       if (project.latestObservedAt) action.append(projectTimeNode(project.latestObservedAt, 'Observed '));
       card.append(identity, coverage, action);
       list.append(card);

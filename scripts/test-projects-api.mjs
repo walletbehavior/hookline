@@ -48,6 +48,7 @@ function assets() {
     { id: 'alpha', name: 'Alpha Hooks', website: 'https://alpha-hooks.org/', summary: 'Verified research record for integration tests.', category: 'Liquidity', provenance: 'researched project record', sources: [{ label: 'Docs', url: 'https://alpha-hooks.org/docs' }], deployments: [{ chainId: 1, address, name: 'Alpha hook', role: 'hook', monitor: true, provenance: 'official deployment reference', sourceUrl: 'https://alpha-hooks.org/docs' }] },
     { id: 'beta', name: 'Beta Hooks', website: 'https://beta-hooks.org/', summary: 'Another liquidity mechanism.', category: 'Liquidity', provenance: 'researched project record', sources: [{ label: 'Docs', url: 'https://beta-hooks.org/docs' }], deployments: [{ chainId: 8453, address: secondAddress, name: 'Beta hook', role: 'hook', monitor: false, provenance: 'official deployment reference', sourceUrl: 'https://beta-hooks.org/docs' }] },
     { id: 'gamma', name: 'Gamma Tools', website: 'https://gamma-hooks.org/', summary: 'Developer tools without a token or linked deployment.', category: 'Developer tools', provenance: 'researched project record', sources: [{ label: 'Docs', url: 'https://gamma-hooks.org/docs' }], deployments: [] },
+    { id: 'quantum', name: 'Quantum Launches', website: 'https://quantum-hooks.org/', summary: 'A documented post-quantum launch workflow without a linked deployment.', category: 'Quantum', provenance: 'researched project record', sources: [{ label: 'Official docs', url: 'https://quantum-hooks.org/docs' }], discovery: { categories: ['quantum', 'unreviewed-category'], tags: ['post-quantum', 'launchpad', 'not a tag'], status: 'research-backed' }, deployments: [] },
   ];
   const fingerprint='f'.repeat(64),deploymentIds=[`1_${address}`,`8453_${secondAddress}`];
   return { hooks: JSON.stringify({ schemaVersion: 1, generatedAt: new Date(NOW).toISOString(), projects: [], hooks: [] }),
@@ -112,12 +113,12 @@ function test(name, fn) { tests.push([name, fn]); }
 
 test('canonical and public contexts await storage and preserve distinct authority', async () => {
   const e = env(), source = assets(), context = projectContext(source, e);
-  assert.equal(canonicalProjectRegistry(source).projects.length, 3);
+  assert.equal(canonicalProjectRegistry(source).projects.length, 4);
   assert.equal((await context.getCanonicalProject('alpha')).website, 'https://alpha-hooks.org/');
   assert.equal((await context.getProject('alpha')).name, 'Alpha Hooks');
   assert.equal((await context.getRuntimeFamily('f'.repeat(48))).deploymentCount,2);
   assert.equal(await context.getRuntimeFamily('0'.repeat(48)),null);
-  assert.equal((await context.listProjects()).length, 3);
+  assert.equal((await context.listProjects()).length, 4);
   assert.equal(await context.getCanonicalProject('missing'), null);
   assert.equal(await context.getProject('missing'), null);
   const fallback = projectContext(source);
@@ -147,6 +148,16 @@ test('HTTP directory and profiles expose only canonical observations, chain-awar
   assert.equal(beta.coverage.observedDeployments, 0);
   assert.equal(beta.evidenceCoverage.level, 'linked_only');
   assert.equal(list.body.projects.find((project) => project.id === 'gamma').evidenceCoverage.level, 'directory_only');
+  const quantum=list.body.projects.find((project) => project.id === 'quantum');
+  assert.deepEqual(quantum.discovery.categories, ['quantum']);
+  assert.deepEqual(quantum.discovery.tags, ['post-quantum', 'launchpad']);
+  assert.equal(quantum.discovery.status, 'research-backed');
+  assert.match(quantum.discovery.scope, /not verify tokens, deployments, ownership, affiliation/);
+  assert.deepEqual(quantum.deployments, []);
+  assert.equal(list.body.discovery.categories[0].id, 'quantum');
+  assert.equal(list.body.discovery.categories[0].projectCount, 1);
+  assert.equal(list.body.discovery.tags.find(tag => tag.id === 'post-quantum').projectCount, 1);
+  assert.match(list.body.discovery.scope, /not verification of tokens, deployments, ownership, affiliation/);
   const detail = await api(e, source, '/api/projects/alpha');
   assert.equal(detail.response.status, 200);
   assert.equal(detail.body.observations.length, 1);

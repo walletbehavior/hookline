@@ -1,7 +1,15 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "generatedAt": "2026-10-08T01:37:00.000Z",
   "projects": [
+    {
+      "id": "pqc-market", "name": "pqc.market",
+      "summary": "A Solana launch workflow that documents post-quantum launch attestations and identity records, with optional post-quantum signature schemes. This directory entry does not assert a token, contract deployment, or project affiliation beyond the cited first-party materials.",
+      "category": "Quantum", "website": "https://pqc.market/", "provenance": "researched project record",
+      "sources": [{"label": "Official documentation", "url": "https://pqc.market/docs"}, {"label": "Official source repository", "url": "https://github.com/pqcmarket"}],
+      "discovery": {"categories": ["quantum"], "tags": ["post-quantum", "launchpad", "solana"], "status": "research-backed"},
+      "deployments": []
+    },
     {
       "id": "clanker", "name": "Clanker",
       "summary": "Token deployment and LP-fee infrastructure using static or dynamic-fee Uniswap v4 hooks, with configurable recipients and launch modules.",

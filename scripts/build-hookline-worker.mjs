@@ -30,6 +30,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const root = resolve(__dirname, '..');
 const dist = join(root, 'dist');
 const workerSrc = join(root, 'worker', 'index.js');
+const tapeAdapterSrc = join(root, 'worker', 'base-tape-adapter.js');
 const outDir = join(dist, 'server');
 const out = join(outDir, 'index.js');
 const botSrcDir = join(root, 'bot');
@@ -155,6 +156,7 @@ const emitted = runtime.replace(/\/\* @ASSETS-INJECT \*\/\s*\n?/s, () => assetsB
 
 mkdirSync(outDir, { recursive: true });
 writeFileSync(out, emitted, 'utf8');
+copyFileSync(tapeAdapterSrc, join(outDir, 'base-tape-adapter.js'));
 
 // The worker imports the portable Telegram runtime. Copy only browser/Worker
 // compatible modules; the Node server and tests stay outside the deployment.

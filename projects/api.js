@@ -1,4 +1,4 @@
-import { createProjectRegistry,mergeProjectOverrides } from './registry.js';
+import { createProjectRegistry,mergeProjectOverrides,discoveryIndex } from './registry.js';
 import { latestProjectObservations,listProjectEvents,projectActivitySummary,projectMonitoring,PROJECT_SIGNAL_TYPES } from './evidence.js';
 import { handleContributionRequest,readProjectOverrides,readProjectAuthority } from './contributions.js';
 import { READERS,readerDefinitionsForDeployment } from './reader-definitions.js';
@@ -114,9 +114,10 @@ export async function publicProjectRegistry(env,assets) {
     FROM project_observations WHERE canonical=1 GROUP BY project_id`).all())]);
   const coverage=new Map((counts.results || []).map(r=>[r.project_id,r]));
   const merged=mergeProjectOverrides(registry,overrides);
-  const value={...merged,projects:merged.projects.map(p=>({...p,evidenceCoverage:evidenceCoverage(p),
+  const projects=merged.projects.map(p=>({...p,evidenceCoverage:evidenceCoverage(p),
     coverage:{...p.coverage,...runtimeCoverage(p,assets),observedDeployments:Number(coverage.get(p.id)?.observations || 0)},
-    latestObservedAt:coverage.get(p.id)?.latest?new Date(coverage.get(p.id).latest).toISOString():null}))};
+    latestObservedAt:coverage.get(p.id)?.latest?new Date(coverage.get(p.id).latest).toISOString():null}));
+  const value={...merged,projects,discovery:discoveryIndex(projects)};
   publicRegistries.set(env.DB,{assets,value,until:Date.now()+60000});
   return value;
 }

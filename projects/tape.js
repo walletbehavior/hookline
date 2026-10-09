@@ -24,11 +24,13 @@ const HASH = /^0x[0-9a-f]{64}$/;
 const QUANTITY = /^0x(?:0|[1-9a-f][0-9a-f]*)$/;
 const WORD = /^[0-9a-f]{64}$/;
 const RANGE_BLOCKS = 500;
-const HISTORICAL_WINDOWS_PER_RUN = 8;
+// Six Swap windows, one live Initialize window, and three historical windows
+// keep a normal scheduled scan at ten indexer log reads.
+const HISTORICAL_WINDOWS_PER_RUN = 3;
 const MAX_LOGS_PER_SEGMENT = 100;
 const MAX_ROWS_PER_RUN = 500;
 const LIVE_LOOKBACK_BLOCKS = RANGE_BLOCKS;
-const SWAP_RANGE_BLOCKS = 75;
+const SWAP_RANGE_BLOCKS = 150;
 const SWAP_WINDOWS_PER_RUN = 6;
 const SWAP_LIVE_LOOKBACK_BLOCKS = 150;
 const MAX_SWAP_LOGS_PER_SEGMENT = 500;
@@ -542,23 +544,47 @@ async function swapLogSegments(rpc, fromBlock, toBlock) {
     }]);
   } catch(error) {
     if(error?.code!=='rpc_log_range_limited' || fromBlock>=toBlock) throw error;
+    // Provider-enforced range cap: the only case that still requires recursive
+    // splitting, because the upstream will not answer a wider range at all.
     const width=toBlock-fromBlock+1,suggested=Math.max(1,Math.min(width-1,Math.trunc(Number(error.suggestedRange)||width/2)));
     const split=Math.min(toBlock-1,fromBlock+suggested-1);
     return [...await swapLogSegments(rpc,fromBlock,split),...await swapLogSegments(rpc,split+1,toBlock)];
   }
   if(!Array.isArray(logs)) throw failure('tape_swap_logs_invalid');
-  if(logs.length>MAX_SWAP_LOGS_PER_SEGMENT && fromBlock<toBlock) {
-    const middle=Math.floor((fromBlock+toBlock)/2);
-    return [...await swapLogSegments(rpc,fromBlock,middle),...await swapLogSegments(rpc,middle+1,toBlock)];
-  }
-  if(logs.length>MAX_SWAP_LOGS_PER_SEGMENT) throw failure('tape_swap_density_exceeded');
-  const decoded=logs.map(decodeSwapLog).sort((left,right)=>left.blockNumber-right.blockNumber || left.logIndex-right.logIndex);
+  // Deterministic in-memory block-boundary segmentation for dense results: no
+  // recursive refetches. Provider range errors above still split at the source.
+  return segmentSwapLogsInMemory(logs,fromBlock,toBlock);
+}
+
+/** Deterministically split validated swap logs into contiguous block-range segments. */
+export function segmentSwapLogsInMemory(logs, fromBlock, toBlock) {
+  const sorted=logs.map(decodeSwapLog).sort((left,right)=>left.blockNumber-right.blockNumber || left.logIndex-right.logIndex);
+  const byBlock=new Map();
   const identities=new Set();
-  for(const item of decoded) {
-    if(item.blockNumber<fromBlock || item.blockNumber>toBlock || identities.has(item.eventId)) throw failure('tape_swap_set_invalid');
+  for(const item of sorted) {
+    if(item.blockNumber<fromBlock || item.blockNumber>toBlock) throw failure('tape_swap_range_invalid');
+    if(identities.has(item.eventId)) throw failure('tape_swap_set_invalid');
     identities.add(item.eventId);
+    const batch=byBlock.get(item.blockNumber)||[];
+    batch.push(item);
+    byBlock.set(item.blockNumber,batch);
   }
-  return [{fromBlock,toBlock,items:decoded}];
+  if(!sorted.length) return [{fromBlock,toBlock,items:[]}];
+  const segments=[];
+  let currentFrom=fromBlock;
+  let currentItems=[];
+  for(const blockNumber of [...byBlock.keys()].sort((a,b)=>a-b)) {
+    const batch=byBlock.get(blockNumber);
+    if(batch.length>MAX_SWAP_LOGS_PER_SEGMENT) throw failure('tape_swap_density_exceeded');
+    if(currentItems.length && currentItems.length+batch.length>MAX_SWAP_LOGS_PER_SEGMENT) {
+      segments.push({fromBlock:currentFrom,toBlock:blockNumber-1,items:currentItems});
+      currentFrom=blockNumber;
+      currentItems=[];
+    }
+    currentItems.push(...batch);
+  }
+  segments.push({fromBlock:currentFrom,toBlock,items:currentItems});
+  return segments;
 }
 
 async function scanSwapWindow({db,rpc,fromBlock,toBlock,now,finalized,rowsRemaining}) {
