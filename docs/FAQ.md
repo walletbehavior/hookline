@@ -52,6 +52,8 @@ Automated validation handles limits and DNS verification. An authenticated sched
 
 Selected changes observed on monitored contracts. Hookline normalizes supported records into factory launch, implementation change, fee configuration, runtime change, other configuration, or observed outcome while preserving the original event and evidence. The website feed can filter those signals, and routine accrual history cannot bury higher-signal records. A rotating 10-minute scan uses bounded chain-specific windows. Profiles show actual source blocks, lag, and coverage. Baselines and historical catch-up are not sent as newly occurring activity. A log labeled payment is a recorded contract event, not a reconciliation of the entire project's payouts.
 
+The Activity page also reports exact rolling 24-hour totals across monitored records. Those totals are computed independently of the visible feed's 60-row response limit and always exclude historical backfill. A busy launch factory can therefore fill the visible feed without hiding the day's implementation changes or outcomes from the summary.
+
 ## What does following a runtime family mean?
 
 It subscribes to one exact SHA-256 deployed-runtime fingerprint. Existing appearances seed silently. Hookline alerts only when it later first observes that exact bytecode on another monitored deployment. The alert retains the address, chain, block, and source observation. It is not proof that the contract was deployed at alert time, shares ownership, or belongs to the project whose page exposed the family.

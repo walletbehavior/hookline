@@ -171,6 +171,47 @@ export async function listProjectEvents(env,projectId=null,limit=60,{focus='all'
   return (signal==='all'?events:events.filter(event=>event.signalType===signal)).slice(0,limit);
 }
 
+/** Exact rolling-window totals for the public change feed. The feed itself is
+ * deliberately row-bounded; this grouped summary keeps a busy factory from
+ * making the visible 60 records look like the whole day. Historical backfill
+ * is excluded so baseline ingestion never becomes apparent new activity.
+ */
+export async function projectActivitySummary(env,projectId=null,{now=Date.now(),hours=24,maxGroups=2000}={}) {
+  const emptySignals=Object.fromEntries(PROJECT_SIGNAL_TYPES.filter(value=>value!=='all').map(value=>[value,0]));
+  const window={hours,from:new Date(now-hours*60*60*1000).toISOString(),to:new Date(now).toISOString()};
+  if(!env.DB) return {window,totalEvents:0,activeProjects:0,signals:emptySignals,projects:[],complete:true,latestAt:null};
+  const where=['canonical=1',"COALESCE(json_extract(payload_json,'$.evidence.backfill'),0)=0",'COALESCE(occurred_at,observed_at)>=?'],values=[now-hours*60*60*1000];
+  if(projectId){where.push('project_id=?');values.push(projectId);}
+  const cap=Math.max(1,Math.min(5000,Math.trunc(Number(maxGroups)||2000)));
+  values.push(cap+1);
+  const result=await env.DB.prepare(`SELECT project_id,kind,
+      json_extract(payload_json,'$.projectName') AS project_name,
+      json_extract(payload_json,'$.signalType') AS signal_type,
+      json_extract(payload_json,'$.field') AS field,
+      json_extract(payload_json,'$.classification') AS classification,
+      json_extract(payload_json,'$.title') AS title,
+      json_extract(payload_json,'$.deploymentField') AS deployment_field,
+      json_extract(payload_json,'$.hookField') AS hook_field,
+      COUNT(*) AS events,MAX(COALESCE(occurred_at,observed_at)) AS latest_at
+    FROM project_events WHERE ${where.join(' AND ')}
+    GROUP BY project_id,kind,project_name,signal_type,field,classification,title,deployment_field,hook_field
+    ORDER BY latest_at DESC LIMIT ?`).bind(...values).all();
+  const groups=result.results || [],complete=groups.length<=cap,signals={...emptySignals},projects=new Map();
+  let totalEvents=0,latestAt=null;
+  for(const row of groups.slice(0,cap)) {
+    const count=Math.max(0,Number(row.events)||0),signal=projectEventSignal({signalType:row.signal_type,kind:row.kind,field:row.field,
+      classification:row.classification,title:row.title,deploymentField:row.deployment_field,hookField:row.hook_field});
+    totalEvents+=count;signals[signal]=(signals[signal]||0)+count;
+    const latest=Number(row.latest_at);if(Number.isFinite(latest)) latestAt=Math.max(latestAt||0,latest);
+    if(!projects.has(row.project_id)) projects.set(row.project_id,{projectId:row.project_id,projectName:row.project_name || row.project_id,totalEvents:0,signals:{...emptySignals},latestAt:null});
+    const project=projects.get(row.project_id);project.totalEvents+=count;project.signals[signal]=(project.signals[signal]||0)+count;
+    if(Number.isFinite(latest) && (!project.latestAt || latest>Date.parse(project.latestAt))) project.latestAt=new Date(latest).toISOString();
+  }
+  return {window,totalEvents,activeProjects:projects.size,signals,
+    projects:[...projects.values()].sort((left,right)=>right.totalEvents-left.totalEvents || left.projectName.localeCompare(right.projectName)),
+    complete,latestAt:latestAt==null?null:new Date(latestAt).toISOString()};
+}
+
 export async function projectMonitoring(env,projectId,currentDeployments=null) {
   const limits={configTargetsPerRun:SCAN_LIMIT,maxConfigReadsPerTarget:CONFIG_READ_LIMIT,maxReceiptProofsPerRun:RECEIPT_PROOF_LIMIT,
     eventPagesPerTarget:LOG_PAGE_LIMIT,maxEventPageReads:EVENT_PAGE_READ_LIMIT,maxRpcCalls:RPC_CALL_LIMIT,maxContractEventsPerRun:EVENT_WRITE_LIMIT,

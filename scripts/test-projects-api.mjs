@@ -161,9 +161,14 @@ test('HTTP directory and profiles expose only canonical observations, chain-awar
   assert.equal(detail.body.related[0].id, 'beta');
   assert.match(detail.body.related[0].reason, /not deployment affiliation/);
   const activity = await api(e, source, '/api/project-activity');
-  assert.equal(activity.body.schemaVersion,3);
+  assert.equal(activity.body.schemaVersion,4);
   assert.equal(activity.body.events.length, 2);
   assert.equal(activity.body.events[0].signalType,'configuration_change');
+  assert.equal(activity.body.summary24h.totalEvents,2);
+  assert.equal(activity.body.summary24h.activeProjects,2);
+  assert.equal(activity.body.summary24h.signals.configuration_change,2);
+  assert.equal(activity.body.summary24h.complete,true);
+  assert.equal((await api(e,source,'/api/project-activity?project=alpha')).body.summary24h.totalEvents,1);
   assert.equal(activity.body.filters.focus,'important');
   assert.equal((await api(e,source,'/api/project-activity?signal=configuration_change')).body.events.length,2);
   assert.equal((await api(e,source,'/api/project-activity?signal=factory_launch')).body.events.length,0);

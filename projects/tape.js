@@ -505,12 +505,20 @@ async function releaseLease(db, owner) {
 }
 
 async function logSegments(rpc, fromBlock, toBlock) {
-  const logs = await rpc(BASE_CHAIN_ID, 'eth_getLogs', [{
-    address: BASE_POOL_MANAGER,
-    topics: [INITIALIZE_TOPIC],
-    fromBlock: hex(fromBlock),
-    toBlock: hex(toBlock),
-  }]);
+  let logs;
+  try {
+    logs = await rpc(BASE_CHAIN_ID, 'eth_getLogs', [{
+      address: BASE_POOL_MANAGER,
+      topics: [INITIALIZE_TOPIC],
+      fromBlock: hex(fromBlock),
+      toBlock: hex(toBlock),
+    }]);
+  } catch (error) {
+    if (error?.code!=='rpc_log_range_limited' || fromBlock>=toBlock) throw error;
+    const width=toBlock-fromBlock+1,suggested=Math.max(1,Math.min(width-1,Math.trunc(Number(error.suggestedRange)||width/2)));
+    const split=Math.min(toBlock-1,fromBlock+suggested-1);
+    return [...await logSegments(rpc,fromBlock,split),...await logSegments(rpc,split+1,toBlock)];
+  }
   if (!Array.isArray(logs)) throw failure('tape_logs_invalid');
   if (logs.length > MAX_LOGS_PER_SEGMENT && fromBlock < toBlock) {
     const middle = Math.floor((fromBlock + toBlock) / 2);
@@ -527,9 +535,17 @@ async function logSegments(rpc, fromBlock, toBlock) {
 }
 
 async function swapLogSegments(rpc, fromBlock, toBlock) {
-  const logs=await rpc(BASE_CHAIN_ID,'eth_getLogs',[{
-    address:BASE_POOL_MANAGER,topics:[SWAP_TOPIC],fromBlock:hex(fromBlock),toBlock:hex(toBlock),
-  }]);
+  let logs;
+  try {
+    logs=await rpc(BASE_CHAIN_ID,'eth_getLogs',[{
+      address:BASE_POOL_MANAGER,topics:[SWAP_TOPIC],fromBlock:hex(fromBlock),toBlock:hex(toBlock),
+    }]);
+  } catch(error) {
+    if(error?.code!=='rpc_log_range_limited' || fromBlock>=toBlock) throw error;
+    const width=toBlock-fromBlock+1,suggested=Math.max(1,Math.min(width-1,Math.trunc(Number(error.suggestedRange)||width/2)));
+    const split=Math.min(toBlock-1,fromBlock+suggested-1);
+    return [...await swapLogSegments(rpc,fromBlock,split),...await swapLogSegments(rpc,split+1,toBlock)];
+  }
   if(!Array.isArray(logs)) throw failure('tape_swap_logs_invalid');
   if(logs.length>MAX_SWAP_LOGS_PER_SEGMENT && fromBlock<toBlock) {
     const middle=Math.floor((fromBlock+toBlock)/2);
@@ -646,16 +662,28 @@ export async function runBaseTapeScan(env, { rpc, now = Date.now() } = {}) {
       finalized_block=?,finalized_hash=?,last_checked_at=?,updated_at=? WHERE id=?`)
       .bind(liveStarted,liveNext,finalized.number,finalized.hash,now,now,TAPE_SCAN_ID).run();
 
-    if (liveNext <= finalized.number) {
-      const result = await scanWindow({ db, rpc, stateField:'live_next_block', fromBlock:liveNext,
-        toBlock:Math.min(finalized.number,liveNext+RANGE_BLOCKS-1), now, finalized,
-        rowsRemaining:MAX_ROWS_PER_RUN-rows, historicalBoundary:liveStarted });
-      liveNext=result.nextBlock;rows+=result.rows;segments+=result.segments;
-    }
-
-    // Current swap evidence is more time-sensitive than the bounded historical
-    // initialization catch-up. Seed it before archive-provider work begins.
+    const seeded=await db.prepare('SELECT event_id FROM hook_tape_pools WHERE chain_id=? AND hook_address!=? LIMIT 1').bind(BASE_CHAIN_ID,ZERO_ADDRESS).first();
+    let liveFailure=null;
+    const advanceLiveInitializations=async()=>{
+      if(liveNext>finalized.number) return;
+      try {
+        const result=await scanWindow({db,rpc,stateField:'live_next_block',fromBlock:liveNext,
+          toBlock:Math.min(finalized.number,liveNext+RANGE_BLOCKS-1),now,finalized,
+          rowsRemaining:MAX_ROWS_PER_RUN-rows,historicalBoundary:liveStarted});
+        liveNext=result.nextBlock;rows+=result.rows;segments+=result.segments;
+      } catch(error) {
+        liveFailure=safeError(error);
+      }
+    };
+    // A brand-new database needs pool identities before any Swap row can be
+    // resolved. Once seeded, prioritize the time-sensitive Swap cursor.
+    if(!seeded) await advanceLiveInitializations();
+    // Finalized swap evidence is the time-sensitive surface. Advance it before
+    // pool-birth and historical catch-up can consume the bounded RPC budget.
+    // Known pools are retained independently, so a slower Initialize cursor
+    // does not justify freezing already-resolved swap evidence.
     const swaps=await scanBaseSwaps(db,rpc,now,finalized);
+    if(seeded) await advanceLiveInitializations();
     const receipts=await enrichSwapReceipts(db,rpc,now,finalized);
     const traces=await enrichSwapTraces(db,rpc,now,finalized);
     let historicalFailure=null;
@@ -672,13 +700,15 @@ export async function runBaseTapeScan(env, { rpc, now = Date.now() } = {}) {
       historicalFailure=safeError(error);
     }
 
+    const initializationFailure=liveFailure || historicalFailure;
     await db.prepare(`UPDATE hook_tape_scan_state SET finalized_block=?,finalized_hash=?,last_checked_at=?,last_success_at=?,last_failure=?,
       historical_complete=CASE WHEN historical_next_block>=live_started_block THEN 1 ELSE historical_complete END,updated_at=? WHERE id=?`)
-      .bind(finalized.number,finalized.hash,now,now,historicalFailure,now,TAPE_SCAN_ID).run();
+      .bind(finalized.number,finalized.hash,now,now,initializationFailure,now,TAPE_SCAN_ID).run();
     state = await db.prepare('SELECT historical_next_block,live_started_block,live_next_block,historical_complete FROM hook_tape_scan_state WHERE id=?').bind(TAPE_SCAN_ID).first();
-    return { status:historicalFailure?'degraded':'ok', chainId:BASE_CHAIN_ID, finalizedBlock:finalized.number, rows, segments,
+    const degraded=Boolean(initializationFailure || swaps.status==='degraded' || receipts.status==='degraded' || traces.status==='degraded');
+    return { status:degraded?'degraded':'ok', chainId:BASE_CHAIN_ID, finalizedBlock:finalized.number, rows, segments,
       historicalThrough:Number(state.historical_next_block)-1, liveThrough:Number(state.live_next_block)-1,
-      historicalComplete:Boolean(state.historical_complete),historicalFailure,swaps,receipts,traces,
+      historicalComplete:Boolean(state.historical_complete),liveFailure,historicalFailure,swaps,receipts,traces,
       rpcRequests:typeof rpc.upstreamRequests==='function'?rpc.upstreamRequests():null };
   } catch (error) {
     await db.prepare('UPDATE hook_tape_scan_state SET last_checked_at=?,last_failure=?,updated_at=? WHERE id=?')

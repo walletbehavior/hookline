@@ -228,6 +228,26 @@ test('reruns are idempotent and historical catch-up meets the live boundary',asy
   assert.equal((await env.DB.prepare('SELECT COUNT(*) AS n FROM hook_tape_pools').first()).n,1);
 });
 
+test('scanner retries provider response limits in smaller windows without moving evidence boundaries',async()=>{
+  const env={DB:new D1()},transport=new RPC(BASE_POOL_MANAGER_DEPLOYMENT_BLOCK+20),tip=transport.tip;
+  transport.logs=[initializeLog({blockNumber:tip-2,pool:31,hook:address('3')})];
+  transport.swapLogs=[swapLog({blockNumber:tip-1,pool:31,fee:3000})];
+  const source=transport.install(),widths=[];
+  const rpc=async(chainId,method,params)=>{
+    if(method==='eth_getLogs') {
+      const width=Number(BigInt(params[0].toBlock)-BigInt(params[0].fromBlock)+1n);widths.push(width);
+      if(width>10) throw Object.assign(new Error('rpc_log_range_limited'),{code:'rpc_log_range_limited',suggestedRange:10});
+    }
+    return source(chainId,method,params);
+  };
+  rpc.pinBlock=source.pinBlock;rpc.upstreamRequests=source.upstreamRequests;
+  const result=await runBaseTapeScan(env,{rpc,now:NOW});
+  assert.equal(result.status,'ok');assert.equal(result.swaps.status,'ok');
+  assert.ok(widths.some(width=>width>10));assert.ok(widths.some(width=>width<=10));
+  assert.equal((await env.DB.prepare('SELECT COUNT(*) AS n FROM hook_tape_pools').first()).n,1);
+  assert.equal((await env.DB.prepare('SELECT COUNT(*) AS n FROM hook_tape_swaps').first()).n,1);
+});
+
 test('bounded swap retention prunes expired raw rows without moving evidence cursors backward',async()=>{
   const env={DB:new D1()},transport=new RPC(BASE_POOL_MANAGER_DEPLOYMENT_BLOCK+600),tip=transport.tip,pool=77;
   transport.logs=[initializeLog({blockNumber:tip-10,pool,hook:address('7')})];
@@ -250,10 +270,27 @@ test('failed log reads retain cursors and last good evidence',async()=>{
   await runBaseTapeScan(env,{rpc,now:NOW});
   const before=await env.DB.prepare('SELECT live_next_block,historical_next_block FROM hook_tape_scan_state WHERE id=?').bind(TAPE_SCAN_ID).first();
   transport.tip+=10;transport.failLogs=true;
-  await assert.rejects(()=>runBaseTapeScan(env,{rpc,now:NOW+600_000}),/logs unavailable/);
+  const result=await runBaseTapeScan(env,{rpc,now:NOW+600_000});assert.equal(result.status,'degraded');
   const after=await env.DB.prepare('SELECT live_next_block,historical_next_block,last_failure,lease_until FROM hook_tape_scan_state WHERE id=?').bind(TAPE_SCAN_ID).first();
   assert.equal(after.live_next_block,before.live_next_block);assert.equal(after.historical_next_block,before.historical_next_block);
   assert.equal(after.last_failure,'rpc_provider_unavailable');assert.equal(after.lease_until,0);
+});
+
+test('finalized swaps advance before an unavailable Initialize catch-up window',async()=>{
+  const env={DB:new D1()},transport=new RPC(BASE_POOL_MANAGER_DEPLOYMENT_BLOCK+600),tip=transport.tip,pool=88;
+  transport.logs=[initializeLog({blockNumber:tip-10,pool,hook:address('8')})];
+  await runBaseTapeScan(env,{rpc:transport.install(),now:NOW});
+  transport.tip=tip+10;transport.swapLogs=[swapLog({blockNumber:tip+2,pool,fee:4500})];
+  const source=transport.install();
+  const rpc=async(chainId,method,params)=>{
+    if(method==='eth_getLogs' && params[0].topics[0]===INITIALIZE_TOPIC) throw Object.assign(new Error('initialize unavailable'),{code:'rpc_provider_unavailable'});
+    return source(chainId,method,params);
+  };
+  rpc.pinBlock=source.pinBlock;rpc.upstreamRequests=source.upstreamRequests;
+  const result=await runBaseTapeScan(env,{rpc,now:NOW+600_000});
+  assert.equal(result.status,'degraded');assert.equal(result.liveFailure,'rpc_provider_unavailable');
+  assert.equal(result.swaps.status,'ok');assert.equal(result.swaps.rows,1);
+  assert.equal((await env.DB.prepare('SELECT COUNT(*) AS n FROM hook_tape_swaps').first()).n,1);
 });
 
 test('active lease skips overlap and public query validation fails closed',async()=>{

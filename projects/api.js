@@ -1,5 +1,5 @@
 import { createProjectRegistry,mergeProjectOverrides } from './registry.js';
-import { latestProjectObservations,listProjectEvents,projectMonitoring,PROJECT_SIGNAL_TYPES } from './evidence.js';
+import { latestProjectObservations,listProjectEvents,projectActivitySummary,projectMonitoring,PROJECT_SIGNAL_TYPES } from './evidence.js';
 import { handleContributionRequest,readProjectOverrides,readProjectAuthority } from './contributions.js';
 import { READERS,readerDefinitionsForDeployment } from './reader-definitions.js';
 
@@ -137,7 +137,9 @@ export async function handleProjectsApi(request,env,assets) {
       const focus=String(url.searchParams.get('focus') || 'important'),history=String(url.searchParams.get('history') || 'all');
       const signal=String(url.searchParams.get('signal') || 'all');
       if(!['all','important','configuration','outcome','accrual'].includes(focus) || !['all','current'].includes(history) || !PROJECT_SIGNAL_TYPES.includes(signal)) return reply({error:'invalid_activity_filter'},400,0);
-      return reply({schemaVersion:3,events:await listProjectEvents(env,id,60,{focus,history,signal}),filters:{project:id || null,focus,history,signal},generatedAt:new Date().toISOString(),
+      const now=Date.now();
+      const [events,summary24h]=await Promise.all([listProjectEvents(env,id,60,{focus,history,signal}),projectActivitySummary(env,id,{now})]);
+      return reply({schemaVersion:4,events,summary24h,filters:{project:id || null,focus,history,signal},generatedAt:new Date(now).toISOString(),
         coverage:'Monitored deployments and decoded event types only. Historical coverage begins at each retained scan window.'});
     }
     if (path==='/api/project-comparison') {

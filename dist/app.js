@@ -79,7 +79,7 @@
     tokenSearchTimer: null,
     boardEvidence: new Map(),
     boardLoading: new Set(),
-    projects: { registry: null, loading: null, error: '', detailRequest: 0, detail: null, activityRequest: 0, events: [], activityLoaded: false, activityGeneratedAt: null, receipts: [], contributionBusy: false, compareIds: [], compareRequest: 0, comparison: null, comparisonError: '' },
+    projects: { registry: null, loading: null, error: '', detailRequest: 0, detail: null, activityRequest: 0, events: [], activitySummary: null, activityLoaded: false, activityGeneratedAt: null, receipts: [], contributionBusy: false, compareIds: [], compareRequest: 0, comparison: null, comparisonError: '' },
     tape: { status: null, activity: null, mode: 'swaps', pools: [], swaps: [], cursors: { pools: null, swaps: null }, loaded: { pools: false, swaps: false }, loading: false, error: '' },
     execution: {
       module: null,
@@ -3556,7 +3556,32 @@
     list.replaceChildren();
     if (!events.length) list.append(makeElement('p', 'projects-empty', state.projects.activityLoaded ? 'No change records in this view yet. First observations establish the baseline.' : 'Loading observed activity…'));
     else events.slice(0, 150).forEach((event) => list.append(renderProjectEvent(event)));
+    renderProjectActivitySummary();
     $('project-activity-generated').replaceChildren(projectTimeNode(state.projects.activityGeneratedAt, 'Feed updated '));
+  }
+
+  function renderProjectActivitySummary() {
+    const root=$('project-activity-summary'),summary=state.projects.activitySummary;
+    root.replaceChildren();root.hidden=!summary;
+    if(!summary) return;
+    const signals=summary.signals || {},metrics=[
+      ['Factory launches',signals.factory_launch],
+      ['Implementation changes',signals.implementation_change],
+      ['Fee + config changes',(Number(signals.fee_configuration_change)||0)+(Number(signals.runtime_change)||0)+(Number(signals.configuration_change)||0)],
+      ['Observed outcomes',signals.outcome],
+      ['Active projects',summary.activeProjects],
+    ];
+    const grid=makeElement('div','project-activity-summary-grid');
+    metrics.forEach(([label,value])=>{const card=makeElement('div','');card.append(makeElement('strong','',formatNumber(Number(value))),makeElement('span','',label));grid.append(card);});
+    const footer=makeElement('div','project-activity-summary-foot');
+    footer.append(makeElement('span','',`Rolling 24 hours · ${formatNumber(Number(summary.totalEvents))} monitored records · backfill excluded${summary.complete===false?' · grouped result incomplete':''}`));
+    const projects=Array.isArray(summary.projects)?summary.projects.slice(0,5):[];
+    if(projects.length) {
+      const leaders=makeElement('div','project-activity-summary-projects');
+      projects.forEach((project,index)=>{if(index) leaders.append(', ');leaders.append(projectInternalLink(`#/projects/${encodeURIComponent(project.projectId)}`,`${project.projectName} ${formatNumber(Number(project.totalEvents))}`));});
+      footer.append(leaders);
+    }
+    root.append(grid,footer);
   }
 
   async function loadProjectActivity(reset = false) {
@@ -3564,7 +3589,7 @@
     const button = $('project-activity-refresh');
     button.disabled = true;
     void loadProjects();
-    if(reset){state.projects.events=[];state.projects.activityLoaded=false;renderProjectActivity();}
+    if(reset){state.projects.events=[];state.projects.activitySummary=null;state.projects.activityLoaded=false;renderProjectActivity();}
     if (!state.projects.activityLoaded) renderProjectActivity();
     try {
       const params=new URLSearchParams();
@@ -3576,6 +3601,7 @@
       if (request !== state.projects.activityRequest) return;
       if (!Array.isArray(body.events)) throw new Error('Activity records were incomplete.');
       state.projects.events = body.events;
+      state.projects.activitySummary = body.summary24h || null;
       state.projects.activityLoaded = true;
       state.projects.activityGeneratedAt = body.generatedAt;
       projectNotice($('project-activity-status'), '');

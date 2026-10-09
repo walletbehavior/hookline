@@ -36,6 +36,7 @@ test('immutable method-specific sources exclude known unusable log services',()=
   assert.ok(PROJECT_RPC_POOLS[56].logs.every(p=>p.id!=='bnb-official'));
   assert.ok(PROJECT_RPC_POOLS[8453].state.every(p=>p.id!=='base-publicnode'));
   assert.deepEqual(PROJECT_RPC_POOLS[8453].state.map(p=>p.id),['base-tenderly','base-official','base-drpc']);
+  assert.deepEqual(PROJECT_RPC_POOLS[8453].logs.map(p=>p.id),['base-publicnode','base-tenderly','base-drpc']);
   assert.deepEqual(PROJECT_RPC_POOLS[8453].traces.map(p=>p.id),['base-drpc']);
   assert.ok(Object.entries(PROJECT_RPC_POOLS).filter(([chainId])=>chainId!=='8453').every(([,config])=>config.traces.length===0));
   for(const config of Object.values(PROJECT_RPC_POOLS)) for(const providers of Object.values(config)) for(const entry of providers) {
@@ -120,6 +121,21 @@ test('a rate limit plus a misleading alternate range error remains a rate limit,
   await assert.rejects(h.rpc(1,'eth_getLogs',[filter(2000)]),/rpc_rate_limited/);
   assert.deepEqual(h.calls.filter(c=>c.method==='eth_getLogs').map(c=>c.params[0]),[filter(2000),filter(2000)]);
   assert.equal(h.health.get('ethereum-drpc:logs').safeLogRange,null);
+});
+test('an archive-ineligible fallback cannot hide a usable provider smaller-range response',async()=>{
+  const h=harness({handler:({url,request})=>request.method==='eth_getLogs'?reply(request,null,url.includes('publicnode')
+    ?{status:403,message:'Archive requests require a personal token'}:{status:400,message:'response size too large'}):null});
+  const block=await h.rpc(8453,'eth_getBlockByNumber',['finalized',false]);h.rpc.pinBlock(8453,block);
+  await assert.rejects(h.rpc(8453,'eth_getLogs',[filter(480)]),error=>error.code==='rpc_log_range_limited' && error.suggestedRange===240);
+  assert.equal(h.rpc.suggestedLogRange(8453,480),240);
+});
+test('a throttled wide provider cannot hide a legitimate narrow reviewed fallback',async()=>{
+  const h=harness({handler:({url,request})=>request.method==='eth_getLogs'?reply(request,null,url.includes('publicnode')
+    ?{status:403,message:'Archive requests require a personal token'}:url.includes('tenderly')
+      ?{status:429,message:'rate limited'}:{status:400,message:'block range limited to 10 blocks'}):null});
+  const block=await h.rpc(8453,'eth_getBlockByNumber',['finalized',false]);h.rpc.pinBlock(8453,block);
+  await assert.rejects(h.rpc(8453,'eth_getLogs',[filter(75)]),error=>error.code==='rpc_log_range_limited' && error.suggestedRange===10);
+  assert.equal(h.rpc.suggestedLogRange(8453,75),10);
 });
 test('explicit legitimate range limits are learned only after a successful bounded query',async()=>{
   const h=harness({handler:({request})=>request.method==='eth_getLogs' && Number(BigInt(request.params[0].toBlock)-BigInt(request.params[0].fromBlock)+1n)>500

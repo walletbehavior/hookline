@@ -1499,6 +1499,16 @@ progress::-moz-progress-bar { background: var(--cyan); }
 .profile-project-directory small { color: var(--bone-mute); font-size: .62rem; }
 .activity-toolbar { grid-template-columns: minmax(180px,1fr) repeat(3,minmax(145px,.7fr)) auto; align-items: center; margin-bottom: 20px; }
 .activity-toolbar select { max-width: none; }
+.project-activity-summary { margin: 18px 0; border: 1px solid var(--project-line); background: #181513; }
+.project-activity-summary-grid { display: grid; grid-template-columns: repeat(5,minmax(0,1fr)); }
+.project-activity-summary-grid > div { min-width: 0; padding: 16px 18px; border-right: 1px solid var(--project-line); }
+.project-activity-summary-grid > div:last-child { border-right: 0; }
+.project-activity-summary-grid strong,.project-activity-summary-grid span { display: block; }
+.project-activity-summary-grid strong { color: var(--bone); font: 1.25rem var(--font-mono); font-variant-numeric: tabular-nums; }
+.project-activity-summary-grid span { margin-top: 5px; color: var(--bone-mute); font-size: .63rem; line-height: 1.45; }
+.project-activity-summary-foot { display: flex; justify-content: space-between; gap: 16px; padding: 11px 18px; border-top: 1px solid var(--project-line); color: var(--bone-mute); font: .61rem var(--font-mono); line-height: 1.6; }
+.project-activity-summary-projects { text-align: right; }
+.project-activity-summary-projects a { color: #c79b7e; }
 .project-event-kind { padding: 2px 6px; border: 1px solid #4a3d33; color: #c8a58e; font: .56rem var(--font-mono); letter-spacing: .04em; text-transform: uppercase; }
 .project-event-kind.muted { color: var(--bone-mute); border-color: #38322d; }
 .project-runtime-card { padding: 16px 0; border-bottom: 1px solid var(--project-line); }
@@ -1561,6 +1571,9 @@ progress::-moz-progress-bar { background: var(--cyan); }
 @media (max-width: 900px) {
   .projects-toolbar { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .activity-toolbar #project-activity-generated { grid-column: 1 / -1; }
+  .project-activity-summary-grid { grid-template-columns: repeat(3,minmax(0,1fr)); }
+  .project-activity-summary-grid > div:nth-child(3) { border-right: 0; }
+  .project-activity-summary-grid > div:nth-child(n+4) { border-top: 1px solid var(--project-line); }
   .project-search { grid-column: 1 / -1; }
   .project-card { grid-template-columns: minmax(0, 1fr) 160px; }
   .project-card-action { grid-column: 1 / -1; display: flex; gap: 16px; align-items: center; justify-content: space-between; text-align: left; }
@@ -1600,6 +1613,13 @@ progress::-moz-progress-bar { background: var(--cyan); }
   .project-dialog-head h2 { font-size: 1.7rem; }
   .activity-toolbar { grid-template-columns: minmax(0,1fr); align-items: flex-start; gap: 10px; }
   .activity-toolbar #project-activity-generated { grid-column: auto; }
+  .project-activity-summary-grid { grid-template-columns: repeat(2,minmax(0,1fr)); }
+  .project-activity-summary-grid > div { padding: 13px 14px; border-top: 1px solid var(--project-line); }
+  .project-activity-summary-grid > div:nth-child(-n+2) { border-top: 0; }
+  .project-activity-summary-grid > div:nth-child(odd) { border-right: 1px solid var(--project-line); }
+  .project-activity-summary-grid > div:nth-child(even) { border-right: 0; }
+  .project-activity-summary-foot { align-items: flex-start; flex-direction: column; padding: 10px 14px; }
+  .project-activity-summary-projects { text-align: left; }
 }
 
 /* ---- Hook Tape ---- */

@@ -434,13 +434,20 @@ try {
 
   const defaultProjectActivity = await request('/api/project-activity', {}, { DB: emptyProjectDb });
   assert.equal(defaultProjectActivity.status, 200);
-  assert.deepEqual((await defaultProjectActivity.json()).filters, { project: null, focus: 'important', history: 'all', signal: 'all' });
+  const defaultProjectActivityBody=await defaultProjectActivity.json();
+  assert.equal(defaultProjectActivityBody.schemaVersion,4);
+  assert.deepEqual(defaultProjectActivityBody.filters, { project: null, focus: 'important', history: 'all', signal: 'all' });
+  assert.equal(defaultProjectActivityBody.summary24h.totalEvents,0);
   const outcomeProjectActivity = await request('/api/project-activity?focus=outcome&history=current', {}, { DB: emptyProjectDb });
   assert.equal(outcomeProjectActivity.status, 200);
   assert.deepEqual((await outcomeProjectActivity.json()).filters, { project: null, focus: 'outcome', history: 'current', signal: 'all' });
+  const implementationProjectActivity=await request('/api/project-activity?signal=implementation_change',{}, {DB:emptyProjectDb});
+  assert.equal(implementationProjectActivity.status,200);
+  assert.equal((await implementationProjectActivity.json()).filters.signal,'implementation_change');
   const projectCacheKeys = [...edgeResponses.keys()].filter((key) => /\/__project-cache\/[a-f0-9]{12}\/api\/project-activity/.test(key));
-  assert.ok(projectCacheKeys.some((key) => key.includes('focus=important') && key.includes('history=all')));
+  assert.ok(projectCacheKeys.some((key) => key.includes('focus=important') && key.includes('history=all') && key.includes('signal=all')));
   assert.ok(projectCacheKeys.some((key) => key.includes('focus=outcome') && key.includes('history=current')));
+  assert.ok(projectCacheKeys.some((key)=>key.includes('signal=implementation_change')));
 
   const railResponse = await request('/execution-rail.js');
   assert.equal(railResponse.status, 200);

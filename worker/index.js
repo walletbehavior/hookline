@@ -2051,6 +2051,7 @@ export default {
           if(project) cacheUrl.searchParams.set('project',project);
           cacheUrl.searchParams.set('focus',url.searchParams.get('focus') || 'important');
           cacheUrl.searchParams.set('history',url.searchParams.get('history') || 'all');
+          cacheUrl.searchParams.set('signal',url.searchParams.get('signal') || 'all');
         }
         projectKey=new Request(cacheUrl.toString());
       }

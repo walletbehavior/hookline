@@ -27,7 +27,10 @@ export const PROJECT_RPC_POOLS = freeze({
   1:{headers:[ethPublic,ethDrpc],state:[ethPublic,ethDrpc],logs:[ethPublic,ethDrpc],traces:[]},
   // PublicNode's public Base tier rejects finalized historical state. It does
   // serve the bounded log windows. Do not retry state there as if it were fresh.
-  8453:{headers:[basePublic,baseTenderly],state:[baseTenderly,baseOfficial,baseDrpc],logs:[basePublic,baseTenderly],traces:[baseDrpc]},
+  // dRPC is a narrow-range log fallback. Its free tier currently accepts
+  // historical Base logs in windows of at most ten blocks, which is still
+  // useful when the wider reviewed sources are archive-gated or throttled.
+  8453:{headers:[basePublic,baseTenderly],state:[baseTenderly,baseOfficial,baseDrpc],logs:[basePublic,baseTenderly,baseDrpc],traces:[baseDrpc]},
   42161:{headers:[arbOfficial,arbPublic],state:[arbOfficial,arbPublic],logs:[arbOfficial,arbPublic],traces:[]},
   // BNB explicitly disables eth_getLogs on its official public endpoints.
   56:{headers:[bnbOfficial,bnbPublic],state:[bnbOfficial,bnbPublic],logs:[bnbPublic],traces:[]},
@@ -270,9 +273,17 @@ export function createProjectRpcPool({health=createRpcPoolHealth(),fetchImpl=fet
     }
     // A single failing range does not prove all providers have that limit.
     // In particular, never shrink a query because another source is throttled.
-    const priority=['rpc_rate_limited','rpc_pin_mismatch','rpc_chain_mismatch','rpc_provider_unavailable','rpc_archive_unavailable','rpc_access_denied','rpc_log_capability_unavailable'];
+    // A legitimate smaller-range response from any reviewed log source is an
+    // actionable capability signal. Preserve security/identity failures, but
+    // do not let an archive-ineligible or throttled fallback hide the fact that
+    // another reviewed source can answer the same query in smaller windows.
+    const priority=['rpc_pin_mismatch','rpc_chain_mismatch'];
     for (const code of priority) {const error=errors.find(e=>e.code===code);if(error) throw error;}
-    if (errors.length && errors.every(e=>e.code==='rpc_log_range_limited')) throw failure('rpc_log_range_limited',{suggestedRange:Math.max(...errors.map(e=>e.suggestedRange))});
+    const rangeErrors=method==='eth_getLogs'?errors.filter(error=>error.code==='rpc_log_range_limited'):[];
+    if (rangeErrors.length) throw failure('rpc_log_range_limited',{suggestedRange:Math.max(...rangeErrors.map(error=>error.suggestedRange))});
+    for (const code of ['rpc_rate_limited','rpc_provider_unavailable','rpc_archive_unavailable','rpc_access_denied','rpc_log_capability_unavailable']) {
+      const error=errors.find(e=>e.code===code);if(error) throw error;
+    }
     if (errors.length && errors.every(e=>e.code==='rpc_finality_unsupported')) throw failure('rpc_finality_unsupported');
     throw errors[0] || failure('rpc_provider_unavailable');
   };

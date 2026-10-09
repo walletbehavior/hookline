@@ -11,6 +11,7 @@ Hookline is a multichain evidence and analytics desk for programmable-liquidity 
 - Live contract inspection on Ethereum, BNB Chain, Base, Arbitrum One, and Robinhood Chain
 - Cross-chain hook board with 1,000+ active hook identities across 10+ chains
 - Broad Projects board with source-linked deployments, coverage labels, shared observations, normalized mechanism signals, and selected contract events
+- Exact rolling 24-hour activity totals that exclude historical backfill and remain accurate when the visible feed reaches its row limit
 - Shareable side-by-side comparisons for two to four projects, preserving chain, block, source, coverage, and unavailable-value semantics
 - Base Hook Tape built from finalized PoolManager `Initialize` and `Swap` logs, with exact hook, pool, signed pool deltas, reported swap fee, block, and transaction evidence
 - Bounded successful-receipt enrichment retaining relevant ERC-20 transfers that touch the hook or a pool currency, explicitly separate from fee attribution
@@ -115,7 +116,7 @@ See [Product documentation](docs/PRODUCT.md), [API reference](docs/API.md), [Whi
 | `GET /data/hooks.json` | Timestamped cross-chain hook-board snapshot |
 | `GET /api/projects` | Project registry, sources, and actual observed coverage |
 | `GET /api/projects/{id}` | Deployment state, selected event history, and scan progress |
-| `GET /api/project-activity` | Shared project change feed with project, signal, and history filters |
+| `GET /api/project-activity` | Shared project change feed with project, signal, and history filters, plus an exact non-backfill `summary24h` |
 | `GET /api/project-comparison?ids={ids}` | Two to four projects using a common evidence schema |
 | `GET /api/tape/status` | Base PoolManager index coverage, cursors, and saved evidence counts |
 | `GET /api/tape/pools` | Finalized Base pool initialization evidence, optionally filtered by hook |

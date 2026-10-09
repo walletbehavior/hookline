@@ -31,7 +31,7 @@ const context = vm.createContext({ document, window: {}, location: { hash: '#/pr
   sessionStorage: { getItem: (key) => storage.get(key) || null, setItem: (key, value) => storage.set(key, value) },
   fetch: (...args) => fetcher(...args),
 });
-const exports = ['state', 'projectExternalLink', 'projectValue', 'projectCount', 'projectTime', 'renderProjectsBoard', 'syncProjectFilters', 'renderProjectDetail', 'renderProjectObservations', 'renderProjectEvent', 'renderHookProjectLinks', 'renderProjectsRoute', 'renderProjectReceipts', 'loadProjectReceipts', 'saveProjectReceipts', 'updateProjectReceipt', 'projectApi', 'validProjectCompareIds', 'setProjectCompareIds', 'toggleProjectCompare', 'renderProjectCompareTray', 'renderProjectComparison', 'loadProjectComparison'];
+const exports = ['state', 'projectExternalLink', 'projectValue', 'projectCount', 'projectTime', 'renderProjectsBoard', 'syncProjectFilters', 'renderProjectDetail', 'renderProjectObservations', 'renderProjectEvent', 'renderHookProjectLinks', 'renderProjectsRoute', 'renderProjectReceipts', 'loadProjectReceipts', 'saveProjectReceipts', 'updateProjectReceipt', 'projectApi', 'validProjectCompareIds', 'setProjectCompareIds', 'toggleProjectCompare', 'renderProjectCompareTray', 'renderProjectComparison', 'loadProjectComparison', 'renderProjectActivitySummary'];
 vm.runInContext(source.replace('  window.Hookline = {', `  window.__ProjectsTest = {${exports.join(',')}};\n  window.Hookline = {`), context);
 const ui = context.window.__ProjectsTest;
 const address = '0x' + '1'.repeat(40);
@@ -99,6 +99,13 @@ assert.match(change.textContent,/historical backfill/);
 assert.doesNotMatch(change.textContent, /Transaction /);
 const transaction = ui.renderProjectEvent({ ...event, transactionHash: tx, evidence: { scope: 'contract event' } });
 assert.match(transaction.textContent, /Transaction /);
+ui.state.projects.activitySummary={totalEvents:717,activeProjects:3,complete:true,signals:{factory_launch:696,implementation_change:5,fee_configuration_change:0,runtime_change:0,configuration_change:0,outcome:16},projects:[{projectId:'alpha',projectName:'Alpha Hooks',totalEvents:588},{projectId:'beta',projectName:'<script>Beta</script>',totalEvents:124}]};
+ui.renderProjectActivitySummary();
+assert.equal(nodes.get('project-activity-summary').hidden,false);
+assert.match(nodes.get('project-activity-summary').textContent,/696Factory launches/);
+assert.match(nodes.get('project-activity-summary').textContent,/5Implementation changes/);
+assert.match(nodes.get('project-activity-summary').textContent,/717 monitored records/);
+assert.match(nodes.get('project-activity-summary').textContent,/<script>Beta<\/script> 124/,'Untrusted summary names remain literal text.');
 
 ui.state.board = { items: [{ chainId: 1, address }] };
 ui.renderProjectDetail({ project, observations: [observation], events: [event], runtimeFamilies:[{runtimeFingerprint:'f'.repeat(64),codeByteLength:42,deploymentCount:2,chainIds:[1,8453],projectDeployments:[{chainId:1,address,name:'Alpha hook'}],otherDeployments:[{chainId:8453,address:other,name:'Second hook'}],relatedProjects:[{id:'beta',name:'Beta Hooks'}],evidence:{generatedAt:new Date().toISOString()}}], related: [{ ...second, reason: 'Shared mechanism category' }] });
