@@ -23,6 +23,11 @@
       "entrypoint": "HooklineExecutionService"
     }
   ],
+  "triggers": {
+    "crons": [
+      "*/10 * * * *"
+    ]
+  },
   "routes": [
     {
       "pattern": "hookline.ravenos.xyz",

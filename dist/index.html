@@ -54,6 +54,42 @@
         <div><span>SWAPS OBSERVED</span><strong>—</strong><small>indexed aggregate</small></div>
       </div>
 
+      <section class="mechanism-space" aria-labelledby="mechanism-space-title">
+        <header class="mechanism-space-head">
+          <div>
+            <p class="panel-kicker">MECHANISM MAP</p>
+            <h2 id="mechanism-space-title">Trace the system, then open the proof.</h2>
+            <p>Nodes are indexed hooks. Links show shared runtime or project identity. Change mode highlights recent observed events.</p>
+          </div>
+          <div class="mechanism-lenses" role="group" aria-label="Mechanism map lens">
+            <button type="button" data-lattice-lens="velocity" aria-pressed="true">Velocity</button>
+            <button type="button" data-lattice-lens="runtime" aria-pressed="false">Runtime</button>
+            <button type="button" data-lattice-lens="changes" aria-pressed="false">Changes</button>
+          </div>
+        </header>
+        <div class="mechanism-stage">
+          <canvas id="mechanism-lattice" tabindex="0" role="img" aria-label="Interactive spatial map of filtered Hookline records" aria-describedby="mechanism-lattice-summary mechanism-lattice-help"></canvas>
+          <div class="mechanism-stage-rail" aria-hidden="true">
+            <span>FAR</span><i></i><span>NEAR</span>
+          </div>
+          <div class="mechanism-map-controls" aria-label="Mechanism map controls">
+            <button id="mechanism-zoom-out" type="button" aria-label="Zoom map out">−</button>
+            <button id="mechanism-reset" type="button">Reset</button>
+            <button id="mechanism-zoom-in" type="button" aria-label="Zoom map in">+</button>
+            <button id="mechanism-motion" type="button" aria-pressed="false">Pause</button>
+          </div>
+          <div id="mechanism-focus-card" class="mechanism-focus-card">
+            <span>FOCUSED RECORD</span>
+            <strong>Loading the evidence field…</strong>
+            <small>Select a node or use the arrow keys.</small>
+          </div>
+        </div>
+        <footer class="mechanism-readout">
+          <p id="mechanism-lattice-summary" aria-live="polite">Loading the filtered hook field…</p>
+          <p id="mechanism-lattice-help">Drag to rotate · tap a node to inspect · arrow keys move focus · Enter opens evidence</p>
+        </footer>
+      </section>
+
       <section class="board-shell" aria-label="Hook market board">
         <header class="board-toolbar">
           <div class="board-search-wrap">

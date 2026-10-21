@@ -14,6 +14,8 @@ The boards are the map. The shipped Projects layer shares configuration reads, s
 
 The hook board is a cross-chain discovery surface for active deployed hook identities and hook ecosystem projects. It supports search, chain and capability filters, activity sorting, address-permission profiles, shareable profile URLs, filtered JSON exports, explorer links, inline live contract reads, and a direct handoff into local watchlists.
 
+Its mechanism map renders the filtered Board records as an interactive evidence graph. Velocity scales nodes by the current activity sort. Runtime connects only byte-identical deployments. Changes emphasizes records with recent normalized project activity. Shared project identity can provide a separate relationship edge, but neither an edge nor a visual cluster asserts common ownership, safety, or economic equivalence. Keyboard, touch, reduced-motion, and pause controls provide the same profile handoff without requiring the animation.
+
 Discovery and aggregate pool and swap counts come from a timestamped v4.xyz community-indexer snapshot. The sync queries the activity leaders in every two-nibble address prefix, so coverage is broad but explicitly not exhaustive. Records without a deployed address remain visible as directory entries rather than being presented as chain evidence.
 
 ### Projects and shared activity

@@ -79,6 +79,13 @@
     tokenSearchTimer: null,
     boardEvidence: new Map(),
     boardLoading: new Set(),
+    lattice: {
+      lens: 'velocity', zoom: 1, rotationX: -0.2, rotationY: 0.4,
+      nodes: [], projected: [], activeIndex: 0, frame: 0, lastFrameAt: 0,
+      paused: false, pointer: null, dirty: true, bound: false, visible: true,
+      activityEvents: [], activityGeneratedAt: null, activityLoaded: false,
+      reducedMotion: false, resizeObserver: null,
+    },
     projects: { registry: null, loading: null, error: '', detailRequest: 0, detail: null, activityRequest: 0, events: [], activitySummary: null, activityLoaded: false, activityGeneratedAt: null, receipts: [], contributionBusy: false, compareIds: [], compareRequest: 0, comparison: null, comparisonError: '' },
     tape: { status: null, activity: null, mode: 'swaps', pools: [], swaps: [], cursors: { pools: null, swaps: null }, loaded: { pools: false, swaps: false }, loading: false, error: '' },
     execution: {
@@ -2078,6 +2085,338 @@
     return result;
   }
 
+  function latticeHash(value) {
+    let hash = 2166136261;
+    const text = String(value || '');
+    for (let index = 0; index < text.length; index += 1) {
+      hash ^= text.charCodeAt(index);
+      hash = Math.imul(hash, 16777619);
+    }
+    return hash >>> 0;
+  }
+
+  function latticeEventMatches(item, event) {
+    const sameAddress = item.address && event?.address
+      && item.address.toLowerCase() === String(event.address).toLowerCase()
+      && (!event.chainId || Number(event.chainId) === item.chainId);
+    const projectName = String(item.project?.name || '').toLowerCase();
+    const eventProject = String(event?.projectName || event?.projectId || '').toLowerCase();
+    return Boolean(sameAddress || (projectName && eventProject && (projectName === eventProject || projectName.includes(eventProject) || eventProject.includes(projectName))));
+  }
+
+  function latticeChangeCount(item) {
+    return state.lattice.activityEvents.filter((event) => latticeEventMatches(item, event)).length;
+  }
+
+  function buildLatticeNodes() {
+    const lens = state.lattice.lens;
+    const source = filteredBoardItems().slice();
+    source.sort((left, right) => {
+      if (lens === 'changes') return latticeChangeCount(right) - latticeChangeCount(left) || boardVelocity(right) - boardVelocity(left);
+      if (lens === 'runtime') return (right.runtime?.deploymentCount || 0) - (left.runtime?.deploymentCount || 0) || boardVelocity(right) - boardVelocity(left);
+      return boardVelocity(right) - boardVelocity(left);
+    });
+    const nodes = source.slice(0, 36).map((item, index) => {
+      const seed = latticeHash(item.id);
+      const familySeed = latticeHash(item.runtime?.fingerprint || item.project?.name || item.id);
+      const familyAngle = ((familySeed % 10000) / 10000) * Math.PI * 2;
+      const itemAngle = index * 2.3999632297 + ((seed % 997) / 997) * 0.35;
+      const familyCluster = lens === 'runtime' && (item.runtime?.deploymentCount || 0) > 1;
+      const radius = familyCluster ? 0.34 + ((seed >>> 8) % 100) / 650 : 0.68 + (index % 7) * 0.075;
+      const angle = familyCluster ? familyAngle + ((seed >>> 12) % 100) / 180 : itemAngle;
+      const activity = Math.max(0, Number(item.numberOfSwaps) || Number(item.tokenContext?.transactions) || 0);
+      const changes = latticeChangeCount(item);
+      return {
+        item, changes,
+        x: Math.cos(angle) * radius + (familyCluster ? Math.cos(familyAngle) * 0.42 : 0),
+        y: Math.sin(angle) * radius * 0.7 + ((((seed >>> 18) % 100) / 100) - 0.5) * 0.32,
+        z: ((((seed >>> 22) % 100) / 100) - 0.5) * 1.65 + (lens === 'changes' && changes ? -0.38 : 0),
+        radius: 4.2 + Math.min(8.8, Math.log10(1 + activity) * 1.45),
+      };
+    });
+    state.lattice.nodes = nodes;
+    const selectedIndex = nodes.findIndex((node) => node.item.id === state.boardSelectedId);
+    if (selectedIndex >= 0) state.lattice.activeIndex = selectedIndex;
+    else state.lattice.activeIndex = Math.max(0, Math.min(state.lattice.activeIndex, nodes.length - 1));
+    return nodes;
+  }
+
+  function latticeLinked(left, right) {
+    const sameRuntime = left.item.runtime?.fingerprint && left.item.runtime.fingerprint === right.item.runtime?.fingerprint;
+    const leftProject = String(left.item.project?.name || '').toLowerCase();
+    const rightProject = String(right.item.project?.name || '').toLowerCase();
+    return Boolean(sameRuntime || (leftProject && leftProject === rightProject));
+  }
+
+  function latticeProject(node, width, height) {
+    const cosY = Math.cos(state.lattice.rotationY), sinY = Math.sin(state.lattice.rotationY);
+    const cosX = Math.cos(state.lattice.rotationX), sinX = Math.sin(state.lattice.rotationX);
+    const x1 = node.x * cosY - node.z * sinY;
+    const z1 = node.x * sinY + node.z * cosY;
+    const y1 = node.y * cosX - z1 * sinX;
+    const z2 = node.y * sinX + z1 * cosX;
+    const depth = Math.max(1.8, 3.6 + z2);
+    const scale = Math.min(width, height) * 1.32 * state.lattice.zoom / depth;
+    return { node, x: width * 0.5 + x1 * scale, y: height * 0.5 + y1 * scale, z: z2, scale: Math.max(0.62, Math.min(1.45, 3.1 / depth)) };
+  }
+
+  function latticeCanvasContext() {
+    const canvas = $('mechanism-lattice');
+    if (!canvas || typeof canvas.getContext !== 'function') return null;
+    try { return canvas.getContext('2d'); } catch (_) { return null; }
+  }
+
+  function renderLatticeCanvas(timestamp) {
+    const canvas = $('mechanism-lattice');
+    const context = latticeCanvasContext();
+    if (!canvas || !context) return;
+    const rect = canvas.getBoundingClientRect();
+    if (rect.width < 20 || rect.height < 20) return;
+    const dpr = Math.min(1.5, window.devicePixelRatio || 1);
+    const pixelWidth = Math.round(rect.width * dpr), pixelHeight = Math.round(rect.height * dpr);
+    if (canvas.width !== pixelWidth || canvas.height !== pixelHeight) {
+      canvas.width = pixelWidth;
+      canvas.height = pixelHeight;
+    }
+    context.setTransform(dpr, 0, 0, dpr, 0, 0);
+    const width = rect.width, height = rect.height;
+    context.clearRect(0, 0, width, height);
+
+    const wash = context.createRadialGradient(width * 0.53, height * 0.44, 20, width * 0.53, height * 0.44, Math.max(width, height) * 0.68);
+    wash.addColorStop(0, 'rgba(184, 118, 78, .11)');
+    wash.addColorStop(0.46, 'rgba(112, 86, 68, .035)');
+    wash.addColorStop(1, 'rgba(7, 7, 7, 0)');
+    context.fillStyle = wash;
+    context.fillRect(0, 0, width, height);
+
+    context.save();
+    context.strokeStyle = 'rgba(174, 153, 134, .09)';
+    context.lineWidth = 1;
+    for (let line = -5; line <= 5; line += 1) {
+      context.beginPath();
+      context.moveTo(width * 0.5 + line * width * 0.055, height * 0.18);
+      context.lineTo(width * 0.5 + line * width * 0.15, height * 0.88);
+      context.stroke();
+    }
+    for (let line = 0; line < 7; line += 1) {
+      const y = height * (0.24 + Math.pow(line / 7, 1.55) * 0.65);
+      context.beginPath(); context.moveTo(width * 0.08, y); context.lineTo(width * 0.92, y); context.stroke();
+    }
+    context.restore();
+
+    const projected = state.lattice.nodes.map((node) => latticeProject(node, width, height));
+    state.lattice.projected = projected;
+    context.lineWidth = 1;
+    for (let left = 0; left < projected.length; left += 1) {
+      for (let right = left + 1; right < projected.length; right += 1) {
+        if (!latticeLinked(projected[left].node, projected[right].node)) continue;
+        const emphasis = state.lattice.lens === 'runtime' ? 0.34 : 0.15;
+        context.strokeStyle = `rgba(197, 160, 125, ${emphasis})`;
+        context.beginPath(); context.moveTo(projected[left].x, projected[left].y); context.lineTo(projected[right].x, projected[right].y); context.stroke();
+      }
+    }
+
+    projected.sort((left, right) => right.z - left.z).forEach((point) => {
+      const index = state.lattice.nodes.indexOf(point.node);
+      const selected = point.node.item.id === state.boardSelectedId;
+      const active = index === state.lattice.activeIndex;
+      const color = CHAIN_COLORS[point.node.item.chainId] || '#a88c79';
+      const radius = point.node.radius * point.scale * (point.node.changes && state.lattice.lens === 'changes' ? 1.18 : 1);
+      if (point.node.changes && state.lattice.lens === 'changes') {
+        context.beginPath(); context.arc(point.x, point.y, radius + 8, 0, Math.PI * 2);
+        context.strokeStyle = 'rgba(214, 120, 80, .38)'; context.lineWidth = 1.5; context.stroke();
+      }
+      context.beginPath(); context.arc(point.x, point.y, radius, 0, Math.PI * 2);
+      context.fillStyle = color; context.globalAlpha = selected ? 1 : 0.76; context.fill(); context.globalAlpha = 1;
+      context.strokeStyle = selected || active ? '#f1e9dc' : 'rgba(241, 233, 220, .28)';
+      context.lineWidth = selected ? 2.4 : active ? 1.6 : 1; context.stroke();
+      const compact = width < 600;
+      if (selected || active || (!compact && (index < 7 || point.node.changes))) {
+        const label = boardItemName(point.node.item);
+        context.font = `${selected || active ? 600 : 500} 11px ui-monospace, SFMono-Regular, Menlo, monospace`;
+        context.fillStyle = selected || active ? '#f1e9dc' : 'rgba(218, 205, 189, .72)';
+        context.textAlign = 'center';
+        context.fillText(label.length > 22 ? `${label.slice(0, 21)}…` : label, point.x, point.y - radius - 8);
+      }
+    });
+    state.lattice.lastFrameAt = timestamp || performance.now();
+  }
+
+  function latticeFocusNode() {
+    const selected = state.lattice.nodes.find((node) => node.item.id === state.boardSelectedId);
+    return selected || state.lattice.nodes[state.lattice.activeIndex] || null;
+  }
+
+  function updateLatticeReadout() {
+    const nodes = state.lattice.nodes;
+    const repeated = nodes.filter((node) => (node.item.runtime?.deploymentCount || 0) > 1).length;
+    const changed = nodes.filter((node) => node.changes > 0).length;
+    const activityAge = state.lattice.activityGeneratedAt ? ` · changes ${relativeTime(state.lattice.activityGeneratedAt)}` : '';
+    $('mechanism-lattice-summary').textContent = `${nodes.length} records plotted · ${repeated} repeated runtimes · ${changed} with recent observed changes${activityAge}`;
+    const focus = latticeFocusNode();
+    const card = $('mechanism-focus-card');
+    const strong = card.querySelector('strong'), small = card.querySelector('small');
+    if (!focus) {
+      strong.textContent = 'No records match the current filters.';
+      small.textContent = 'Adjust the Board controls below.';
+      return;
+    }
+    strong.textContent = boardItemName(focus.item);
+    const relation = focus.item.runtime?.deploymentCount > 1 ? `${focus.item.runtime.deploymentCount} identical runtimes` : 'unique indexed runtime';
+    const change = focus.changes ? ` · ${focus.changes} change record${focus.changes === 1 ? '' : 's'}` : '';
+    small.textContent = `${focus.item.chainName} · ${relation}${change}`;
+  }
+
+  function latticeFrame(timestamp) {
+    state.lattice.frame = 0;
+    const animate = viewFromHash() === 'board' && state.lattice.visible && !document.hidden && !state.lattice.paused && !state.lattice.reducedMotion;
+    if (animate && timestamp - state.lattice.lastFrameAt > 15) state.lattice.rotationY += 0.00028 * Math.min(40, timestamp - state.lattice.lastFrameAt || 16);
+    renderLatticeCanvas(timestamp);
+    if (animate) state.lattice.frame = requestAnimationFrame(latticeFrame);
+  }
+
+  function scheduleLatticeFrame() {
+    if (state.lattice.frame || viewFromHash() !== 'board') return;
+    state.lattice.frame = requestAnimationFrame(latticeFrame);
+  }
+
+  function renderMechanismLattice() {
+    if (!state.board || !$('mechanism-lattice')) return;
+    buildLatticeNodes();
+    updateLatticeReadout();
+    $$('[data-lattice-lens]').forEach((button) => button.setAttribute('aria-pressed', String(button.dataset.latticeLens === state.lattice.lens)));
+    scheduleLatticeFrame();
+  }
+
+  function selectLatticeNode(node) {
+    if (!node) return;
+    const item = node.item;
+    state.boardSelectedId = item.id;
+    if (item.kind === 'hook') history.replaceState(null, '', `#/board/${item.chainId}/${item.address}`);
+    renderBoard();
+    renderBoardProfile();
+    inspectProfileIfNeeded();
+  }
+
+  function latticeHitTest(event) {
+    const canvas = $('mechanism-lattice');
+    const rect = canvas.getBoundingClientRect();
+    const x = event.clientX - rect.left, y = event.clientY - rect.top;
+    let winner = null, distance = Infinity;
+    state.lattice.projected.forEach((point) => {
+      const delta = Math.hypot(point.x - x, point.y - y);
+      const threshold = point.node.radius * point.scale + 10;
+      if (delta <= threshold && delta < distance) { winner = point.node; distance = delta; }
+    });
+    return winner;
+  }
+
+  function toggleLatticeMotion() {
+    state.lattice.paused = !state.lattice.paused;
+    const button = $('mechanism-motion');
+    button.setAttribute('aria-pressed', String(state.lattice.paused));
+    button.textContent = state.lattice.paused ? 'Resume' : 'Pause';
+    scheduleLatticeFrame();
+  }
+
+  async function loadLatticeActivity() {
+    if (state.lattice.activityLoaded) return;
+    try {
+      const response = await fetch('/api/project-activity?focus=important&history=current&signal=all', { headers: { Accept: 'application/json' } });
+      const body = await response.json().catch(() => null);
+      if (!response.ok || !Array.isArray(body?.events)) throw new Error('Change feed unavailable.');
+      state.lattice.activityEvents = body.events.slice(0, 250);
+      state.lattice.activityGeneratedAt = Date.parse(body.generatedAt) || Date.now();
+      state.lattice.activityLoaded = true;
+      renderMechanismLattice();
+    } catch (_) {
+      state.lattice.activityLoaded = true;
+      renderMechanismLattice();
+    }
+  }
+
+  function setupMechanismLattice() {
+    const canvas = $('mechanism-lattice');
+    if (!canvas || state.lattice.bound) return;
+    state.lattice.bound = true;
+    const media = window.matchMedia('(prefers-reduced-motion: reduce)');
+    state.lattice.reducedMotion = media.matches;
+    const updateMotionPreference = (event) => { state.lattice.reducedMotion = event.matches; scheduleLatticeFrame(); };
+    if (typeof media.addEventListener === 'function') media.addEventListener('change', updateMotionPreference);
+    else if (typeof media.addListener === 'function') media.addListener(updateMotionPreference);
+    canvas.addEventListener('pointerdown', (event) => {
+      state.lattice.pointer = { id: event.pointerId, x: event.clientX, y: event.clientY, startX: event.clientX, startY: event.clientY, dragged: false };
+      canvas.setPointerCapture?.(event.pointerId);
+    });
+    canvas.addEventListener('pointermove', (event) => {
+      const pointer = state.lattice.pointer;
+      if (!pointer || pointer.id !== event.pointerId) return;
+      const dx = event.clientX - pointer.x, dy = event.clientY - pointer.y;
+      if (Math.hypot(event.clientX - pointer.startX, event.clientY - pointer.startY) > 5) pointer.dragged = true;
+      if (pointer.dragged) {
+        state.lattice.rotationY += dx * 0.007;
+        state.lattice.rotationX = Math.max(-0.9, Math.min(0.7, state.lattice.rotationX + dy * 0.004));
+        pointer.x = event.clientX; pointer.y = event.clientY;
+        scheduleLatticeFrame();
+      }
+    });
+    canvas.addEventListener('pointerup', (event) => {
+      const pointer = state.lattice.pointer;
+      state.lattice.pointer = null;
+      if (!pointer || pointer.id !== event.pointerId || pointer.dragged) return;
+      const node = latticeHitTest(event);
+      if (node) {
+        state.lattice.activeIndex = Math.max(0, state.lattice.nodes.indexOf(node));
+        selectLatticeNode(node);
+      }
+    });
+    canvas.addEventListener('pointercancel', () => { state.lattice.pointer = null; });
+    canvas.addEventListener('wheel', (event) => {
+      if (!event.ctrlKey && !event.metaKey) return;
+      event.preventDefault();
+      state.lattice.zoom = Math.max(0.72, Math.min(1.65, state.lattice.zoom - event.deltaY * 0.002));
+      scheduleLatticeFrame();
+    }, { passive: false });
+    canvas.addEventListener('keydown', (event) => {
+      if (!state.lattice.nodes.length) return;
+      if (['ArrowRight', 'ArrowDown', 'ArrowLeft', 'ArrowUp'].includes(event.key)) {
+        event.preventDefault();
+        const direction = ['ArrowRight', 'ArrowDown'].includes(event.key) ? 1 : -1;
+        state.lattice.activeIndex = (state.lattice.activeIndex + direction + state.lattice.nodes.length) % state.lattice.nodes.length;
+        updateLatticeReadout(); scheduleLatticeFrame();
+      } else if (event.key === 'Enter') {
+        event.preventDefault(); selectLatticeNode(latticeFocusNode());
+      } else if (event.key === ' ') {
+        event.preventDefault(); toggleLatticeMotion();
+      }
+    });
+    $$('[data-lattice-lens]').forEach((button) => button.addEventListener('click', () => {
+      state.lattice.lens = button.dataset.latticeLens;
+      renderMechanismLattice();
+    }));
+    $('mechanism-zoom-in').addEventListener('click', () => { state.lattice.zoom = Math.min(1.65, state.lattice.zoom + 0.12); scheduleLatticeFrame(); });
+    $('mechanism-zoom-out').addEventListener('click', () => { state.lattice.zoom = Math.max(0.72, state.lattice.zoom - 0.12); scheduleLatticeFrame(); });
+    $('mechanism-reset').addEventListener('click', () => { state.lattice.zoom = 1; state.lattice.rotationX = -0.2; state.lattice.rotationY = 0.4; scheduleLatticeFrame(); });
+    $('mechanism-motion').addEventListener('click', toggleLatticeMotion);
+    if (typeof ResizeObserver === 'function') {
+      state.lattice.resizeObserver = new ResizeObserver(() => scheduleLatticeFrame());
+      state.lattice.resizeObserver.observe(canvas);
+    } else window.addEventListener('resize', scheduleLatticeFrame);
+    if (typeof IntersectionObserver === 'function') {
+      const observer = new IntersectionObserver((entries) => {
+        state.lattice.visible = entries[0]?.isIntersecting !== false;
+        if (state.lattice.visible) scheduleLatticeFrame();
+        else if (state.lattice.frame) { cancelAnimationFrame(state.lattice.frame); state.lattice.frame = 0; }
+      }, { rootMargin: '160px' });
+      observer.observe(canvas);
+    }
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden && state.lattice.frame) { cancelAnimationFrame(state.lattice.frame); state.lattice.frame = 0; }
+      else scheduleLatticeFrame();
+    });
+    if (!latticeCanvasContext()) $('mechanism-lattice-summary').textContent = 'Spatial map unavailable. The evidence register below remains fully usable.';
+  }
+
   function replaceSortOptions(options) {
     const select = $('board-sort');
     select.replaceChildren();
@@ -2252,6 +2591,7 @@
       : 'No hooks match these filters.';
     $('board-more').hidden = filtered.length <= state.boardVisible;
     $('board-more').textContent = `Load ${Math.min(BOARD_PAGE_SIZE, filtered.length - state.boardVisible)} more rows`;
+    renderMechanismLattice();
   }
 
   function selectedBoardItem() {
@@ -2791,6 +3131,7 @@
       renderBoardProfile();
       inspectProfileIfNeeded();
       if(Object.values(state.tape.loaded).some(Boolean)) renderTape();
+      void loadLatticeActivity();
       void openExecutionRoute();
     } catch (error) {
       $('board-result-count').textContent = 'Hook index unavailable';
@@ -4074,6 +4415,7 @@
     if (!state.board) return;
     const id = boardItemIdFromHash();
     if (id && state.board.items.some((item) => item.id === id)) state.boardSelectedId = id;
+    else if (location.hash === '#/board' || !location.hash) state.boardSelectedId = null;
   }
 
   function renderView() {
@@ -4089,8 +4431,11 @@
       if (active) link.setAttribute('aria-current', 'page');
       else link.removeAttribute('aria-current');
     });
-    if (view === 'board') { syncBoardSelectionFromHash(); renderBoard(); renderBoardProfile(); inspectProfileIfNeeded(); }
-    else document.body.classList.remove('board-profile-open');
+    if (view === 'board') { syncBoardSelectionFromHash(); renderBoard(); renderBoardProfile(); inspectProfileIfNeeded(); scheduleLatticeFrame(); }
+    else {
+      document.body.classList.remove('board-profile-open');
+      if (state.lattice.frame) { cancelAnimationFrame(state.lattice.frame); state.lattice.frame = 0; }
+    }
     if (view === 'projects') void renderProjectsRoute();
     else state.projects.detailRequest += 1;
     if (view === 'activity') void loadProjectActivity();
@@ -4188,6 +4533,7 @@
   }
 
   function setupEvents() {
+    setupMechanismLattice();
     $('top-wallet').addEventListener('click', () => void openWalletSetup());
     $('account-wallet-setup').addEventListener('click', () => void openWalletSetup());
     $('execution-wallet-setup').addEventListener('click', () => void openWalletSetup());

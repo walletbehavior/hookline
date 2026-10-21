@@ -36,6 +36,10 @@ Select two to four Projects rows and choose Compare projects. The shareable view
 
 Board is discovery across the indexed ecosystem. Observe is an on-demand contract inspection on a selected chain, including addresses absent from the index. Watchlists save selected contracts, successful observations, refresh history, and same-chain comparisons. Projects groups source-linked deployments under a mechanism or team; it does not replace those address-level views.
 
+## What does the mechanism map prove?
+
+It does not add a new claim. It visualizes the same filtered Board records and opens the same evidence profiles. Runtime links mean exact deployed-bytecode equality. Project links come from the labeled project registry. The Changes lens highlights recent normalized observations. None of those relationships alone proves common ownership, safety, or identical configuration.
+
 ## Do CLAUS allocations prove buybacks or rewards happened?
 
 No. Its source-bound reader separates configured fee allocations, accrued balances, buyback/burn events, liquidity events, and NFT reward events. Percentages state their basis and retain the raw parts-per-million value. For supported buyback/burn events, a successful transaction receipt must contain the exact CLAUS token transfer from the hook to the zero address before Hookline labels that transfer confirmed. Other events remain contract-reported. No event is presented as a lifetime total, return, or proof of economic benefit. ENGRAM owner fees remain accrued unless separate payout evidence supports a payment.
