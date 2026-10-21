@@ -15,7 +15,7 @@
 - Spacing and responsive layout: pass. The map compresses to a single-column workspace, navigation and metric rows remain intentionally scrollable, and the page no longer produces viewport-level horizontal overflow.
 - Color and materials: pass. The blackened-glass surface, copper accents, muted chain colors, and restrained depth avoid the generic neon dashboard treatment.
 - Copy and evidence semantics: pass. Runtime links require exact bytecode equality, project identity remains separately sourced, recent changes use normalized observations, and the map opens the existing evidence profile rather than creating a parallel claim.
-- Interaction and accessibility: pass. Mouse, touch, keyboard selection, zoom, reset, pause, visibility handling, reduced-motion behavior, and accessible status text are present.
+- Interaction and accessibility: pass. Mouse, touch, keyboard selection, zoom, reset, pause, visibility handling, reduced-motion behavior, and accessible status text are present. Lens, filter, and sort changes now retarget stable record nodes in place over 300 ms; newer input starts from the current rendered position, paused ambient motion does not block data-state settlement, and reduced-motion changes settle immediately.
 - Browser console: pass. No errors or warnings were observed in desktop or 390 px mobile checks.
 
 ## QA history
@@ -23,5 +23,7 @@
 1. Mobile metric and navigation rows exposed visible scrollbars and a small viewport overflow. Fixed with clipped page overflow and visually hidden internal scrollbars.
 2. Compact-map labels overlapped. Fixed by showing only the focused and selected labels at compact widths.
 3. Returning to `#/board` could retain an earlier profile selection in SPA state. Fixed by clearing the selection when the route has no record identity.
+4. Data lenses originally rebuilt the map at final coordinates, which hid how the same records changed grouping. Fixed with identity-preserving, interruptible interpolation and exact reduced-motion settlement.
+5. Runtime clustering could stack several desktop labels over the same family. Fixed by reserving runtime labels for the focused and selected records, plus canvas-space collision suppression in the other lenses.
 
 Final result: passed for release.

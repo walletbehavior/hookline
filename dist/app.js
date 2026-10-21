@@ -85,6 +85,7 @@
       paused: false, pointer: null, dirty: true, bound: false, visible: true,
       activityEvents: [], activityGeneratedAt: null, activityLoaded: false,
       reducedMotion: false, resizeObserver: null,
+      transitioning: false, transitionStartedAt: 0, transitionDuration: 300,
     },
     projects: { registry: null, loading: null, error: '', detailRequest: 0, detail: null, activityRequest: 0, events: [], activitySummary: null, activityLoaded: false, activityGeneratedAt: null, receipts: [], contributionBusy: false, compareIds: [], compareRequest: 0, comparison: null, comparisonError: '' },
     tape: { status: null, activity: null, mode: 'swaps', pools: [], swaps: [], cursors: { pools: null, swaps: null }, loaded: { pools: false, swaps: false }, loading: false, error: '' },
@@ -2108,33 +2109,94 @@
     return state.lattice.activityEvents.filter((event) => latticeEventMatches(item, event)).length;
   }
 
+  function latticeEase(progress) {
+    const bounded = Math.max(0, Math.min(1, progress));
+    return 1 - Math.pow(1 - bounded, 3);
+  }
+
+  function advanceLatticeTransition(timestamp = performance.now()) {
+    if (!state.lattice.transitioning) return false;
+    const duration = Math.max(1, state.lattice.transitionDuration);
+    const progress = state.lattice.reducedMotion ? 1 : Math.max(0, Math.min(1, (timestamp - state.lattice.transitionStartedAt) / duration));
+    const eased = latticeEase(progress);
+    state.lattice.nodes.forEach((node) => {
+      node.x = node.fromX + (node.targetX - node.fromX) * eased;
+      node.y = node.fromY + (node.targetY - node.fromY) * eased;
+      node.z = node.fromZ + (node.targetZ - node.fromZ) * eased;
+      node.radius = node.fromRadius + (node.targetRadius - node.fromRadius) * eased;
+    });
+    if (progress < 1) return true;
+    state.lattice.transitioning = false;
+    return false;
+  }
+
+  function latticeNodeTarget(item, index, lens) {
+    const seed = latticeHash(item.id);
+    const familySeed = latticeHash(item.runtime?.fingerprint || item.project?.name || item.id);
+    const familyAngle = ((familySeed % 10000) / 10000) * Math.PI * 2;
+    const itemAngle = index * 2.3999632297 + ((seed % 997) / 997) * 0.35;
+    const familyCluster = lens === 'runtime' && (item.runtime?.deploymentCount || 0) > 1;
+    const orbit = familyCluster ? 0.34 + ((seed >>> 8) % 100) / 650 : 0.68 + (index % 7) * 0.075;
+    const angle = familyCluster ? familyAngle + ((seed >>> 12) % 100) / 180 : itemAngle;
+    const activity = Math.max(0, Number(item.numberOfSwaps) || Number(item.tokenContext?.transactions) || 0);
+    const changes = latticeChangeCount(item);
+    return {
+      item,
+      changes,
+      targetX: Math.cos(angle) * orbit + (familyCluster ? Math.cos(familyAngle) * 0.42 : 0),
+      targetY: Math.sin(angle) * orbit * 0.7 + ((((seed >>> 18) % 100) / 100) - 0.5) * 0.32,
+      targetZ: ((((seed >>> 22) % 100) / 100) - 0.5) * 1.65 + (lens === 'changes' && changes ? -0.38 : 0),
+      targetRadius: 4.2 + Math.min(8.8, Math.log10(1 + activity) * 1.45),
+    };
+  }
+
   function buildLatticeNodes() {
     const lens = state.lattice.lens;
+    const now = performance.now();
+    advanceLatticeTransition(now);
+    const previousNodes = state.lattice.nodes;
+    const previousById = new Map(previousNodes.map((node) => [node.item.id, node]));
+    const anchor = previousNodes.find((node) => node.item.id === state.boardSelectedId)
+      || previousNodes[state.lattice.activeIndex]
+      || null;
     const source = filteredBoardItems().slice();
     source.sort((left, right) => {
       if (lens === 'changes') return latticeChangeCount(right) - latticeChangeCount(left) || boardVelocity(right) - boardVelocity(left);
       if (lens === 'runtime') return (right.runtime?.deploymentCount || 0) - (left.runtime?.deploymentCount || 0) || boardVelocity(right) - boardVelocity(left);
       return boardVelocity(right) - boardVelocity(left);
     });
-    const nodes = source.slice(0, 36).map((item, index) => {
-      const seed = latticeHash(item.id);
-      const familySeed = latticeHash(item.runtime?.fingerprint || item.project?.name || item.id);
-      const familyAngle = ((familySeed % 10000) / 10000) * Math.PI * 2;
-      const itemAngle = index * 2.3999632297 + ((seed % 997) / 997) * 0.35;
-      const familyCluster = lens === 'runtime' && (item.runtime?.deploymentCount || 0) > 1;
-      const radius = familyCluster ? 0.34 + ((seed >>> 8) % 100) / 650 : 0.68 + (index % 7) * 0.075;
-      const angle = familyCluster ? familyAngle + ((seed >>> 12) % 100) / 180 : itemAngle;
-      const activity = Math.max(0, Number(item.numberOfSwaps) || Number(item.tokenContext?.transactions) || 0);
-      const changes = latticeChangeCount(item);
-      return {
-        item, changes,
-        x: Math.cos(angle) * radius + (familyCluster ? Math.cos(familyAngle) * 0.42 : 0),
-        y: Math.sin(angle) * radius * 0.7 + ((((seed >>> 18) % 100) / 100) - 0.5) * 0.32,
-        z: ((((seed >>> 22) % 100) / 100) - 0.5) * 1.65 + (lens === 'changes' && changes ? -0.38 : 0),
-        radius: 4.2 + Math.min(8.8, Math.log10(1 + activity) * 1.45),
-      };
+    const targets = source.slice(0, 36).map((item, index) => latticeNodeTarget(item, index, lens));
+    const changedTarget = previousNodes.length !== targets.length || targets.some((target) => {
+      const previous = previousById.get(target.item.id);
+      return !previous
+        || Math.abs((previous.targetX ?? previous.x) - target.targetX) > 0.0001
+        || Math.abs((previous.targetY ?? previous.y) - target.targetY) > 0.0001
+        || Math.abs((previous.targetZ ?? previous.z) - target.targetZ) > 0.0001
+        || Math.abs((previous.targetRadius ?? previous.radius) - target.targetRadius) > 0.0001;
+    });
+    const shouldTransition = changedTarget && previousNodes.length > 0 && !state.lattice.reducedMotion;
+    const nodes = targets.map((target) => {
+      const previous = previousById.get(target.item.id);
+      const node = previous || { item: target.item };
+      node.item = target.item;
+      node.changes = target.changes;
+      if (shouldTransition) {
+        const startX = previous?.x ?? anchor?.x ?? target.targetX * 0.16;
+        const startY = previous?.y ?? anchor?.y ?? target.targetY * 0.16;
+        const startZ = previous?.z ?? anchor?.z ?? target.targetZ * 0.16;
+        const startRadius = previous?.radius ?? Math.max(2.6, target.targetRadius * 0.42);
+        Object.assign(node, { x: startX, y: startY, z: startZ, radius: startRadius, fromX: startX, fromY: startY, fromZ: startZ, fromRadius: startRadius });
+      } else if (changedTarget || !previous) {
+        Object.assign(node, { x: target.targetX, y: target.targetY, z: target.targetZ, radius: target.targetRadius, fromX: target.targetX, fromY: target.targetY, fromZ: target.targetZ, fromRadius: target.targetRadius });
+      }
+      Object.assign(node, target);
+      return node;
     });
     state.lattice.nodes = nodes;
+    if (changedTarget) {
+      state.lattice.transitioning = shouldTransition;
+      state.lattice.transitionStartedAt = now;
+    }
     const selectedIndex = nodes.findIndex((node) => node.item.id === state.boardSelectedId);
     if (selectedIndex >= 0) state.lattice.activeIndex = selectedIndex;
     else state.lattice.activeIndex = Math.max(0, Math.min(state.lattice.activeIndex, nodes.length - 1));
@@ -2216,6 +2278,7 @@
       }
     }
 
+    const labelRects = [];
     projected.sort((left, right) => right.z - left.z).forEach((point) => {
       const index = state.lattice.nodes.indexOf(point.node);
       const selected = point.node.item.id === state.boardSelectedId;
@@ -2231,12 +2294,18 @@
       context.strokeStyle = selected || active ? '#f1e9dc' : 'rgba(241, 233, 220, .28)';
       context.lineWidth = selected ? 2.4 : active ? 1.6 : 1; context.stroke();
       const compact = width < 600;
-      if (selected || active || (!compact && (index < 7 || point.node.changes))) {
+      if (selected || active || (!compact && state.lattice.lens !== 'runtime' && (index < 7 || point.node.changes))) {
         const label = boardItemName(point.node.item);
+        const visibleLabel = label.length > 22 ? `${label.slice(0, 21)}…` : label;
         context.font = `${selected || active ? 600 : 500} 11px ui-monospace, SFMono-Regular, Menlo, monospace`;
+        const labelWidth = context.measureText(visibleLabel).width;
+        const bounds = { left: point.x - labelWidth * 0.5 - 4, right: point.x + labelWidth * 0.5 + 4, top: point.y - radius - 22, bottom: point.y - radius - 5 };
+        const overlaps = labelRects.some((rect) => !(bounds.right < rect.left || bounds.left > rect.right || bounds.bottom < rect.top || bounds.top > rect.bottom));
+        if (overlaps && !selected && !active) return;
+        labelRects.push(bounds);
         context.fillStyle = selected || active ? '#f1e9dc' : 'rgba(218, 205, 189, .72)';
         context.textAlign = 'center';
-        context.fillText(label.length > 22 ? `${label.slice(0, 21)}…` : label, point.x, point.y - radius - 8);
+        context.fillText(visibleLabel, point.x, point.y - radius - 8);
       }
     });
     state.lattice.lastFrameAt = timestamp || performance.now();
@@ -2269,10 +2338,12 @@
 
   function latticeFrame(timestamp) {
     state.lattice.frame = 0;
-    const animate = viewFromHash() === 'board' && state.lattice.visible && !document.hidden && !state.lattice.paused && !state.lattice.reducedMotion;
+    const canRender = viewFromHash() === 'board' && state.lattice.visible && !document.hidden;
+    const transitioning = canRender && advanceLatticeTransition(timestamp);
+    const animate = canRender && !state.lattice.paused && !state.lattice.reducedMotion;
     if (animate && timestamp - state.lattice.lastFrameAt > 15) state.lattice.rotationY += 0.00028 * Math.min(40, timestamp - state.lattice.lastFrameAt || 16);
     renderLatticeCanvas(timestamp);
-    if (animate) state.lattice.frame = requestAnimationFrame(latticeFrame);
+    if (animate || transitioning) state.lattice.frame = requestAnimationFrame(latticeFrame);
   }
 
   function scheduleLatticeFrame() {
@@ -2341,7 +2412,11 @@
     state.lattice.bound = true;
     const media = window.matchMedia('(prefers-reduced-motion: reduce)');
     state.lattice.reducedMotion = media.matches;
-    const updateMotionPreference = (event) => { state.lattice.reducedMotion = event.matches; scheduleLatticeFrame(); };
+    const updateMotionPreference = (event) => {
+      state.lattice.reducedMotion = event.matches;
+      if (event.matches) advanceLatticeTransition(state.lattice.transitionStartedAt + state.lattice.transitionDuration);
+      scheduleLatticeFrame();
+    };
     if (typeof media.addEventListener === 'function') media.addEventListener('change', updateMotionPreference);
     else if (typeof media.addListener === 'function') media.addListener(updateMotionPreference);
     canvas.addEventListener('pointerdown', (event) => {

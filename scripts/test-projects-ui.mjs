@@ -27,11 +27,11 @@ const nodes = new Map([...html.matchAll(/<([a-z]+)[^>]*\bid="([^"]+)"/g)].map(([
 const storage = new Map();
 const document = { readyState: 'loading', body: new Element('body'), createElement: (tag) => new Element(tag), getElementById: (id) => nodes.get(id), addEventListener: () => {}, querySelectorAll: () => [] };
 let fetcher = async () => { throw new Error('Unexpected network request'); };
-const context = vm.createContext({ document, window: {}, location: { hash: '#/projects', origin: 'https://hookline.world' }, URL, URLSearchParams, AbortSignal, Date, setTimeout, clearTimeout, console,
+const context = vm.createContext({ document, window: {}, location: { hash: '#/projects', origin: 'https://hookline.world' }, URL, URLSearchParams, AbortSignal, Date, performance, setTimeout, clearTimeout, console,
   sessionStorage: { getItem: (key) => storage.get(key) || null, setItem: (key, value) => storage.set(key, value) },
   fetch: (...args) => fetcher(...args),
 });
-const exports = ['state', 'projectExternalLink', 'projectValue', 'projectCount', 'projectTime', 'renderProjectsBoard', 'syncProjectFilters', 'renderProjectDetail', 'renderProjectObservations', 'renderProjectEvent', 'renderHookProjectLinks', 'renderProjectsRoute', 'renderProjectReceipts', 'loadProjectReceipts', 'saveProjectReceipts', 'updateProjectReceipt', 'projectApi', 'validProjectCompareIds', 'setProjectCompareIds', 'toggleProjectCompare', 'renderProjectCompareTray', 'renderProjectComparison', 'loadProjectComparison', 'renderProjectActivitySummary'];
+const exports = ['state', 'projectExternalLink', 'projectValue', 'projectCount', 'projectTime', 'renderProjectsBoard', 'syncProjectFilters', 'renderProjectDetail', 'renderProjectObservations', 'renderProjectEvent', 'renderHookProjectLinks', 'renderProjectsRoute', 'renderProjectReceipts', 'loadProjectReceipts', 'saveProjectReceipts', 'updateProjectReceipt', 'projectApi', 'validProjectCompareIds', 'setProjectCompareIds', 'toggleProjectCompare', 'renderProjectCompareTray', 'renderProjectComparison', 'loadProjectComparison', 'renderProjectActivitySummary', 'latticeEase', 'advanceLatticeTransition', 'buildLatticeNodes'];
 vm.runInContext(source.replace('  window.Hookline = {', `  window.__ProjectsTest = {${exports.join(',')}};\n  window.Hookline = {`), context);
 const ui = context.window.__ProjectsTest;
 const address = '0x' + '1'.repeat(40);
@@ -44,6 +44,34 @@ for (const id of ['projects-category', 'projects-chain', 'projects-evidence', 'p
 nodes.get('project-activity-focus').value='important';nodes.get('project-activity-history').value='all';
 nodes.get('projects-sort').value = 'name';
 ui.syncProjectFilters();
+
+// Mechanism-map data changes preserve node identity, retarget in place, and settle exactly.
+nodes.get('board-search').value = '';
+nodes.get('board-chain').value = 'all';
+nodes.get('board-profile').value = 'all';
+nodes.get('board-sort').value = 'velocity';
+const mapItems = [
+  { id: `1_${address}`, kind: 'hook', chainId: 1, chainName: 'Ethereum', address, numberOfPools: 2, numberOfSwaps: 180, runtime: { fingerprint: '0xaaa', deploymentCount: 2 } },
+  { id: `8453_${other}`, kind: 'hook', chainId: 8453, chainName: 'Base', address: other, numberOfPools: 1, numberOfSwaps: 90, runtime: { fingerprint: '0xaaa', deploymentCount: 2 } },
+];
+ui.state.board = { items: mapItems };
+ui.state.boardMode = 'hook';
+ui.state.lattice.reducedMotion = false;
+ui.state.lattice.lens = 'velocity';
+ui.buildLatticeNodes();
+const firstMapNode = ui.state.lattice.nodes[0];
+assert.equal(ui.state.lattice.transitioning, false, 'The first map layout settles immediately.');
+ui.state.lattice.lens = 'runtime';
+ui.buildLatticeNodes();
+assert.equal(ui.state.lattice.nodes.find((node) => node.item.id === firstMapNode.item.id), firstMapNode, 'Retargeting preserves the node object for a stable record id.');
+assert.equal(ui.state.lattice.transitioning, true, 'A changed lens starts one bounded transition.');
+assert.equal(ui.state.lattice.transitionDuration, 300);
+const transitionEnd = ui.state.lattice.transitionStartedAt + ui.state.lattice.transitionDuration;
+assert.equal(ui.advanceLatticeTransition(transitionEnd), false);
+assert.equal(firstMapNode.x, firstMapNode.targetX, 'Transition settles on the exact target x coordinate.');
+assert.equal(firstMapNode.y, firstMapNode.targetY, 'Transition settles on the exact target y coordinate.');
+assert.equal(ui.latticeEase(-1), 0);
+assert.equal(ui.latticeEase(2), 1);
 
 assert.equal(ui.projectExternalLink('javascript:alert(1)', 'Unsafe'), null);
 assert.equal(ui.projectExternalLink('http://alpha.example', 'Insecure'), null);
